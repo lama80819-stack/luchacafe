@@ -15,7 +15,10 @@ const U = TW / 2;                                          // píxeles por loset
 const EAT_TIME = 4, START_MONEY = 250, FREEZE_TIME = 12;  // segundos / pesos (con $250 alcanza para comal, mesa y refri y todavía para el primer pastor)
 // Experiencia y cansancio del Novato: la estamina baja al caminar (por segundo) y al cocinar o repartir (por acción)
 const STAM = { base: 100, perLevel: 6, walk: 1.3, cook: 3, pickup: 1.5, serve: 3, back: 1, regen: 11, fury: 4 };
-const xpNeed = lvl => 40 + 20 * (lvl - 1);                 // XP para pasar del nivel lvl al siguiente
+// XP para pasar del nivel lvl al siguiente: cuesta un poco más que antes (≈ 1.3 veces hasta el nivel 10 y ≈ 1.7 veces hasta el 40)
+const xpNeed = lvl => Math.round(45 + 24 * (lvl - 1) + .5 * (lvl - 1) * (lvl - 1));
+const YEAR = (() => { try { return new Date().getFullYear(); } catch (e) { return 2026; } })();
+const COPY = `© ${YEAR} ACP PRODUCCION. Todos los derechos reservados.`;
 // Tienda: precios en pesos y requisitos
 // El primer comal, la primera mesa y el refri cuestan poco (es el tutorial); lo demás sube con cada pieza que ya tienes
 const SHOP = { maxTables: 4, maxComals: 2, maxFridges: 1 };
@@ -113,14 +116,22 @@ const VIPS = {
              need: w => w.deco.arena && !!LAYOUT.fridge && LAYOUT.comals.length > 0, intro: 'pide un combo pesado y paga cinco veces' }
 };
 // Visitantes que regalan gemas: cada día hay un 30 % de que llegue uno (desde el nivel 3). Si lo atiendes contento, te deja gemas
-const GEM_CHANCE = .3, GEM_LEVEL = 3;
+// La suerte depende de las máscaras que se ven: con 1 máscara hay ~21 % de que hoy llegue alguien con gemas; con 5, ~73 %. Con 3 o más puede llegar un segundo visitante,
+// y los famosos (La Reina del Ring, El Cronista) solo vienen si tu fama es alta. Los VIPs también llegan más seguido.
+const GEM_LEVEL = 3;
+const gemChance = w => clamp(.08 + .13 * effRep(w), .08, .75);
+const vipLuck = w => .5 + .22 * effRep(w);                                  // multiplica la probabilidad base de cada VIP
 const GEMMERS = {
   coleccionista: { key: 'coleccionista', name: 'DOÑA COLECCIONISTA',  gems: [2, 3], patience: 58, speed: 1.4,
                    look: { hoodie: '#7c3aed', mask: 'oro', shoes: 'amarillo', skin: '#e0ac69', label: ['DOÑA', 'COLECCIONA'] } },
   campeon:       { key: 'campeon',       name: 'EL CAMPEÓN RETIRADO', gems: [2, 4], patience: 58, speed: 1.3,
                    look: { hoodie: '#b3862a', mask: 'rayo', shoes: 'blanco', skin: '#c68642', label: ['EL', 'CAMPEÓN'] } },
   joyero:        { key: 'joyero',        name: 'EL JOYERO ENMASCARADO', gems: [1, 3], patience: 58, speed: 1.5,
-                   look: { hoodie: '#14a38b', mask: 'turquesa', shoes: 'azul', skin: '#f1c27d', label: ['EL', 'JOYERO'] } }
+                   look: { hoodie: '#14a38b', mask: 'turquesa', shoes: 'azul', skin: '#f1c27d', label: ['EL', 'JOYERO'] } },
+  cronista:      { key: 'cronista',      name: 'EL CRONISTA DEPORTIVO', gems: [0, 1], patience: 62, speed: 1.5, minRep: 2, rep: .5, xp: 150, fame: true, note: 'escribe una reseña: +½ máscara',
+                   look: { hoodie: '#2b3a67', mask: 'noche', shoes: 'blanco', skin: '#e0ac69', label: ['PRENSA', 'LUCHA'] } },
+  reina:         { key: 'reina',         name: 'LA REINA DEL RING',     gems: [3, 5], patience: 66, speed: 1.4, minRep: 3, xp: 220, fame: true, note: 'una leyenda: deja muchas gemas',
+                   look: { hoodie: '#c4272f', mask: 'rosa', shoes: 'amarillo', skin: '#c68642', label: ['LA', 'REINA'] } }
 };
 const VIP_MIN_MASKS = 2;
 function applyRemodel(on) {                                   // ensancha (o devuelve a su tamaño original) el local en el lienzo
@@ -140,15 +151,36 @@ const RECIPES = {
   cecina:    { key: 'cecina',    name: 'Tacos de Cecina Suprema', short: 'Cecina',   cost: 150, time: 18, yield: 5, price: 50, unit: 'porciones', level: 35 },
   michelada: { key: 'michelada', name: 'Michelada Escarchada',   short: 'Michelada', cost: 25, time: 4,  yield: 3, price: 18, unit: 'tarros', drink: true }
 };
-const MENU = ['pastor', 'suadero', 'gordita', 'tripa', 'quesadilla', 'sope', 'tlacoyo', 'cecina', 'michelada'];
+// Antojitos (van a la "barra de antojitos"), aguas de sabores y cervezas (van al mostrador de bebidas). Margen ≈ 2x por tanda, como lo anterior
+Object.assign(RECIPES, {
+  elote:       { key: 'elote',       name: 'Elotes Locos',            short: 'Elote',       cost: 28,  time: 8,  yield: 5, price: 12, unit: 'porciones', level: 5,  shelf: 'bar2' },
+  tostada:     { key: 'tostada',     name: 'Tostadas de Tinga',       short: 'Tostada',     cost: 55,  time: 12, yield: 5, price: 23, unit: 'porciones', level: 12, shelf: 'bar2' },
+  pambazo:     { key: 'pambazo',     name: 'Pambazos Rojos',          short: 'Pambazo',     cost: 85,  time: 14, yield: 5, price: 36, unit: 'porciones', level: 18, shelf: 'bar2' },
+  chilaquiles: { key: 'chilaquiles', name: 'Chilaquiles Verdes',      short: 'Chilaquiles', cost: 120, time: 16, yield: 6, price: 38, unit: 'porciones', level: 24, shelf: 'bar2' },
+  cochinita:   { key: 'cochinita',   name: 'Tacos de Cochinita',      short: 'Cochinita',   cost: 140, time: 17, yield: 6, price: 40, unit: 'porciones', level: 30, shelf: 'bar2' },
+  pozole:      { key: 'pozole',      name: 'Pozole Rojo',             short: 'Pozole',      cost: 170, time: 20, yield: 5, price: 60, unit: 'porciones', level: 38, shelf: 'bar2' },
+  horchata:    { key: 'horchata',    name: 'Agua de Horchata',        short: 'Horchata',    cost: 20,  time: 5,  yield: 4, price: 11, unit: 'vasos',   drink: true, level: 3 },
+  jamaica:     { key: 'jamaica',     name: 'Agua de Jamaica',         short: 'Jamaica',     cost: 22,  time: 5,  yield: 4, price: 12, unit: 'vasos',   drink: true, level: 6 },
+  cerveza:     { key: 'cerveza',     name: 'Cerveza Clara Bien Fría', short: 'Cerveza',     cost: 44,  time: 6,  yield: 4, price: 24, unit: 'botellas', drink: true, level: 8, keep: true },
+  limonada:    { key: 'limonada',    name: 'Limonada con Chía',       short: 'Limonada',    cost: 24,  time: 5,  yield: 4, price: 13, unit: 'vasos',   drink: true, level: 10 },
+  oscura:      { key: 'oscura',      name: 'Cerveza Oscura de Barril', short: 'Oscura',     cost: 60,  time: 7,  yield: 4, price: 32, unit: 'tarros',  drink: true, level: 16, keep: true }
+});
+// Orden del menú: por nivel. Las bebidas van a su mostrador; la comida original a la barra y los antojitos a la barra de antojitos
+const MENU = ['pastor', 'suadero', 'gordita', 'tripa', 'elote', 'tostada', 'quesadilla', 'pambazo', 'sope', 'chilaquiles', 'tlacoyo', 'cochinita', 'cecina', 'pozole',
+  'michelada', 'horchata', 'jamaica', 'cerveza', 'limonada', 'oscura'];
 Object.values(RECIPES).forEach(r => { r.level = r.level || 1; });          // nivel necesario para desbloquear el platillo
 const FOODS = MENU.filter(k => !RECIPES[k].drink);
-// Cada platillo se prepara en su estación: la comida en el comal y las micheladas en el refrigerador
-Object.values(RECIPES).forEach(r => { r.station = r.drink ? 'fridge' : 'comal'; });
+const DRINKS = MENU.filter(k => RECIPES[k].drink);
+// Cada platillo se prepara en su estación: la comida en el comal y las bebidas en el refrigerador
+Object.values(RECIPES).forEach(r => { r.station = r.drink ? 'fridge' : 'comal'; r.shelf = r.shelf || (r.drink ? 'drinks' : 'bar'); });
+const SHELF_KEYS = { bar: [], bar2: [], drinks: [] };                       // qué platillos se exhiben en cada mostrador (en el orden de sus lugares)
+MENU.forEach(k => SHELF_KEYS[RECIPES[k].shelf].push(k));
 const STATIONS = {
-  comal:  { title: 'COMAL',        items: FOODS,        cap: 1 },
-  fridge: { title: 'REFRIGERADOR', items: ['michelada'], cap: 2 }
+  comal:  { title: 'COMAL',        items: FOODS,  cap: 1 },
+  fridge: { title: 'REFRIGERADOR', items: DRINKS, cap: 2 }
 };
+// Comida y bebida que sobra al cerrar se echa a perder (desde el nivel 5) salvo la que cabe en el refri de sobrantes
+const SPOIL_LEVEL = 5, STORAGE_CAP = 16;
 const FONT_DISPLAY = "'Alfa Slab One', 'Rockwell Extra Bold', Impact, serif";
 const FONT_UI = "'Barlow Condensed', 'Arial Narrow', Impact, sans-serif";
 
@@ -171,10 +203,27 @@ const easeOutBack = t => { const c1 = 1.7, c3 = c1 + 1; return 1 + c3 * Math.pow
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 let K = 1;
+// El diseño es de 960 x 600, pero el lienzo se ensancha para llenar pantallas más alargadas (iPhone): EX = px extra de cada lado.
+// Todo se dibuja con la zona central de 960 de ancho (translate EX) y los fondos se extienden hasta los bordes.
+let CW = W, EX = 0;
+const MOB_Q = '(pointer: coarse), (max-height: 700px) and (orientation: landscape)';
+const stageEl = canvas.parentElement;
 function fit() {
+  let mob = false; try { mob = !!(window.matchMedia && window.matchMedia(MOB_Q).matches); } catch (e) {}
+  if (mob && stageEl && window.getComputedStyle) {
+    const cs = window.getComputedStyle(stageEl), pad = s => parseFloat(cs[s]) || 0;
+    const aw = Math.max(50, stageEl.clientWidth - pad('paddingLeft') - pad('paddingRight')), ah = Math.max(50, stageEl.clientHeight - pad('paddingTop') - pad('paddingBottom'));
+    const ratio = aw / ah;
+    let cssW, cssH;
+    if (ratio >= W / H) { CW = clamp(Math.round(H * ratio), W, 1480); cssH = ah; cssW = Math.min(aw, ah * CW / H); }       // pantalla alargada: se ve más del local a los lados
+    else { CW = W; cssW = aw; cssH = aw * H / W; }                                                                          // pantalla cuadrada o vertical: franjas arriba y abajo
+    canvas.style.setProperty('--cw', cssW.toFixed(1) + 'px'); canvas.style.setProperty('--ch', cssH.toFixed(1) + 'px');
+    UI.small = cssH < 470; Cam.def = UI.small ? 1.14 : 1;                                                                  // pantallas chicas (iPhone SE): el local se ve un poco más grande y los botones tienen más margen al tocar
+  } else { CW = W; canvas.style.removeProperty('--cw'); canvas.style.removeProperty('--ch'); UI.small = false; Cam.def = 1; }
+  EX = (CW - W) / 2;
   const r = canvas.getBoundingClientRect();
-  const k = clamp(Math.ceil(r.width * (window.devicePixelRatio || 1) / W), 1, 2);
-  if (canvas.width !== W * k) { canvas.width = W * k; canvas.height = H * k; }
+  const k = clamp(Math.ceil(r.width * (window.devicePixelRatio || 1) / CW), 1, 2);
+  if (canvas.width !== CW * k || canvas.height !== H * k) { canvas.width = CW * k; canvas.height = H * k; }
   K = k;
 }
 window.addEventListener('resize', fit);
@@ -299,6 +348,10 @@ function drawTaco(c, x, y, r, kind = 'pastor') {
     blob(-3.2, -5, 3.1, '#7a4a2c'); blob(1.6, -5.6, 3.3, '#9a6238'); blob(4.6, -3.8, 2.1, '#6a3d22');
     blob(-.4, -7.2, 1.7, '#59b04a'); blob(3, -7, 1.3, '#59b04a');                                                // salsa verde
     c.fillStyle = '#fff8ea'; c.fillRect(-4.6, -7.4, 1.8, 1.4);                                                   // cebolla
+  } else if (kind === 'cochinita') {                                                                             // cochinita pibil: carne roja de achiote, cebolla morada encurtida y habanero
+    blob(-3.4, -5.2, 2.8, '#d9621f'); blob(.8, -6, 3, '#e8782a'); blob(4, -4.6, 2.4, '#c4501a');
+    c.fillStyle = '#c04aa6'; c.fillRect(-4.8, -8.2, 2.4, 1.4); c.fillRect(1.4, -8.4, 2.6, 1.4); c.fillRect(4.2, -7.6, 2, 1.3);
+    blob(-1, -8, 1.4, '#ff8a1e');
   } else if (kind === 'cecina') {                                                                                // cecina suprema: tiras rojas curadas, aguacate, cebolla morada y una estrella dorada
     c.lineCap = 'round';
     for (const [ox, oy, rot] of [[-3.6, -6.2, -.45], [.2, -7.6, .1], [3.8, -6, .55]]) {
@@ -384,6 +437,76 @@ function drawDish(c, key, x, y, r) {
     c.fillStyle = '#e0364a'; for (const dx of [-3.6, -.8, 2.2, 4]) c.fillRect(dx, -7.6, 1.1, 1.1);
     c.fillStyle = '#6fcf4a'; c.beginPath(); c.arc(4.6, -7.4, 2.6, Math.PI, 0); c.closePath(); c.fill(); c.stroke();   // limón
     c.restore();
+  } else if (key === 'elote') {                                             // elote en vaso... en palito: mazorca con mayonesa, queso y chile
+    c.save(); c.translate(x, y); c.scale(r / 6.5, r / 6.5); c.lineJoin = 'round'; c.lineCap = 'round'; c.lineWidth = 1.5; c.strokeStyle = P.ink;
+    c.strokeStyle = '#a8793a'; c.lineWidth = 2.4; c.beginPath(); c.moveTo(-8, 6); c.lineTo(-2.6, 1.6); c.stroke();                // palito
+    c.save(); c.rotate(-.5); c.strokeStyle = P.ink; c.lineWidth = 1.5; c.fillStyle = '#ffd23a'; c.beginPath(); c.ellipse(1.2, -.4, 8.2, 4.2, 0, 0, 6.3); c.fill(); c.stroke();
+    c.strokeStyle = 'rgba(190,130,20,.75)'; c.lineWidth = .8;
+    for (let k = -6; k <= 6; k += 2.4) { c.beginPath(); c.moveTo(1.2 + k, -3.9 * Math.sqrt(Math.max(0, 1 - k * k / 67))); c.lineTo(1.2 + k, 3.9 * Math.sqrt(Math.max(0, 1 - k * k / 67))); c.stroke(); }
+    c.strokeStyle = '#fff8ea'; c.lineWidth = 1.6; c.beginPath(); c.moveTo(-4.4, -1.4); c.quadraticCurveTo(-1, -3, 2, -1); c.quadraticCurveTo(5, 1, 7, -.6); c.stroke();     // mayonesa
+    c.fillStyle = '#e0364a'; for (const [qx, qy] of [[-3, 1.2], [.2, -2], [3.4, 1.6], [5.6, -1.8]]) c.fillRect(qx, qy, 1.3, 1.3);                                         // chile
+    c.fillStyle = '#fff3d0'; for (const [qx, qy] of [[-1.6, 2.2], [2, -.6], [4.8, 1]]) c.fillRect(qx, qy, 1.5, 1.2);                                                         // queso
+    c.restore(); c.restore();
+  } else if (key === 'tostada') {                                           // tostada de tinga: tortilla dorada con pollo rojo, lechuga, crema y aguacate
+    c.save(); c.translate(x, y); c.scale(r / 6.5, r / 6.5); c.lineJoin = 'round'; c.lineCap = 'round'; c.lineWidth = 1.5; c.strokeStyle = P.ink;
+    c.fillStyle = '#c99a4a'; c.beginPath(); c.ellipse(0, 2.2, 8, 4.8, 0, 0, 6.3); c.fill(); c.stroke();
+    c.fillStyle = '#e8c070'; c.beginPath(); c.ellipse(0, .6, 8, 4.8, 0, 0, 6.3); c.fill(); c.stroke();
+    c.fillStyle = '#3fb04f'; c.beginPath(); c.ellipse(-2.4, -.6, 3.6, 1.7, .3, 0, 6.3); c.ellipse(2.6, 0, 3.2, 1.5, -.3, 0, 6.3); c.fill();
+    c.fillStyle = '#b3321c'; for (const [bx, by, br] of [[-2.8, -1.2, 2.2], [.8, -2.2, 2.4], [3.2, -.8, 2]]) { c.beginPath(); c.arc(bx, by, br, 0, 6.3); c.fill(); }
+    c.strokeStyle = '#fff8ea'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(-4.4, 1); c.lineTo(-2.2, -.6); c.lineTo(0, 1.2); c.lineTo(2.2, -.6); c.lineTo(4.4, 1); c.stroke();
+    c.fillStyle = '#7bbf3f'; c.beginPath(); c.arc(-.4, -3.6, 1.7, 0, 6.3); c.fill(); c.strokeStyle = P.ink; c.lineWidth = 1; c.stroke();
+    c.restore();
+  } else if (key === 'pambazo') {                                           // pan bañado en salsa roja relleno de papa con chorizo y lechuga
+    c.save(); c.translate(x, y); c.scale(r / 6.5, r / 6.5); c.lineJoin = 'round'; c.lineCap = 'round'; c.lineWidth = 1.5; c.strokeStyle = P.ink;
+    c.fillStyle = '#b23318'; c.beginPath(); c.ellipse(0, 3, 8.2, 3.6, 0, 0, 6.3); c.fill(); c.stroke();                                  // pan de abajo
+    c.fillStyle = '#e8b04a'; c.beginPath(); c.ellipse(0, .8, 7.4, 2.7, 0, 0, 6.3); c.fill();                                              // papa
+    c.fillStyle = '#c4381d'; for (const qx of [-4, -1, 2.4, 5]) c.fillRect(qx, -.2, 1.5, 1.3);                                           // chorizo
+    c.fillStyle = '#3fb04f'; c.beginPath(); c.ellipse(-2, -.6, 3.4, 1.3, .2, 0, 6.3); c.ellipse(3, -.4, 3, 1.2, -.2, 0, 6.3); c.fill();
+    c.fillStyle = '#d14122'; c.beginPath(); c.moveTo(-8.2, -.4); c.quadraticCurveTo(-7, -7.6, 0, -7.8); c.quadraticCurveTo(7, -7.6, 8.2, -.4); c.quadraticCurveTo(0, -2.6, -8.2, -.4); c.closePath(); c.fill(); c.stroke();   // tapa
+    c.fillStyle = 'rgba(255,255,255,.4)'; c.beginPath(); c.ellipse(-2.6, -4.8, 2.6, 1.2, -.3, 0, 6.3); c.fill();
+    c.fillStyle = '#fff3d0'; for (const [qx, qy] of [[2, -5.2], [4.2, -3.6], [-.4, -2.6]]) c.fillRect(qx, qy, 1.2, 1);
+    c.restore();
+  } else if (key === 'chilaquiles') {                                       // totopos en salsa verde con crema, queso y huevo estrellado
+    c.save(); c.translate(x, y); c.scale(r / 6.5, r / 6.5); c.lineJoin = 'round'; c.lineCap = 'round'; c.lineWidth = 1.5; c.strokeStyle = P.ink;
+    c.fillStyle = '#fffaf0'; c.beginPath(); c.ellipse(0, 1.6, 8.6, 5.2, 0, 0, 6.3); c.fill(); c.stroke();
+    c.fillStyle = '#6fae3a'; c.beginPath(); c.ellipse(0, .8, 7.2, 4, 0, 0, 6.3); c.fill();
+    c.fillStyle = '#e0d070'; for (const [tx, ty, rot] of [[-4.2, .2, .3], [-1.4, 1.8, -.4], [2, .8, .9], [4.4, 2, -.2], [-3.4, 2.6, 1], [.6, -1.6, .1]]) { c.save(); c.translate(tx, ty); c.rotate(rot); c.beginPath(); c.moveTo(-2, 1.4); c.lineTo(2, 1.4); c.lineTo(0, -1.8); c.closePath(); c.fill(); c.stroke(); c.restore(); }
+    c.fillStyle = '#fff8ea'; c.beginPath(); c.ellipse(-.6, -.8, 3.4, 2.2, .2, 0, 6.3); c.fill(); c.stroke();                                   // huevo
+    c.fillStyle = '#ffc01e'; c.beginPath(); c.arc(-.6, -.9, 1.2, 0, 6.3); c.fill();
+    c.strokeStyle = '#fff8ea'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(2.4, -2); c.quadraticCurveTo(4.6, -.4, 6, -2); c.stroke();
+    c.restore();
+  } else if (key === 'pozole') {                                            // cazuelita de barro con caldo rojo, maíz, rábano y limón
+    c.save(); c.translate(x, y); c.scale(r / 6.5, r / 6.5); c.lineJoin = 'round'; c.lineCap = 'round'; c.lineWidth = 1.5; c.strokeStyle = P.ink;
+    c.fillStyle = '#a8542c'; c.beginPath(); c.moveTo(-8, -1); c.lineTo(8, -1); c.quadraticCurveTo(7, 7.6, 0, 7.8); c.quadraticCurveTo(-7, 7.6, -8, -1); c.closePath(); c.fill(); c.stroke();
+    c.fillStyle = '#c8683a'; c.beginPath(); c.ellipse(0, -1, 8.2, 2.7, 0, 0, 6.3); c.fill(); c.stroke();
+    c.fillStyle = '#b0241a'; c.beginPath(); c.ellipse(0, -1, 6.6, 1.9, 0, 0, 6.3); c.fill();
+    c.fillStyle = '#fff3d0'; for (const [qx, qy] of [[-3.6, -1.2], [-1, -.4], [1.8, -1.6], [4, -.8], [.4, -2.1]]) { c.beginPath(); c.arc(qx, qy, .95, 0, 6.3); c.fill(); }
+    c.fillStyle = '#3fb04f'; c.beginPath(); c.ellipse(-4.4, -2.8, 2.1, 1, .5, 0, 6.3); c.ellipse(3.6, -2.9, 2, 1, -.5, 0, 6.3); c.fill();
+    c.fillStyle = '#e0364a'; c.beginPath(); c.arc(-.6, -3, 1.5, 0, 6.3); c.fill(); c.stroke();
+    c.fillStyle = '#6fcf4a'; c.beginPath(); c.arc(5.4, -2.4, 2, Math.PI, 0); c.closePath(); c.fill(); c.stroke();
+    c.restore();
+  } else if (key === 'horchata' || key === 'jamaica' || key === 'limonada') {   // vaso de agua fresca: cada sabor su color y su adorno
+    const col = key === 'horchata' ? ['#f8f1e0', '#e4d6b8'] : key === 'jamaica' ? ['#b0165c', '#7a0d3d'] : ['#d6ee74', '#a9cc3c'];
+    c.save(); c.translate(x, y); c.scale(r / 7.6, r / 7.6); c.lineJoin = 'round'; c.lineWidth = 1.5; c.strokeStyle = P.ink;
+    c.beginPath(); c.moveTo(-5.4, -7); c.lineTo(5.4, -7); c.lineTo(4.2, 7); c.lineTo(-4.2, 7); c.closePath(); c.fillStyle = 'rgba(214,235,248,.95)'; c.fill(); c.stroke();
+    c.fillStyle = col[0]; c.beginPath(); c.moveTo(-5, -4.6); c.lineTo(5, -4.6); c.lineTo(4.2, 6.4); c.lineTo(-4.2, 6.4); c.closePath(); c.fill();
+    c.fillStyle = 'rgba(255,255,255,.35)'; c.fillRect(-4, -3.8, 1.8, 8);
+    c.fillStyle = 'rgba(255,255,255,.75)'; for (const [qx, qy] of [[-1.6, -1], [1.8, 1.8], [0, 4]]) c.fillRect(qx, qy, 2.4, 2.4);                    // hielos
+    if (key === 'horchata') { c.strokeStyle = '#8a5a2c'; c.lineWidth = 2; c.beginPath(); c.moveTo(1, -2); c.lineTo(5.8, -9.6); c.stroke(); c.strokeStyle = '#c4915a'; c.lineWidth = .9; c.beginPath(); c.moveTo(1.4, -2.4); c.lineTo(6, -9.6); c.stroke(); }
+    else if (key === 'jamaica') { c.fillStyle = '#d6203f'; for (let k = 0; k < 5; k++) { const a = k * 1.2566; c.beginPath(); c.ellipse(5.2 + Math.cos(a) * 2, -6.6 + Math.sin(a) * 2, 1.6, 1.1, a, 0, 6.3); c.fill(); } c.fillStyle = '#ffc83d'; c.beginPath(); c.arc(5.2, -6.6, .9, 0, 6.3); c.fill(); }
+    else { c.fillStyle = '#1b1030'; for (const [qx, qy] of [[-2.6, -2], [-.4, 1], [2.4, -.4], [.8, 3.6], [-2.8, 3.4]]) c.fillRect(qx, qy, .9, .9);                       // chía
+      c.fillStyle = '#6fcf4a'; c.beginPath(); c.arc(4.8, -7, 3, 0, 6.3); c.fill(); c.stroke(); c.strokeStyle = '#d6ee74'; c.lineWidth = .8; c.beginPath(); c.moveTo(4.8, -10); c.lineTo(4.8, -4); c.moveTo(1.8, -7); c.lineTo(7.8, -7); c.stroke(); }
+    c.restore();
+  } else if (key === 'cerveza' || key === 'oscura') {                       // tarro de cerveza: clara y dorada, u oscura con espuma café
+    const dark = key === 'oscura';
+    c.save(); c.translate(x, y); c.scale(r / 7.6, r / 7.6); c.lineJoin = 'round'; c.lineWidth = 1.5; c.strokeStyle = P.ink;
+    c.strokeStyle = '#d6e8f2'; c.lineWidth = 2.2; c.beginPath(); c.arc(6.2, 0, 3.6, -1.3, 1.3); c.stroke();                                  // asa
+    c.strokeStyle = P.ink; c.lineWidth = 1.5;
+    c.fillStyle = 'rgba(214,235,248,.95)'; c.beginPath(); c.moveTo(-5.6, -6); c.lineTo(5.2, -6); c.lineTo(4.6, 7); c.lineTo(-4.6, 7); c.closePath(); c.fill(); c.stroke();
+    c.fillStyle = dark ? '#4a2210' : '#f3b630'; c.beginPath(); c.moveTo(-5.2, -3.4); c.lineTo(4.9, -3.4); c.lineTo(4.4, 6.4); c.lineTo(-4.4, 6.4); c.closePath(); c.fill();
+    c.fillStyle = dark ? 'rgba(255,200,120,.25)' : 'rgba(255,255,255,.35)'; c.fillRect(-4, -2.6, 1.6, 8);
+    c.fillStyle = dark ? '#d9b98a' : '#fffaf0'; c.beginPath(); c.arc(-3.6, -4.8, 2.6, 0, 6.3); c.arc(-.6, -5.8, 3, 0, 6.3); c.arc(2.8, -5, 2.8, 0, 6.3); c.fill(); c.lineWidth = 1.1; c.stroke();
+    c.restore();
   } else {
     drawTaco(c, x, y + r * .7, r, key);
   }
@@ -392,7 +515,7 @@ function drawDish(c, key, x, y, r) {
 function drawPortionPlate(c, key, x, y, s, glow, t) {
   c.save(); c.translate(x, y); c.scale(s, s);
   drawPlate(c, 0, 0, 0, glow, t || 0);
-  drawDish(c, key, 0, key === 'michelada' ? -5 : -2, key === 'michelada' ? 7 : 8);
+  drawDish(c, key, 0, RECIPES[key] && RECIPES[key].drink ? -5 : -2, RECIPES[key] && RECIPES[key].drink ? 7 : 8);
   c.restore();
 }
 // Pila de porciones listas en la barra del comal con su contador
@@ -471,8 +594,8 @@ const Store = {
   }
 };
 Store.migrate();
-const Settings = Object.assign({ sound: true, volume: 0.6 }, Store.read(Store.CFG) || {});
-const saveSettings = () => Store.write(Store.CFG, { sound: Settings.sound, volume: Settings.volume });
+const Settings = Object.assign({ sound: true, music: true, volume: 0.6 }, Store.read(Store.CFG) || {});
+const saveSettings = () => Store.write(Store.CFG, { sound: Settings.sound, music: Settings.music, volume: Settings.volume });
 
 /* =========================================================
    AUDIO (síntesis con WebAudio, sin archivos)
@@ -492,7 +615,7 @@ const Sfx = {
         for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
       } catch (e) { this.ctx = null; }
     }
-    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+    if (this.ctx && this.ctx.state !== 'running') { try { const p = this.ctx.resume(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }     // (iPhone: también 'interrupted' tras una llamada o al volver a la app)
     this.apply();
   },
   apply() { if (this.master) this.master.gain.value = Settings.sound ? Settings.volume * 0.6 : 0; },
@@ -510,9 +633,9 @@ const Sfx = {
   },
   noise(d, o = {}) {
     if (!this.ctx || !Settings.sound) return;
-    const c = this.ctx, t = c.currentTime;
+    const c = this.ctx, t = c.currentTime + (o.delay || 0);
     const src = c.createBufferSource(); src.buffer = this.noiseBuf;
-    const f = c.createBiquadFilter(); f.type = o.type || 'bandpass'; f.frequency.value = o.freq || 4000;
+    const f = c.createBiquadFilter(); f.type = o.type || 'bandpass'; f.frequency.value = o.freq || 4000; if (o.q) f.Q.value = o.q;
     const g = c.createGain();
     g.gain.setValueAtTime(o.vol || 0.2, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + d);
@@ -543,10 +666,175 @@ const Sfx = {
         this.tone(330, 1.7, { type: 'triangle', vol: .2, delay: d }); this.noise(.08, { freq: 3000, vol: .3, type: 'highpass' });
       }
     },
-    pour()   { this.noise(.5, { freq: 900, vol: .2, type: 'lowpass' }); this.tone(520, .12, { type: 'sine', vol: .12, to: 380 }); }
+    pour()   { this.noise(.5, { freq: 900, vol: .2, type: 'lowpass' }); this.tone(520, .12, { type: 'sine', vol: .12, to: 380 }); },
+    /* --- cocina: se oyen mientras se cocina o se prepara una bebida --- */
+    crackle() { for (let k = 0; k < 4; k++) this.noise(.05 + Math.random() * .05, { freq: 5000 + Math.random() * 3000, vol: .07 + Math.random() * .05, type: 'bandpass', delay: k * (.04 + Math.random() * .05), q: 2 }); },
+    sizzle2() { this.noise(.9, { freq: 6200, vol: .1, type: 'bandpass', q: .8 }); this.noise(.5, { freq: 3200, vol: .05, type: 'bandpass', delay: .1 }); },
+    spatula() { this.tone(2300, .06, { type: 'square', vol: .05 }); this.tone(3450, .05, { type: 'square', vol: .03, delay: .015 }); this.noise(.05, { freq: 4200, vol: .06, type: 'highpass', delay: .05 }); },
+    chop() { for (let k = 0; k < 3; k++) { this.tone(330 - k * 20, .06, { type: 'triangle', vol: .13, to: 170, delay: k * .09 }); this.noise(.03, { freq: 1500, vol: .08, type: 'bandpass', delay: k * .09 }); } },
+    tortilla() { this.noise(.12, { freq: 1200, vol: .09, type: 'bandpass' }); this.tone(150, .08, { type: 'sine', vol: .1, to: 95, delay: .02 }); },
+    ice() { [3300, 4200, 2900, 3700].forEach((f, k) => this.tone(f, .07, { type: 'sine', vol: .07, delay: k * .06 + Math.random() * .02 })); },
+    shaker() { for (let k = 0; k < 5; k++) this.noise(.06, { freq: 3800, vol: .09, type: 'bandpass', delay: k * .075, q: 2 }); },
+    bottle() { this.noise(.05, { freq: 2600, vol: .16, type: 'highpass' }); this.tone(900, .08, { type: 'sine', vol: .15, to: 260 }); this.noise(.5, { freq: 7500, vol: .06, type: 'highpass', delay: .06 }); },
+    fizz() { this.noise(.7, { freq: 8000, vol: .06, type: 'highpass' }); },
+    squeeze() { this.noise(.22, { freq: 1600, vol: .09, type: 'lowpass' }); this.tone(780, .08, { type: 'sine', vol: .06, to: 1100, delay: .05 }); },
+    glug() { [0, .09, .19, .3].forEach((d, k) => this.tone(210 + k * 35, .09, { type: 'sine', vol: .11, to: 330 + k * 30, delay: d })); this.noise(.45, { freq: 700, vol: .09, type: 'lowpass' }); },
+    cookStart() { this.sounds.chop.call(this); this.sounds.tortilla.call(this); this.noise(.9, { freq: 5800, vol: .13, type: 'bandpass', delay: .3, q: .8 }); },
+    drinkStart() { this.sounds.bottle.call(this); setTimeout(() => { this.sounds.glug.call(this); this.sounds.ice.call(this); }, 260); },
+    ding() { this.tone(1760, .5, { type: 'sine', vol: .16 }); this.tone(2637, .35, { type: 'sine', vol: .08, delay: .01 }); },
+    /* --- logotipo de la compañía --- */
+    introSweep() { this.tone(110, 1.2, { type: 'sawtooth', vol: .07, to: 880 }); this.noise(1.1, { freq: 1200, vol: .12, type: 'bandpass', q: .6 }); },
+    introHit() { this.tone(70, .8, { type: 'sine', vol: .55, to: 36 }); this.tone(440, 1.6, { type: 'sine', vol: .12, delay: .02 }); this.tone(880, 1.4, { type: 'sine', vol: .07, delay: .02 }); this.tone(1320, 1.2, { type: 'sine', vol: .05, delay: .02 }); this.noise(.5, { freq: 6000, vol: .1, type: 'highpass' }); },
+    /* --- máquina de garra --- */
+    arcadeCoin() { this.tone(1320, .08, { type: 'square', vol: .12 }); this.tone(1760, .2, { type: 'square', vol: .12, delay: .07 }); },
+    clawMove() { this.tone(150, .3, { type: 'sawtooth', vol: .05, to: 210 }); this.tone(300, .3, { type: 'square', vol: .02, to: 420 }); },
+    clawDown() { this.tone(260, .7, { type: 'sawtooth', vol: .06, to: 120 }); this.noise(.6, { freq: 900, vol: .04, type: 'bandpass' }); },
+    clawUp() { this.tone(120, .7, { type: 'sawtooth', vol: .06, to: 260 }); this.noise(.6, { freq: 900, vol: .04, type: 'bandpass' }); },
+    clawGrab() { this.tone(180, .08, { type: 'square', vol: .16, to: 90 }); this.noise(.06, { freq: 2200, vol: .12, type: 'bandpass' }); this.tone(1400, .05, { type: 'square', vol: .06, delay: .05 }); },
+    clawDrop() { this.tone(520, .35, { type: 'triangle', vol: .12, to: 150 }); this.noise(.12, { freq: 400, vol: .2, type: 'lowpass', delay: .32 }); },
+    clawWin() { [523, 659, 784, 1047, 1319].forEach((f, k) => this.tone(f, .22, { type: 'square', vol: .1, delay: k * .09 })); [1047, 1319, 1568].forEach(f => this.tone(f, .5, { type: 'sine', vol: .1, delay: .5 })); },
+    clawFail() { [392, 349, 311, 262].forEach((f, k) => this.tone(f, .22, { type: 'triangle', vol: .14, delay: k * .17 })); },
+    type() { this.tone(900 + Math.random() * 200, .03, { type: 'square', vol: .05 }); },
+    camera() { this.noise(.05, { freq: 3000, vol: .12, type: 'highpass' }); this.tone(1200, .04, { type: 'square', vol: .06, delay: .05 }); }
   }
 };
 const sfx = n => Sfx.play(n);
+
+/* =========================================================
+   MÚSICA (composiciones originales, sintetizadas con WebAudio: no hay archivos ni derechos de terceros)
+   · menu  = "Entrada del Campeón": rock de lucha libre en mi menor (guitarras, batería, metales y público)
+   · juego = "Cumbia de la Taquería": cumbia alegre en la menor (acordeón, güiro, congas y bajo tumbao)
+   ========================================================= */
+const midiHz = m => 440 * Math.pow(2, (m - 69) / 12);
+const Music = {
+  want: null, cur: null, step: 0, next: 0, tg: null, gtr: null, led: null, mus: null, curve: null,
+  setup() {
+    const c = Sfx.ctx; if (this.mus || !c) return;
+    this.mus = c.createGain(); this.mus.connect(Sfx.master);
+    this.curve = new Float32Array(256); for (let i = 0; i < 256; i++) { const x = i / 255 * 2 - 1; this.curve[i] = Math.tanh(x * 3.4); }
+  },
+  level() { return Settings.sound && Settings.music ? .5 : 0; },
+  fadeOut(g) {
+    const c = Sfx.ctx; if (!g) return;
+    try { g.gain.cancelScheduledValues(c.currentTime); g.gain.setValueAtTime(g.gain.value, c.currentTime); g.gain.linearRampToValueAtTime(0, c.currentTime + .6); } catch (e) {}
+    setTimeout(() => { try { g.disconnect(); } catch (e) {} }, 1200);
+  },
+  start(name) {                                                    // arma los buses de la pista nueva y atenúa la anterior
+    const c = Sfx.ctx;
+    this.fadeOut(this.tg);
+    const tg = c.createGain(); tg.gain.setValueAtTime(0.0001, c.currentTime); tg.gain.linearRampToValueAtTime(1, c.currentTime + .3); tg.connect(this.mus);
+    const gtr = c.createGain(); gtr.gain.value = .55; const sh = c.createWaveShaper(); sh.curve = this.curve; const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3200;
+    gtr.connect(sh); sh.connect(lp); lp.connect(tg);
+    const led = c.createGain(); led.gain.value = 1; led.connect(tg);
+    const dly = c.createDelay(.8); dly.delayTime.value = name === 'menu' ? .234 : .29; const fb = c.createGain(); fb.gain.value = .3; const dg = c.createGain(); dg.gain.value = .38;
+    led.connect(dly); dly.connect(fb); fb.connect(dly); dly.connect(dg); dg.connect(tg);
+    this.tg = tg; this.gtr = gtr; this.led = led; this.cur = name; this.step = 0; this.next = c.currentTime + .1;
+  },
+  update() {
+    const c = Sfx.ctx; if (!c || c.state !== 'running') return;
+    this.setup();
+    const lv = this.level(), target = lv > 0 ? this.want : null;
+    if (this.mus) this.mus.gain.value = lv;
+    if (target !== this.cur) {
+      if (!target) { this.fadeOut(this.tg); this.tg = null; this.cur = null; return; }
+      this.start(target);
+    }
+    if (!this.cur) return;
+    const T = TRACKS[this.cur], sd = 60 / T.bpm / 4;
+    if (this.next < c.currentTime - .4) this.next = c.currentTime + .05;     // se pausó (otra pestaña): retoma sin ráfaga
+    while (this.next < c.currentTime + .22) { T.tick(this.step % T.steps, this.next, sd); this.next += sd; this.step++; }
+  },
+  /* instrumentos: cada uno crea sus nodos, suena y se apaga solo */
+  osc(type, f, t, dur, vol, dest, o = {}) {
+    const c = Sfx.ctx, os = c.createOscillator(), g = c.createGain();
+    os.type = type; os.frequency.setValueAtTime(f, t); if (o.to) os.frequency.exponentialRampToValueAtTime(o.to, t + (o.tt || dur));
+    if (o.det) os.detune.value = o.det;
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + (o.a || .006)); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+    if (o.lp) { const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.setValueAtTime(o.lp, t); if (o.lpTo) lp.frequency.exponentialRampToValueAtTime(o.lpTo, t + dur); os.connect(lp); lp.connect(g); } else os.connect(g);
+    if (o.vib) { const l = c.createOscillator(), lg = c.createGain(); l.frequency.value = 5.6; lg.gain.setValueAtTime(0, t); lg.gain.linearRampToValueAtTime(o.vib, t + Math.min(.25, dur * .8)); l.connect(lg); lg.connect(os.detune); l.start(t); l.stop(t + dur + .05); }
+    g.connect(dest); os.start(t); os.stop(t + dur + .05);
+  },
+  noise(t, dur, vol, type, freq, dest, q = 1) {
+    const c = Sfx.ctx, src = c.createBufferSource(); src.buffer = Sfx.noiseBuf; src.loop = true;
+    const f = c.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+    const g = c.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+    src.connect(f); f.connect(g); g.connect(dest); src.start(t, Math.random() * .5); src.stop(t + dur + .05);
+  },
+  kick(t, v = .9) { this.osc('sine', 165, t, .24, v, this.tg, { to: 44, tt: .14, a: .002 }); this.noise(t, .02, v * .25, 'highpass', 2500, this.tg); },
+  snare(t, v = .5) { this.noise(t, .17, v, 'bandpass', 1900, this.tg, .7); this.osc('triangle', 210, t, .1, v * .5, this.tg, { to: 130 }); },
+  clap(t, v = .3) { for (let k = 0; k < 3; k++) this.noise(t + k * .011, .07, v, 'bandpass', 1500, this.tg, 1.4); },
+  hat(t, v = .13, open = false) { this.noise(t, open ? .2 : .04, v, 'highpass', 8200, this.tg); },
+  crash(t, v = .3) { this.noise(t, 1.5, v, 'highpass', 5200, this.tg); this.osc('square', 340, t, .5, v * .12, this.tg, { to: 300 }); },
+  bass(t, m, dur, v = .5, type = 'sawtooth', lp = 520) { this.osc(type, midiHz(m), t, dur, v, this.tg, { lp, lpTo: lp * .45, a: .01 }); },
+  power(t, m, dur, v = .3) { for (const [k, det] of [[0, -7], [7, 5], [12, 0]]) this.osc('sawtooth', midiHz(m + k), t, dur, v * (k === 12 ? .6 : 1), this.gtr, { det, a: .004 }); },
+  pluck(t, notes, dur, v = .2) { for (const m of notes) { this.osc('triangle', midiHz(m), t, dur, v, this.tg, { a: .003 }); this.osc('sawtooth', midiHz(m), t, dur * .7, v * .35, this.tg, { lp: 2400, lpTo: 600, a: .003 }); } },
+  lead(t, m, dur, v, type = 'sawtooth', lp = 3200) { this.osc(type, midiHz(m), t, dur, v, this.led, { lp, vib: 14, a: .012 }); this.osc('square', midiHz(m) * 1.003, t, dur, v * .45, this.led, { lp: lp * .6, a: .012 }); },
+  accordion(t, m, dur, v) { for (const d of [-9, 9]) this.osc('sawtooth', midiHz(m), t, dur, v * .6, this.led, { det: d, lp: 2600, vib: 18, a: .02 }); this.osc('square', midiHz(m + 12), t, dur, v * .18, this.led, { lp: 2200, a: .02 }); },
+  stab(t, notes, dur, v = .28) { for (const m of notes) this.osc('sawtooth', midiHz(m), t, dur, v, this.tg, { lp: 3600, lpTo: 900, a: .004 }); },
+  guiro(t, v = .12, long = false) { this.noise(t, long ? .13 : .05, v, 'bandpass', 5800, this.tg, 3); },
+  conga(t, hi, v = .3) { this.osc('sine', hi ? 330 : 205, t, .16, v, this.tg, { to: hi ? 270 : 160, tt: .12, a: .002 }); this.noise(t, .02, v * .4, 'bandpass', 1400, this.tg); },
+  crowd(t, dur, v = .16) {                                           // el público ruge: ruido filtrado que sube y baja
+    const c = Sfx.ctx, src = c.createBufferSource(); src.buffer = Sfx.noiseBuf; src.loop = true;
+    const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 850; f.Q.value = .8; const g = c.createGain();
+    g.gain.setValueAtTime(.0001, t); g.gain.linearRampToValueAtTime(v, t + dur * .35); g.gain.linearRampToValueAtTime(.0001, t + dur);
+    src.connect(f); f.connect(g); g.connect(this.tg); src.start(t, Math.random() * .4); src.stop(t + dur + .05);
+  }
+};
+// Cada pista: bpm, pasos (16 por compás, 8 compases) y tick(paso, tiempo) que programa los instrumentos. Las melodías son [paso, nota MIDI, duración en pasos]
+const MEL_MENU = [
+  [[0, 64, 3], [4, 67, 1], [6, 71, 2], [8, 76, 4], [12, 74, 2], [14, 71, 2]],
+  [[0, 69, 2], [2, 71, 2], [4, 74, 4], [8, 71, 2], [10, 67, 2], [12, 64, 4]],
+  [[0, 72, 3], [4, 76, 1], [6, 79, 2], [8, 76, 2], [10, 72, 2], [12, 67, 4]],
+  [[0, 74, 3], [4, 78, 1], [6, 81, 2], [8, 78, 2], [10, 74, 2], [12, 69, 4]],
+  [[0, 76, 2], [2, 76, 1], [3, 79, 1], [4, 83, 4], [8, 81, 2], [10, 79, 2], [12, 76, 4]],
+  [[0, 74, 3], [4, 71, 1], [6, 67, 2], [8, 71, 2], [10, 74, 2], [12, 79, 4]],
+  [[0, 76, 2], [2, 79, 2], [4, 84, 4], [8, 83, 2], [10, 79, 2], [12, 76, 4]],
+  [[0, 78, 2], [2, 75, 2], [4, 71, 4], [8, 69, 2], [10, 71, 2], [12, 59, 4]]
+];
+const MEL_GAME = [
+  [[0, 69, 2], [3, 72, 1], [4, 76, 2], [6, 74, 1], [8, 72, 2], [10, 71, 1], [12, 69, 4]],
+  [[0, 76, 2], [2, 74, 1], [3, 72, 1], [4, 71, 2], [6, 72, 1], [8, 74, 4], [12, 71, 2]],
+  [[0, 74, 2], [3, 77, 1], [4, 81, 2], [6, 79, 1], [8, 77, 2], [10, 76, 1], [12, 74, 4]],
+  [[0, 76, 2], [3, 80, 1], [4, 83, 2], [6, 81, 1], [8, 80, 2], [10, 76, 1], [12, 71, 4]],
+  [[0, 69, 2], [3, 72, 1], [4, 76, 2], [6, 81, 2], [8, 79, 2], [10, 76, 2], [12, 72, 4]],
+  [[0, 69, 2], [2, 72, 2], [4, 77, 4], [8, 76, 2], [10, 72, 2], [12, 69, 4]],
+  [[0, 74, 2], [2, 77, 2], [4, 81, 4], [8, 79, 2], [10, 77, 2], [12, 74, 4]],
+  [[0, 76, 3], [4, 74, 1], [6, 71, 2], [8, 68, 2], [12, 64, 4]]
+];
+const TRACKS = {
+  menu: {
+    bpm: 128, steps: 128, roots: [40, 40, 36, 38, 40, 43, 36, 35],
+    tick(s, t, sd) {
+      const bar = s >> 4, st = s & 15, r = this.roots[bar], M = Music;
+      if (st === 0 || st === 8 || (st === 10 && bar % 2) || (st === 6 && bar > 3)) M.kick(t);
+      if (st === 4 || st === 12) { M.snare(t); if (st === 12) M.clap(t, .18); }
+      if (st % 2 === 0) M.hat(t, st % 4 === 2 ? .15 : .1, st === 14 && bar % 2 === 1);
+      if (st === 0 && (bar === 0 || bar === 4)) { M.crash(t); M.stab(t, [r + 24, r + 31, r + 36], .5); }
+      if (st === 0 && bar === 0) M.crowd(t, 3.2);
+      if (st === 8 && bar === 7) M.crowd(t, 2.0, .12);
+      if (st % 2 === 0) M.bass(t, r + (st % 8 === 6 ? 12 : 0), sd * 1.7, .46, 'sawtooth', 460);
+      if ([0, 3, 6, 8, 11, 14].includes(st)) M.power(t, r + 12, sd * (st === 0 || st === 8 ? 2.6 : 1.4), .2);
+      for (const [ms, m, len] of MEL_MENU[bar]) if (ms === st) M.lead(t, m, sd * len * .95, .16);
+    }
+  },
+  juego: {
+    bpm: 100, steps: 128, roots: [45, 45, 50, 52, 45, 41, 50, 52], chords: [[57, 60, 64], [57, 60, 64], [62, 65, 69], [64, 68, 71], [57, 60, 64], [60, 65, 69], [62, 65, 69], [64, 68, 71]],
+    tick(s, t, sd) {
+      const bar = s >> 4, st = s & 15, r = this.roots[bar], ch = this.chords[bar], M = Music;
+      if (st === 0 || st === 8) M.kick(t, .7);
+      if (st === 4 || st === 12) M.snare(t, .22);
+      if ([0, 2, 3, 6, 8, 10, 11, 14].includes(st)) M.guiro(t, st % 8 === 0 ? .15 : .1, st === 3 || st === 11);
+      if (st === 0 || st === 8) M.conga(t, false, .26);
+      if ([3, 6, 11, 14].includes(st)) M.conga(t, true, .2);
+      if (st === 0 || st === 8) M.bass(t, r, sd * 3, .5, 'triangle', 700);
+      if (st === 6) M.bass(t, r + 7, sd * 1.6, .42, 'triangle', 700);
+      if (st === 11) M.bass(t, r + 12, sd * 1.4, .38, 'triangle', 700);
+      if (st === 12) M.bass(t, r + 7, sd * 3, .44, 'triangle', 700);
+      if ([2, 6, 10, 14].includes(st)) M.pluck(t, ch, sd * 1.5, .1);
+      for (const [ms, m, len] of MEL_GAME[bar]) if (ms === st) M.accordion(t, m, sd * len * .96, bar < 4 || bar === 7 ? .15 : .17);
+    }
+  }
+};
 
 /* =========================================================
    PROYECCIÓN ISOMÉTRICA, CUADRÍCULA Y BÚSQUEDA DE CAMINOS (BFS)
@@ -561,6 +849,25 @@ function screenToIso(sx, sy) {
   return { x: (a + b) / 2, y: (b - a) / 2 };
 }
 const S = (gx, gy, z = 0) => { const p = isoToScreen(gx, gy); return { x: p.x, y: p.y - z }; };   // con altura z en píxeles
+
+/* ---------- Cámara: zoom y desplazamiento del local (rueda del ratón, pellizco o botones + / −) ----------
+   Solo se mueve el escenario; la interfaz (HUD, paneles, botones) se queda fija. camWorld convierte un punto de la pantalla
+   al mundo del diorama y camScreen hace lo contrario. */
+const Cam = { z: 1, px: 0, py: 0, MIN: .6, MAX: 2.4, def: 1 };
+const CAMC = { x: 480, y: 330 };
+const camWorld = (x, y) => ({ x: (x - CAMC.x - Cam.px) / Cam.z + CAMC.x, y: (y - CAMC.y - Cam.py) / Cam.z + CAMC.y });
+const camScreen = (x, y) => ({ x: (x - CAMC.x) * Cam.z + CAMC.x + Cam.px, y: (y - CAMC.y) * Cam.z + CAMC.y + Cam.py });
+function camClamp() {
+  Cam.z = clamp(Cam.z, Cam.MIN, Cam.MAX);
+  const mx = Math.max(0, Cam.z - 1) * 520 + 90, my = Math.max(0, Cam.z - 1) * 330 + 60;
+  Cam.px = clamp(Cam.px, -mx, mx); Cam.py = clamp(Cam.py, -my, my);
+}
+function camZoomAt(f, sx, sy) {                                        // acerca o aleja manteniendo fijo el punto (sx, sy) de la pantalla
+  const p = camWorld(sx, sy); Cam.z = clamp(Cam.z * f, Cam.MIN, Cam.MAX);
+  Cam.px = sx - CAMC.x - (p.x - CAMC.x) * Cam.z; Cam.py = sy - CAMC.y - (p.y - CAMC.y) * Cam.z; camClamp();
+}
+function camReset() { Cam.z = Cam.def || 1; Cam.px = 0; Cam.py = 0; }
+function camApply(c) { c.translate(CAMC.x + Cam.px, CAMC.y + Cam.py); c.scale(Cam.z, Cam.z); c.translate(-CAMC.x, -CAMC.y); }
 
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const Grid = {
@@ -605,8 +912,13 @@ const FURN = {
   table:  { fw: 4, fh: 1, h: 46,  name: 'Mesa con sillas' },
   comal:  { fw: 2, fh: 1, h: 56,  name: 'Comal' },
   fridge: { fw: 1, fh: 1, h: 66,  name: 'Refrigerador' },
-  drinks: { fw: 1, fh: 1, h: 38,  name: 'Mostrador de bebidas' },
+  drinks: { fw: 2, fh: 1, h: 38,  name: 'Mostrador de bebidas' },
   bar:    { fw: 3, fh: 1, h: 38,  name: 'Barra de comida lista' },
+  bar2:   { fw: 3, fh: 1, h: 38,  name: 'Barra de antojitos' },
+  storage: { fw: 1, fh: 1, h: 66, name: 'Refri de sobrantes' },
+  garra:  { fw: 1, fh: 1, h: 124, name: 'Máquina de garra' },
+  chairs: { fw: 2, fh: 1, h: 40,  name: 'Juego de sillas' },                 // (solo en el inventario: se pone sobre una mesa)
+  cartel: { fw: 1, fh: 1, h: 196, name: 'Cartel de tacos', out: true },       // (se coloca afuera, en el pasto)
   bench:  { fw: 2, fh: 1, h: 58,  name: 'Banca con suero' },
   plant:  { fw: 1, fh: 1, h: 70,  name: 'Planta' },
   trompo: { fw: 1, fh: 1, h: 96,  name: 'Trompo de pastor' },
@@ -614,8 +926,29 @@ const FURN = {
   estatua: { fw: 1, fh: 1, h: 104, name: 'Estatua de luchador' },
   vitrina: { fw: 1, fh: 1, h: 78,  name: 'Vitrina del campeón' }
 };
+/* Mesas y sillas se venden por separado. Cada mesa lleva un juego de dos sillas (que se pone en el modo EDITAR).
+   tip = propina extra de la mesa; comfort = comodidad de las sillas (más paciencia y un poco más de propina). */
+const TABLES = {
+  mantel:   { name: 'Mesa con mantel',    desc: 'La clásica de taquería: mantel de plástico a cuadros',           mult: 1,   level: 1,  tip: 0 },
+  madera:   { name: 'Mesa de madera',     desc: 'Tablones barnizados: se ve más cuidada. +2 % de propina',        mult: 1.4, level: 4,  tip: .02 },
+  barril:   { name: 'Mesa de barril',     desc: 'Barril con aros de acero, muy cantinera. +3 % de propina',       mult: 1.9, level: 8,  tip: .03 },
+  talavera: { name: 'Mesa de talavera',   desc: 'Azulejos pintados a mano. +5 % de propina',                      mult: 2.5, level: 13, tip: .05 },
+  ring:     { name: 'Mesa de ring',       desc: 'Lona azul con cuerdas y faldón rojo. +7 % de propina',           mult: 3.2, level: 18, tip: .07 },
+  oro:      { name: 'Mesa del campeón',   desc: 'Exclusiva de gemas: dorada y reluciente. +10 % de propina',      gems: 30,    level: 1,  tip: .10 }
+};
+const CHAIRS = {
+  plastico:  { name: 'Sillas de plástico',   desc: 'Amarillas y resistentes: lo básico',                     price: 30,  level: 1,  comfort: 0, seat: { top: '#ffc43a', left: '#ffb21e', right: '#d98f00' }, back: { top: '#ffcb4d', left: '#ffb21e', right: '#d98f00' }, leg: '#5a3a00' },
+  madera:    { name: 'Sillas de madera',     desc: 'Respaldo de tablillas. Clientes más pacientes',          price: 90,  level: 3,  comfort: 1, seat: { top: '#d9a066', left: '#b07a40', right: '#8a5a2c' }, back: { top: '#e0b27a', left: '#b07a40', right: '#8a5a2c' }, leg: '#4a3320', slats: true },
+  taburete:  { name: 'Taburetes de barra',   desc: 'Altos y sin respaldo, con cojín rojo',                   price: 130, level: 6,  comfort: 1, seat: { top: '#e0364a', left: '#b02a3a', right: '#8a2030' }, leg: '#2b2540', stool: true },
+  acolchada: { name: 'Sillas acolchadas',    desc: 'Vinil rojo bien mullido. Más paciencia y propina',       price: 260, level: 10, comfort: 2, seat: { top: '#ff5a6a', left: '#d9374a', right: '#a92a3a' }, back: { top: '#ff6a78', left: '#d9374a', right: '#a92a3a' }, leg: '#2b2540', tall: 52 },
+  ring:      { name: 'Sillas de ring',       desc: 'Plegables de acero con la máscara en el respaldo',       price: 520, level: 15, comfort: 3, seat: { top: '#c9ceda', left: '#7a8090', right: '#555b6b' }, back: { top: '#e0364a', left: '#c81e3c', right: '#8f1530' }, leg: '#555b6b', emblem: true },
+  talavera:  { name: 'Sillas de talavera',   desc: 'Pintadas a mano en azul y blanco. Muy cómodas',          price: 820, level: 20, comfort: 4, seat: { top: '#f4f6fb', left: '#3f66c9', right: '#2a4a9a' }, back: { top: '#f4f6fb', left: '#3f66c9', right: '#2a4a9a' }, leg: '#2a4a9a', tall: 54, tiles: true },
+  trono:     { name: 'Tronos del campeón',   desc: 'Exclusivas de gemas: doradas con joyas. Comodidad máxima', gems: 25,  level: 1,  comfort: 5, seat: { top: '#ffe27a', left: '#e3b53a', right: '#b88a1f' }, back: { top: '#ffe27a', left: '#e3b53a', right: '#b88a1f' }, leg: '#8a6a1a', tall: 66, gem: true }
+};
+const tablePrice = (style, owned) => Math.round(priceOf('table', owned) * (TABLES[style].mult || 1) / 5) * 5;
+const comfortOf = tb => (tb && tb.chair && CHAIRS[tb.chair] ? CHAIRS[tb.chair].comfort : 0);
 const SEATS = [];                                               // todas las sillas de las mesas colocadas
-const LAYOUT = { comals: [], tables: [], fridge: null, bar: null, drinks: null, bench: null };
+const LAYOUT = { comals: [], tables: [], fridge: null, bar: null, bar2: null, drinks: null, bench: null, storage: null, claw: null };
 let furnId = 1;
 // Girar: it.rot = 1 pone la pieza "de lado" (su largo corre a lo largo de isoY). Todo se calcula con dimsOf/tp; el dibujo se pinta espejado.
 const dimsOf = it => { const d = FURN[it.type]; return it.rot ? { fw: d.fh, fh: d.fw } : { fw: d.fw, fh: d.fh }; };
@@ -628,8 +961,10 @@ function withMirror(c, it, fn) {                                  // el espejo r
   MIRROR = true;
   try { fn(); } finally { MIRROR = false; c.restore(); }
 }
-function makeFurn(type, c = 0, r = 0, rot = 0) {
+function makeFurn(type, c = 0, r = 0, rot = 0, extra = null) {
   const it = { id: furnId++, type, c, r, rot: rot ? 1 : 0 };
+  if (type === 'table') { it.style = extra && TABLES[extra.style] ? extra.style : 'mantel'; it.chair = extra && extra.chair !== undefined ? extra.chair : null; }
+  if (type === 'chairs') it.style = extra && CHAIRS[extra.style] ? extra.style : 'plastico';
   if (type === 'comal') it.slot = { state: 'empty', dish: null, t: 0 };                               // cada comal prepara una tanda a la vez
   if (type === 'fridge') it.slots = [0, 1].map(() => ({ state: 'empty', dish: null, t: 0 }));        // el refrigerador prepara dos tandas
   if (type === 'table') {
@@ -655,12 +990,12 @@ const starterFurn = () => [makeFurn('bar', 0, 5), makeFurn('bench', 7, 0)];
 const defaultFurn = () => [
   makeFurn('plant', 0, 0), makeFurn('trompo', 0, 1), makeFurn('comal', 0, 2), makeFurn('bar', 0, 5),
   makeFurn('fridge', 1, 0), makeFurn('drinks', 2, 0), makeFurn('caja', 3, 0), makeFurn('bench', 7, 0),
-  makeFurn('table', 5, 4), makeFurn('table', 1, 7)
+  makeFurn('table', 5, 4, 0, { chair: 'plastico' }), makeFurn('table', 1, 7, 0, { chair: 'plastico' })
 ];
 function rebuildLayout(w) {                                      // se llama cada vez que cambia el mobiliario colocado
   const f = w.furn, one = t => f.find(x => x.type === t) || null;
   LAYOUT.comals = f.filter(x => x.type === 'comal'); LAYOUT.tables = f.filter(x => x.type === 'table');
-  LAYOUT.fridge = one('fridge'); LAYOUT.bar = one('bar'); LAYOUT.drinks = one('drinks'); LAYOUT.bench = one('bench');
+  LAYOUT.fridge = one('fridge'); LAYOUT.bar = one('bar'); LAYOUT.bar2 = one('bar2'); LAYOUT.drinks = one('drinks'); LAYOUT.bench = one('bench'); LAYOUT.storage = one('storage'); LAYOUT.claw = one('garra');
   w.slots = LAYOUT.comals.map(x => x.slot);
   w.dslots = LAYOUT.fridge ? LAYOUT.fridge.slots : [];
   SEATS.length = 0; LAYOUT.tables.forEach(t => t.seats.forEach(s => SEATS.push(s)));
@@ -678,19 +1013,26 @@ function neighborCells(it) {                                     // losetas libr
   }));
   return out;
 }
-const accessFor = key => { const it = RECIPES[key].drink ? (LAYOUT.drinks || LAYOUT.fridge) : LAYOUT.bar; return it ? neighborCells(it) : []; };   // sin mostrador de bebidas, las micheladas se recogen en el refri
+// El mostrador donde se exhibe cada platillo: comida en su barra; bebidas en el mostrador de bebidas (solo las micheladas pueden quedar al pie del refri)
+const shelfItem = key => { const sh = RECIPES[key].shelf; return sh === 'drinks' ? (LAYOUT.drinks || (key === 'michelada' ? LAYOUT.fridge : null)) : LAYOUT[sh]; };
+const accessFor = key => { const it = shelfItem(key); return it ? neighborCells(it) : []; };
 const restAccess = () => LAYOUT.bench ? neighborCells(LAYOUT.bench) : [];
 const benchSeatPt = i => { const q = tp(LAYOUT.bench, .5 + i, .6); return { x: q[0], y: q[1] }; };
 const benchExit = () => { const a = restAccess(); return a.length ? Grid.pt(a[0].c, a[0].r) : null; };
 
 // Posiciones en pantalla de lo que hay sobre cada mueble (null si esa pieza no está colocada)
 const barSlot = i => [.4 + (i % 4) * .72, .3 + Math.floor(i / 4) * .42];         // la barra tiene dos filas de cuatro lugares
-const barPos = i => { const b = LAYOUT.bar; if (!b) return null; const q = barSlot(i); return TS(b, q[0], q[1], 34); };
-const drinkPos = () => {                                         // el refri guarda las micheladas listas al pie si no hay mostrador de bebidas
-  const d = LAYOUT.drinks, f = LAYOUT.fridge;
-  return d ? S(d.c + .5, d.r + .5, 34) : f ? TS(f, .5, .9, 6) : null;
+const drinkSlot = i => [.42 + (i % 3) * .58, .3 + Math.floor(i / 3) * .42];      // el mostrador de bebidas (2 losetas): dos filas de tres lugares
+const stockPos = key => {
+  const sh = RECIPES[key].shelf;
+  if (sh === 'drinks') {
+    const d = LAYOUT.drinks, f = LAYOUT.fridge;                                  // sin mostrador, el refri guarda las micheladas listas al pie
+    if (d) { const q = drinkSlot(SHELF_KEYS.drinks.indexOf(key)); return TS(d, q[0], q[1], 34); }
+    return key === 'michelada' && f ? TS(f, .5, .9, 6) : null;
+  }
+  const b = LAYOUT[sh]; if (!b) return null;
+  const q = barSlot(SHELF_KEYS[sh].indexOf(key)); return TS(b, q[0], q[1], 34);
 };
-const stockPos = key => RECIPES[key].drink ? drinkPos() : barPos(FOODS.indexOf(key));
 const comalPos = (i = 0) => { const it = LAYOUT.comals[i]; return it ? TS(it, 1, .5, 36) : null; };
 function stockAt(w, x, y, rad = 20) {                          // la pila de comida lista más cercana al clic (las filas de la barra se acercan entre sí)
   let best = null, bd = rad;
@@ -741,10 +1083,8 @@ function layoutConnected(w, items) {                             // todo debe se
   const touches = (c, r) => DIRS.some(([dc, dr]) => Grid.inb(c + dc, r + dr) && seen[(r + dr) * COLS + c + dc]);
   for (const it of items) {
     if (it.type === 'table') { const a = tp(it, 0, 0), b = tp(it, 3, 0); if (!touches(a[0], a[1]) || !touches(b[0], b[1])) return false; }
-    else if (it.type === 'bar' || it.type === 'drinks' || it.type === 'bench') { if (!footprint(it).some(([c, r]) => touches(c, r))) return false; }
+    else if (it.type === 'bar' || it.type === 'bar2' || it.type === 'drinks' || it.type === 'bench') { if (!footprint(it).some(([c, r]) => touches(c, r))) return false; }
   }
-  const nv = Grid.cell(w.novato.x, w.novato.y);
-  if (!w.novato.resting && !blocked[nv.r * COLS + nv.c] && !seen[nv.r * COLS + nv.c]) return false;
   return true;
 }
 function busyCells(w) {                                           // losetas donde hay alguien parado
@@ -762,8 +1102,6 @@ function canPlace(w, it, c, r) {
   w.furn.forEach(o => { if (o !== it) footprint(o).forEach(([a, b]) => taken.add(b * COLS + a)); });
   if (DECO.arena) RING_CELLS().forEach(([a, b]) => taken.add(b * COLS + a));
   if (tiles.some(([a, b]) => taken.has(b * COLS + a))) return DECO.arena && RING_CELLS().some(([a, b]) => tiles.some(([x, y]) => x === a && y === b)) ? 'Ahí está el cuadrilátero' : 'Ahí ya hay otro mueble';
-  const busy = busyCells(w);
-  if (tiles.some(([a, b]) => busy.has(b * COLS + a))) return 'Hay alguien parado ahí';
   if (!layoutConnected(w, w.furn.filter(o => o !== it).concat([moved]))) return 'Bloquearía el paso';
   return null;
 }
@@ -772,8 +1110,8 @@ function canPlace(w, it, c, r) {
    INTERFAZ: PUNTERO Y BOTONES
    ========================================================= */
 // touch = el último toque vino de un dedo o lápiz: los botones aceptan un margen extra y la edición pide dos toques
-const UI = { mx: -99, my: -99, down: false, cursor: false, kb: false, touch: false,
-  hit(b) { const s = this.touch ? 5 : 0; return this.mx >= b.x - s && this.mx <= b.x + b.w + s && this.my >= b.y - s && this.my <= b.y + b.h + s; } };
+const UI = { mx: -99, my: -99, down: false, cursor: false, kb: false, touch: false, small: false,
+  hit(b) { const s = this.touch ? (this.small ? 9 : 5) : 0; return this.mx >= b.x - s && this.mx <= b.x + b.w + s && this.my >= b.y - s && this.my <= b.y + b.h + s; } };
 const BTN = {
   red: ['#ff5a6a', '#c81e3c'], teal: ['#2fd0dd', '#0e7f8c'], violet: ['#8b5cf6', '#4c2a9a'],
   dark: ['#5a4888', '#2a1a52'], green: ['#3ddc8a', '#12804a'], gold: ['#ffd95a', '#e29a12'], off: ['#6b6580', '#403a55']
@@ -827,7 +1165,7 @@ function drawPanel(c, x, y, w, h, title) {
 function drawRingBg(c, t) {
   let g = c.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, '#0a0618'); g.addColorStop(.55, '#2a1050'); g.addColorStop(1, '#4a1a3a');
-  c.fillStyle = g; c.fillRect(0, 0, W, H);
+  c.fillStyle = g; c.fillRect(-EX, 0, CW, H);
 
   // reflectores
   for (let i = 0; i < 4; i++) {
@@ -842,7 +1180,7 @@ function drawRingBg(c, t) {
   const crowd = ['#1a0c33', '#240f45', '#301558'];
   for (let k = 0; k < 3; k++) {
     const yb = 262 + k * 30;
-    for (let x = -10 + (k % 2) * 17; x < W + 20; x += 34) {
+    for (let x = -EX - 10 + (k % 2) * 17; x < W + EX + 20; x += 34) {
       const bob = Math.sin(t * 3 + x * .3 + k) * 3, up = ((x / 34 | 0) + k) % 7 === 0;
       c.fillStyle = crowd[k];
       c.beginPath(); c.ellipse(x, yb + 22 + bob, 17, 20, 0, 0, 6.3); c.fill();
@@ -949,7 +1287,8 @@ const Menu = {
     c.restore();
 
     this.buttons.forEach((b, i) => drawButton(c, b, UI.kb && i === this.kbIndex));
-    txt(c, 'v0.1 · prototipo', W - 14, H - 8, { font: `600 13px ${FONT_UI}`, align: 'right', color: 'rgba(255,248,234,.55)' });
+    txt(c, COPY, 480, H - 9, { font: `600 13px ${FONT_UI}`, align: 'center', color: 'rgba(255,248,234,.6)', ls: .4 });
+    txt(c, 'v1.1', W - 12, H - 9, { font: `600 12px ${FONT_UI}`, align: 'right', color: 'rgba(255,248,234,.4)' });
   },
   pointerDown(x, y) {
     UI.kb = false;
@@ -976,43 +1315,48 @@ const Menu = {
    ========================================================= */
 const SettingsScene = {
   from: 'MENU', drag: false, confirmT: 0, buttons: {},
-  slider: { x: 410, y: 262, w: 210 },
+  slider: { x: 410, y: 301, w: 210 },
   enter(arg) {
     this.from = (arg && arg.from) || 'MENU'; this.drag = false; this.confirmT = 0;
     const back = () => { sfx('back'); setState(this.from); };
     this.buttons = {
-      sound: { x: 540, y: 168, w: 170, h: 46, size: 22, fn: () => { Settings.sound = !Settings.sound; saveSettings(); Sfx.unlock(); sfx('click'); } },
-      reset: { x: 540, y: 318, w: 170, h: 46, size: 22, style: 'red', fn: () => {
+      sound: { x: 540, y: 150, w: 170, h: 44, size: 22, fn: () => { Settings.sound = !Settings.sound; saveSettings(); Sfx.unlock(); sfx('click'); } },
+      music: { x: 540, y: 206, w: 170, h: 44, size: 22, fn: () => { Settings.music = !Settings.music; saveSettings(); Sfx.unlock(); sfx('click'); } },
+      reset: { x: 540, y: 354, w: 170, h: 42, size: 20, style: 'red', fn: () => {
         if (this.confirmT > 0) { for (let n = 1; n <= Store.SLOTS; n++) Store.clearSlot(n); this.confirmT = 0; sfx('back'); } else { this.confirmT = 3; sfx('nope'); }
       } },
-      back:  { x: 370, y: 410, w: 220, h: 54, style: 'gold', label: 'Volver', fn: back },
-      saveExit: { x: 480, y: 410, w: 240, h: 54, style: 'green', label: 'Guardar y salir', size: 22, fn: () => { Game.save(); sfx('back'); setState('MENU'); } }
+      back:  { x: 370, y: 424, w: 220, h: 54, style: 'gold', label: 'Volver', fn: back },
+      saveExit: { x: 480, y: 424, w: 240, h: 54, style: 'green', label: 'Guardar y salir', size: 22, fn: () => { Game.save(); sfx('back'); setState('MENU'); } }
     };
     if (this.from === 'JUGANDO') Object.assign(this.buttons.back, { x: 240, w: 220 });          // en partida: Volver + Guardar y volver al menú principal
   },
   update(dt) { if (this.confirmT > 0) this.confirmT -= dt; },
   draw(c) {
     scenes[this.from].draw(c);
-    c.fillStyle = 'rgba(10,5,30,.74)'; c.fillRect(0, 0, W, H);
+    c.fillStyle = 'rgba(10,5,30,.74)'; c.fillRect(-EX, 0, CW, H);
     drawPanel(c, 220, 100, 520, 400, 'AJUSTES');
     const B = this.buttons, lab = { font: `700 26px ${FONT_UI}`, color: P.cream, ls: 1 };
     // sonido
-    txt(c, 'Sonido', 260, 200, lab);
+    txt(c, 'Sonido', 260, 180, lab);
     B.sound.label = Settings.sound ? 'ACTIVADO' : 'SILENCIO'; B.sound.style = Settings.sound ? 'green' : 'dark';
     drawButton(c, B.sound);
+    // música
+    txt(c, 'Música', 260, 236, lab);
+    B.music.label = Settings.music ? 'ACTIVADA' : 'APAGADA'; B.music.style = Settings.music && Settings.sound ? 'green' : 'dark'; B.music.disabled = !Settings.sound;
+    drawButton(c, B.music);
     // volumen
-    txt(c, 'Volumen', 260, 275, lab);
+    txt(c, 'Volumen', 260, 316, lab);
     const s = this.slider;
     rr(c, s.x, s.y, s.w, 14, 7); c.fillStyle = '#120a2a'; c.fill(); c.lineWidth = 2; c.strokeStyle = P.violet; c.stroke();
     rr(c, s.x, s.y, Math.max(14, s.w * Settings.volume), 14, 7); c.fillStyle = Settings.sound ? P.gold : '#6b6580'; c.fill();
     const kx = s.x + s.w * Settings.volume;
     c.beginPath(); c.arc(kx, s.y + 7, 14, 0, 6.3); c.fillStyle = P.cream; c.fill(); c.lineWidth = 3; c.strokeStyle = P.ink; c.stroke();
-    txt(c, Math.round(Settings.volume * 100) + '%', 710, 276, { font: `700 22px ${FONT_UI}`, align: 'right', color: P.gold });      // alineado con el borde derecho del botón de sonido
+    txt(c, Math.round(Settings.volume * 100) + '%', 710, 317, { font: `700 22px ${FONT_UI}`, align: 'right', color: P.gold });      // alineado con el borde derecho del botón de sonido
     if (UI.mx > s.x - 20 && UI.mx < s.x + s.w + 20 && UI.my > s.y - 16 && UI.my < s.y + 32) UI.cursor = true;
     // progreso
-    txt(c, 'Progreso', 260, 345, lab);
+    txt(c, 'Progreso', 260, 378, lab);
     const nSaved = Store.slots().filter(s => s).length, inGame = this.from === 'JUGANDO';
-    txt(c, inGame ? (Game.slot ? `Se guarda sola cada 15 s (ranura ${Game.slot})` : 'Esta partida no tiene ranura de guardado') : nSaved ? `${nSaved} de ${Store.SLOTS} partidas guardadas` : 'Sin partidas guardadas', 260, 372, { font: `600 18px ${FONT_UI}`, color: P.muted });
+    txt(c, inGame ? (Game.slot ? `Se guarda sola cada 15 s (ranura ${Game.slot})` : 'Esta partida no tiene ranura de guardado') : nSaved ? `${nSaved} de ${Store.SLOTS} partidas guardadas` : 'Sin partidas guardadas', 260, 402, { font: `600 18px ${FONT_UI}`, color: P.muted });
     B.reset.label = this.confirmT > 0 ? '¿SEGURO?' : 'BORRAR TODO'; B.reset.size = this.confirmT > 0 ? 22 : 17;
     B.reset.disabled = inGame || (!nSaved && this.confirmT <= 0);
     if (!inGame) drawButton(c, B.reset);
@@ -1025,7 +1369,7 @@ const SettingsScene = {
     const s = this.slider;
     if (x > s.x - 20 && x < s.x + s.w + 20 && y > s.y - 16 && y < s.y + 32) { this.drag = true; this.setVol(x); return; }
     const inGame = this.from === 'JUGANDO';
-    for (const k of ['sound', 'reset', 'back', 'saveExit']) {
+    for (const k of ['sound', 'music', 'reset', 'back', 'saveExit']) {
       const b = this.buttons[k]; if (k === 'reset' && inGame) continue; if (k === 'saveExit' && (!inGame || !Game.slot)) continue;
       if (!b.disabled && UI.hit(b)) { b.fn(); return; }
     }
@@ -1112,25 +1456,116 @@ const ByeScene = {
   update(dt) { this.t += dt; },
   draw(c) {
     drawRingBg(c, clock);
-    c.fillStyle = 'rgba(10,5,30,.55)'; c.fillRect(0, 0, W, H);
+    c.fillStyle = 'rgba(10,5,30,.55)'; c.fillRect(-EX, 0, CW, H);
     drawPanel(c, 180, 70, 600, 420, '¡HASTA LUEGO!');
     drawLuchador(c, 480, 268, Object.assign({}, LUCHADORES.novato, { state: 'idle', t: this.t, dir: 1, scale: 2.1 }));
     const fade = clamp(this.t * 1.5, 0, 1);
     c.save(); c.globalAlpha = fade;
     txt(c, 'GRACIAS POR JUGAR, CAMPEÓN', 480, 316, { font: `400 30px ${FONT_DISPLAY}`, align: 'center', color: P.gold, stroke: P.ink, sw: 5 });
     txt(c, 'La taquería queda lista para tu regreso.', 480, 346, { font: `600 20px ${FONT_UI}`, align: 'center', color: P.cream });
-    const rows = [['DISEÑO Y CÓDIGO', 'Prototipo ENMASCARADOS v0.1'], ['TECNOLOGÍA', 'HTML5 Canvas · JavaScript puro'], ['PERSONAJE', 'El Novato, luchador de máscara verde']];
+    const rows = [['PRODUCCIÓN', 'ACP PRODUCCION'], ['TECNOLOGÍA', 'HTML5 Canvas · JavaScript puro'], ['MÚSICA Y SONIDO', 'Composiciones originales (sin derechos de terceros)']];
     rows.forEach((r, i) => {
       txt(c, r[0], 300, 388 + i * 24, { font: `700 14px ${FONT_UI}`, color: P.muted, ls: 2 });
       txt(c, r[1], 440, 388 + i * 24, { font: `600 19px ${FONT_UI}`, color: P.cream });
     });
     c.restore();
     drawButton(c, this.btn, UI.kb);
+    txt(c, COPY, 480, H - 12, { font: `600 13px ${FONT_UI}`, align: 'center', color: 'rgba(255,248,234,.6)', ls: .4 });
   },
   go() { sfx('back'); setState('MENU'); },
   pointerDown() { if (UI.hit(this.btn)) this.go(); },
   pointerMove() {}, pointerUp() {},
   key(e) { if (e.key === 'Enter' || e.key === 'Escape' || e.key === ' ') { this.go(); return true; } return false; }
+};
+
+/* =========================================================
+   ESCENAS: INTRO (logotipo animado de ACP PRODUCCION antes del menú)
+   ========================================================= */
+// Texto letra por letra con espaciado propio (no depende de que el navegador soporte letterSpacing en el canvas)
+function spacedText(c, s, cx, y, ls, font, fill, alphaOf, yOf) {
+  c.save(); c.font = font; c.textBaseline = 'alphabetic'; c.textAlign = 'left';
+  const ws = [...s].map(ch => c.measureText(ch).width), tot = ws.reduce((a, b) => a + b, 0) + ls * (s.length - 1);
+  let x = cx - tot / 2;
+  [...s].forEach((ch, i) => {
+    const a = alphaOf ? alphaOf(i) : 1;
+    if (a > .01) { c.globalAlpha = clamp(a, 0, 1); c.fillStyle = typeof fill === 'function' ? fill(x, ws[i]) : fill; c.fillText(ch, x, y + (yOf ? yOf(i) : 0)); }
+    x += ws[i] + ls;
+  });
+  c.restore();
+}
+const FONT_BRAND = `'Outfit', 'Avenir Next', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif`;
+const FONT_WIDE = `'Syncopate', 'Outfit', 'Avenir Next', 'Segoe UI', Arial, sans-serif`;
+const IntroScene = {
+  t: 0, DUR: 5.4, hitSound: false, swoosh: false,
+  enter() { this.t = 0; this.hitSound = false; this.swoosh = false; UI.kb = false; },
+  update(dt) {
+    this.t += dt;
+    if (!this.swoosh && this.t > .55) { this.swoosh = true; sfx('introSweep'); }
+    if (!this.hitSound && this.t > 1.45) { this.hitSound = true; sfx('introHit'); }
+    if (this.t >= this.DUR) this.done();
+  },
+  done() { if (state === 'INTRO') setState('MENU'); },
+  draw(c) {
+    const t = this.t, out = clamp((t - (this.DUR - .7)) / .7, 0, 1), cx = 480, cy = 292;
+    // fondo: casi negro con un cono de luz y reflejos que se mueven despacio
+    let g = c.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#04020b'); g.addColorStop(.6, '#0b0620'); g.addColorStop(1, '#140a2e');
+    c.fillStyle = g; c.fillRect(-EX, 0, CW, H);
+    const glow = clamp(t / 1.2, 0, 1);
+    const rg = c.createRadialGradient(cx, cy, 10, cx, cy, 420); rg.addColorStop(0, `rgba(124,58,237,${.38 * glow})`); rg.addColorStop(.5, `rgba(255,61,139,${.12 * glow})`); rg.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = rg; c.fillRect(-EX, 0, CW, H);
+    c.save(); c.globalCompositeOperation = 'lighter';                         // partículas doradas que suben
+    for (let i = 0; i < 46; i++) {
+      const sp = .12 + hash(i + 3) * .26, ph = (t * sp + hash(i)) % 1, x = hash(i + 80) * (W + EX * 2) - EX, y = H + 10 - ph * (H + 40);
+      c.fillStyle = `rgba(255,${190 + hash(i + 9) * 60 | 0},90,${Math.sin(ph * Math.PI) * .5 * glow})`; c.beginPath(); c.arc(x, y, .8 + hash(i + 17) * 1.8, 0, 6.3); c.fill();
+    }
+    c.restore();
+    c.save(); c.globalAlpha = 1 - out;
+    // aro del emblema: se traza girando, con marcas
+    const ring = smooth(clamp((t - .35) / 1.1, 0, 1));
+    if (ring > 0) {
+      c.save(); c.translate(cx, cy - 4); c.rotate(-1.57 + t * .5);
+      const rgrad = c.createLinearGradient(-130, -130, 130, 130); rgrad.addColorStop(0, '#ffd23a'); rgrad.addColorStop(.5, '#ff3d8b'); rgrad.addColorStop(1, '#7c3aed');
+      c.strokeStyle = rgrad; c.lineWidth = 3; c.lineCap = 'round'; c.shadowColor = '#ff3d8b'; c.shadowBlur = 14;
+      c.beginPath(); c.arc(0, 0, 150, 0, 6.2832 * ring); c.stroke();
+      c.lineWidth = 1.4; c.globalAlpha = (1 - out) * .6; c.beginPath(); c.arc(0, 0, 162, 0, 6.2832 * ring * .75); c.stroke();
+      c.globalAlpha = (1 - out) * ring; c.lineWidth = 2.4;
+      for (let k = 0; k < 24; k++) { const a = k / 24 * 6.2832; c.beginPath(); c.moveTo(Math.cos(a) * 168, Math.sin(a) * 168); c.lineTo(Math.cos(a) * (k % 6 ? 173 : 181), Math.sin(a) * (k % 6 ? 173 : 181)); c.stroke(); }
+      c.restore();
+    }
+    // ACP: tres letras gruesas que caen una por una con brillo
+    const bigFont = `800 128px ${FONT_BRAND}`;
+    const shimmer = clamp((t - 2.5) / 1.0, 0, 1), sx = lerp(cx - 260, cx + 260, shimmer);
+    const fillACP = (x, wd) => {
+      const q = c.createLinearGradient(x, cy - 90, x + wd, cy + 10); q.addColorStop(0, '#fff3b0'); q.addColorStop(.45, '#ffc83d'); q.addColorStop(1, '#ff6a3d'); return q;
+    };
+    c.save(); c.shadowColor = 'rgba(255,170,60,.65)'; c.shadowBlur = 26 * glow;
+    spacedText(c, 'ACP', cx, cy + 10, 16, bigFont, fillACP, i => clamp((t - .75 - i * .22) / .3, 0, 1), i => -(1 - easeOutBack(clamp((t - .75 - i * .22) / .5, 0, 1))) * 70);
+    c.restore();
+    if (shimmer > 0 && shimmer < 1) {                                              // franja de luz que cruza solo las letras
+      c.save(); c.globalCompositeOperation = 'lighter';
+      const sg = c.createLinearGradient(sx - 70, cy - 100, sx + 30, cy + 20); sg.addColorStop(0, 'rgba(255,255,255,0)'); sg.addColorStop(.5, 'rgba(255,255,255,.7)'); sg.addColorStop(1, 'rgba(255,255,255,0)');
+      spacedText(c, 'ACP', cx, cy + 10, 16, bigFont, sg, null); c.restore();
+    }
+    // línea que se abre desde el centro
+    const ln = smooth(clamp((t - 1.7) / .7, 0, 1));
+    if (ln > 0) {
+      const lg = c.createLinearGradient(cx - 230, 0, cx + 230, 0); lg.addColorStop(0, 'rgba(255,61,139,0)'); lg.addColorStop(.2, '#ff3d8b'); lg.addColorStop(.5, '#ffc83d'); lg.addColorStop(.8, '#7c3aed'); lg.addColorStop(1, 'rgba(124,58,237,0)');
+      c.fillStyle = lg; c.fillRect(cx - 230 * ln, cy + 34, 460 * ln, 3);
+    }
+    // PRODUCCION: letras muy espaciadas que se aprietan al aparecer
+    const pk = clamp((t - 2.1) / 1.0, 0, 1), ls = lerp(34, 16, smooth(pk));
+    spacedText(c, 'PRODUCCION', cx, cy + 86, ls, `700 30px ${FONT_WIDE}`, '#f3ecff', i => clamp((pk * 1.7 - i * .09), 0, 1) * .94);
+    // lema y derechos
+    const ck = clamp((t - 3.0) / .8, 0, 1);
+    txt(c, 'PRESENTA', cx, cy + 128, { font: `500 15px ${FONT_BRAND}`, align: 'center', color: `rgba(190,170,230,${.8 * ck})`, ls: 6 });
+    txt(c, COPY, cx, H - 24, { font: `500 13px ${FONT_BRAND}`, align: 'center', color: `rgba(190,170,230,${.65 * ck})`, ls: .5 });
+    c.restore();
+    if (t > .8 && t < this.DUR - .9) txt(c, 'Toca para saltar', W - 16, H - 24, { font: `600 12px ${FONT_UI}`, align: 'right', color: `rgba(190,170,230,${.5 + .2 * Math.sin(t * 4)})`, ls: 1 });
+    if (t > this.DUR - .7) { c.fillStyle = `rgba(0,0,0,${out * .6})`; c.fillRect(-EX, 0, CW, H); }
+  },
+  pointerDown() { Sfx.unlock(); if (this.t > .5) this.done(); },
+  pointerMove() {}, pointerUp() {},
+  key(e) { if (this.t > .3 && (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape')) { this.done(); return true; } return false; }
 };
 
 /* =========================================================
@@ -1541,15 +1976,15 @@ const Game = {
   w: null,
   slot: 0,                                                          // ranura (1–3) donde se guarda la partida en curso; 0 = ninguna
   autoT: 0,                                                         // el progreso se guarda solo cada 15 segundos
-  newGame(save, slot) { this.w = createWorld(save); this.slot = slot || 0; this.autoT = 0; if (this.slot && !save) this.save(); },
+  newGame(save, slot) { camReset(); this.w = createWorld(save); this.slot = slot || 0; this.autoT = 0; if (this.slot && !save) this.save(); },
   save() {
     const w = this.w; if (!w || !this.slot) return;
     const held = w.edit && w.edit.held ? [w.edit.held.it] : [];
     const midDay = w.phase === 'play', pocket = w.coins.reduce((s, co) => s + co.v, 0);   // las monedas sin cobrar también cuentan
-    const grab = it => ({ type: it.type, c: it.c, r: it.r, rot: it.rot || 0, slot: it.slot ? { state: it.slot.state, dish: it.slot.dish, t: it.slot.t } : undefined,
+    const grab = it => ({ type: it.type, c: it.c, r: it.r, rot: it.rot || 0, style: it.style, chair: it.type === 'table' ? it.chair : undefined, slot: it.slot ? { state: it.slot.state, dish: it.slot.dish, t: it.slot.t } : undefined,
       slots: it.slots ? it.slots.map(s => ({ state: s.state, dish: s.dish, t: s.t })) : undefined });
-    Store.write(Store.key(this.slot), { v: 9, at: Date.now(), gems: w.gems, tut: w.tut ? w.tut.s : null, day: w.phase === 'summary' ? w.day + 1 : w.day, money: w.money + pocket, rep: w.rep, totalServed: w.totalServed, stock: w.stock, level: w.level, xp: w.xp,
-      furn: w.furn.map(grab), inv: w.inv.concat(held).map(f => f.type), invCap: w.invCap, staff: w.staff.map(m => m.id), deco: w.deco,
+    Store.write(Store.key(this.slot), { v: 10, at: Date.now(), gems: w.gems, char: w.char, outs: w.outs.map(o => ({ type: o.type, c: o.c, r: o.r })), clawN: w.clawN, clawDay: w.clawDay, tut: w.tut ? w.tut.s : null, day: w.phase === 'summary' ? w.day + 1 : w.day, money: w.money + pocket, rep: w.rep, totalServed: w.totalServed, stock: w.stock, level: w.level, xp: w.xp,
+      furn: w.furn.map(grab), inv: w.inv.concat(held).map(f => ({ type: f.type, style: f.style, chair: f.type === 'table' ? f.chair : undefined })), invCap: w.invCap, staff: w.staff.map(m => m.id), deco: w.deco,
       resume: midDay ? { dayTime: w.dayTime, dayServed: w.dayServed, dayEarned: w.dayEarned, dayCost: w.dayCost, dayAngry: w.dayAngry, repTemp: w.repTemp, vips: w.vips,
         stam: w.novato.stamina, staffStam: w.staff.map(m => m.stamina) } : null });
   },
@@ -1557,8 +1992,9 @@ const Game = {
     const w = this.w;
     if (this.slot && (this.autoT += dt) >= 15) { this.autoT = 0; this.save(); }
     if (w.tut) tutorialUpdate(w);
-    if (w.shop || w.edit || (w.tut && (TUT[w.tut.s] === 'intro' || TUT[w.tut.s] === 'outro'))) {   // la tienda, el modo edición y las ventanas del tutorial pausan el juego                                        // la tienda y el modo edición pausan el juego
+    if (w.shop || w.edit || w.modal || (w.tut && (TUT[w.tut.s] === 'intro' || TUT[w.tut.s] === 'outro'))) {   // la tienda, el modo edición y las ventanas del tutorial pausan el juego                                        // la tienda y el modo edición pausan el juego
       w.t += dt; w.shownMoney += (w.money - w.shownMoney) * Math.min(1, dt * 6);
+      if (w.modal === 'claw') updateClaw(w, dt);
       if (w.moneyFlash > 0) w.moneyFlash -= dt;
       w.toasts.forEach(t => t.t -= dt); w.toasts = w.toasts.filter(t => t.t > 0);
       return;
@@ -1566,12 +2002,32 @@ const Game = {
     updateWorld(w, dt);
   },
   draw(c) { drawWorld(c, this.w); },
-  pointerDown(x, y) { worldPointer(this.w, x, y); },
-  pointerMove(x, y) { if (this.w.edit) editHover(this.w, x, y); },
-  pointerUp() {},
+  // Un toque sobre el escenario se resuelve al soltar (si no fue un arrastre): arrastrar mueve la cámara, pellizcar hace zoom
+  pend: null,
+  pointerDown(x, y) {
+    const w = this.w;
+    if (Pinch.active) return;
+    if (clickDeferrable(w, x, y)) { this.pend = { x, y, sx: x, sy: y, px: Cam.px, py: Cam.py, drag: false }; return; }
+    worldPointer(w, x, y);
+  },
+  pointerMove(x, y) {
+    const w = this.w, p = this.pend;
+    if (p && !Pinch.active) {
+      if (!p.drag && Math.hypot(x - p.sx, y - p.sy) > (UI.touch ? 12 : 8)) p.drag = true;
+      if (p.drag) { Cam.px = p.px + (x - p.sx); Cam.py = p.py + (y - p.sy); camClamp(); }
+    }
+    if (w.edit) editHover(w, x, y);
+  },
+  pointerUp() { const p = this.pend; this.pend = null; if (p && !p.drag && !Pinch.active) worldPointer(this.w, p.x, p.y); },
   rightClick() { const w = this.w; if (w.edit && w.edit.held) editCancel(w); },
   key(e) {
     const w = this.w;
+    if (w.modal) { if (w.modal === 'sign') return signKey(w, e); if (e.key === 'Escape') { w.modal = null; sfx('back'); return true; } return false; }
+    if (w.phase === 'play' && !w.shop) {                                                             // zoom con el teclado
+      if (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd') { camZoomAt(1.2, CAMC.x, CAMC.y); return true; }
+      if (e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract') { camZoomAt(1 / 1.2, CAMC.x, CAMC.y); return true; }
+      if (e.key === '0') { camReset(); return true; }
+    }
     if ((e.key === 'r' || e.key === 'R' || e.code === 'KeyR') && w.edit && w.phase === 'play') { if (!e.repeat) editRotate(w); return true; }      // girar el mueble en modo EDITAR (también con otras distribuciones de teclado)
     if (e.key !== 'Escape') return false;
     sfx('click');
@@ -1596,11 +2052,13 @@ function createWorld(save) {
   const sd = save && save.deco, legacy = !!save && !(sd && sd.dv);          // una partida de antes de la decoración por niveles conserva todo lo que ya se veía
   const legOwn = legacy ? { felpudo: true, menu: true, p_camp: true, neon: true, alfombra: true, p_copa: !!(sd && sd.remodeled) } : {};
   w.deco = Object.assign({ remodeled: false, arena: false, paint: legacy ? 'ocre' : 'cal', awning: '', floor: legacy ? 'damero' : 'cemento', bunting: legacy ? 'papel' : 'none',
-    paintBonus: false, awningBonus: false }, sd, {
+    paintBonus: false, awningBonus: false, sign: { t1: 'ENMASCARADOS', t2: 'TACOS', st: 0, li: true } }, sd, {
     paints: Object.assign({ cal: true }, sd && sd.paints), awnings: Object.assign({ '': true }, sd && sd.awnings),
     floors: Object.assign({ cemento: true }, legacy ? { damero: true } : {}, sd && sd.floors), buntings: Object.assign({ none: true }, legacy ? { papel: true } : {}, sd && sd.buntings),
     own: Object.assign({}, legOwn, sd && sd.own), on: Object.assign({}, legOwn, sd && sd.on), dv: 2 });
   w.gems = save && save.gems ? save.gems : 0; w.gemsSeen = w.gems > 0;
+  w.char = { look: Object.assign({}, LOOK_DEFAULT, save && save.char && save.char.look), own: Object.assign({}, save && save.char && save.char.own) };            // personalización del personaje
+  w.outs = []; w.clawN = save && save.clawN ? save.clawN : 0; w.clawDay = save && save.clawDay ? save.clawDay : 0; w.shopPage = 0; w.modal = null;
   w.tut = save ? (Number.isInteger(save.tut) ? { s: save.tut } : null) : { s: 0 };                // tutorial: solo en partida nueva (y se retoma si se guardó a medias)
   DECO = w.deco; applyRemodel(w.deco.remodeled);                                                // el local se ensancha si ya se remodeló
   loadLayout(w, save);                                                                           // mobiliario colocado e inventario
@@ -1623,20 +2081,37 @@ function loadLayout(w, save) {
   const ok = o => o && FURN[o.type];
   if (save && Array.isArray(save.furn)) {                                  // partida con mobiliario guardado
     w.furn = save.furn.filter(ok).map(o => {
-      const it = makeFurn(o.type, o.c, o.r, o.rot);
+      const it = makeFurn(o.type, o.c, o.r, o.rot, { style: o.style, chair: o.chair === undefined ? 'plastico' : o.chair });        // las mesas de antes ya traían sillas de plástico
       if (it.type === 'table') placeSeats(it);
       if (it.slot && o.slot && (o.slot.state === 'cook' ? RECIPES[o.slot.dish] : true)) Object.assign(it.slot, o.slot);      // la tanda que se estaba cocinando sigue en el fuego
       if (it.slots && Array.isArray(o.slots)) it.slots.forEach((s, i) => { const q = o.slots[i]; if (q && (q.state !== 'cook' || RECIPES[q.dish])) Object.assign(s, q); });
       return it;
     });
-    w.inv = (save.inv || []).filter(t => FURN[t]).map(t => makeFurn(t));
+    w.inv = (save.inv || []).map(t => typeof t === 'string' ? { type: t } : t).filter(t => t && FURN[t.type]).map(t => makeFurn(t.type, 0, 0, 0, { style: t.style, chair: t.chair === undefined ? (t.type === 'table' ? 'plastico' : null) : t.chair }));
+    w.outs = (save.outs || []).filter(o => o && FURN[o.type] && FURN[o.type].out && Number.isFinite(o.c) && Number.isFinite(o.r)).map(o => ({ id: furnId++, type: o.type, c: o.c, r: o.r }));
     w.invCap = clamp(Math.max(save.invCap || INV_BASE, w.inv.length), INV_BASE, 99);
   } else {                                                                 // partida nueva (local pelón) o de una versión muy vieja (local completo)
     w.furn = save ? defaultFurn() : starterFurn(); w.inv = []; w.invCap = INV_BASE;
     if (save && save.comal2) w.inv.push(makeFurn('comal'));                // lo ya comprado pasa al inventario
     for (let i = 2; i < (save && save.tables || 2); i++) w.inv.push(makeFurn('table'));
   }
+  fixLayout(w); fixOuts(w);
   rebuildLayout(w);
+}
+// Si una pieza cambió de tamaño o de sitio (p. ej. el mostrador de bebidas ahora mide 2 losetas), las que quedan encimadas o fuera se reacomodan solas
+function fixLayout(w) {
+  const taken = new Set(), keep = [], bad = [], ring = DECO.arena ? new Set(RING_CELLS().map(([c, r]) => r * COLS + c)) : new Set();
+  const okTiles = t => t.every(([c, r]) => c >= 0 && r >= 0 && c < COLS && r < ROWS && !taken.has(r * COLS + c) && !ring.has(r * COLS + c) && !(c === DOOR.cells[0].c && r === DOOR.cells[0].r));
+  w.furn.forEach(it => { const t = footprint(it); if (okTiles(t)) { t.forEach(([c, r]) => taken.add(r * COLS + c)); keep.push(it); } else bad.push(it); });
+  bad.forEach(it => {
+    let spot = null;
+    for (const rot of [it.rot || 0, it.rot ? 0 : 1]) {
+      for (let r = 0; r < ROWS && !spot; r++) for (let c = 0; c < COLS && !spot; c++) if (okTiles(footprint({ type: it.type, c, r, rot }))) spot = { c, r, rot };
+      if (spot) break;
+    }
+    if (spot) { it.c = spot.c; it.r = spot.r; it.rot = spot.rot; if (it.type === 'table') placeSeats(it); footprint(it).forEach(([c, r]) => taken.add(r * COLS + c)); keep.push(it); } else w.inv.push(it);
+  });
+  w.furn = keep; w.invCap = Math.max(w.invCap, w.inv.length);
 }
 // Reloj del día: abre a las 8:00 AM y cierra a las 8:00 PM
 const hourOf = w => START_H + (END_H - START_H) * (1 - clamp(w.dayTime / w.dayLen, 0, 1));
@@ -1649,14 +2124,19 @@ const vipEligible = (w, def = VIPS.payaso) => def.need(w) && effRep(w) >= VIP_MI
 // Planea qué VIPs visitan hoy (cada uno llega a una hora al azar si se cumplen sus requisitos); sirve al abrir el día y al comprar una mejora
 function planVips(w, fromHour) {
   Object.values(VIPS).forEach(def => {
-    if (w.vips.some(v => v.k === def.key) || !vipEligible(w, def) || Math.random() >= def.chance) return;
+    if (w.vips.some(v => v.k === def.key) || !vipEligible(w, def) || Math.random() >= Math.min(.95, def.chance * vipLuck(w))) return;
     const lo = Math.max(def.win[0], fromHour + .5);
     if (lo < def.win[1]) w.vips.push({ k: def.key, at: rand(lo, def.win[1]), done: false });
   });
 }
-function planGemmer(w) {                                          // 30 % de que hoy llegue alguien que regala gemas (con tutorial en curso, no)
-  if (w.level < GEM_LEVEL || w.tut || Math.random() >= GEM_CHANCE) return;
-  w.vips.push({ k: pick(Object.keys(GEMMERS)), at: rand(10, 17.5), done: false });
+function planGemmer(w) {                                          // ¿llega hoy alguien que regala gemas? Depende de las máscaras (con el tutorial en curso, no)
+  if (w.level < GEM_LEVEL || w.tut || Math.random() >= gemChance(w)) return;
+  const pool = Object.keys(GEMMERS).filter(k => (GEMMERS[k].minRep || 0) <= effRep(w) + 1e-6);
+  const k = pick(pool);
+  w.vips.push({ k, at: rand(10, 16), done: false });
+  if (effRep(w) >= 3 && Math.random() < .3 + .08 * effRep(w)) {                       // con buena fama a veces vienen dos el mismo día
+    const rest = pool.filter(q => q !== k); if (rest.length) w.vips.push({ k: pick(rest), at: rand(14, 18), done: false });
+  }
 }
 function startDay(w, rs) {
   w.phase = 'play';
@@ -1722,7 +2202,7 @@ function addXp(w, amt) {
     const unlocked = MENU.filter(k => RECIPES[k].level === w.level && w.level > 1).map(k => RECIPES[k].name);
     const hire = STAFF_IDS.filter(id => STAFF[id].level === w.level).map(id => STAFF[id].name);
     const extra = hire.length ? ` ¡Ya puedes contratar: ${hire.join(' y ')}!` : unlocked.length ? ` Nuevo platillo: ${unlocked.join(' y ')}`
-      : w.level === 2 ? ' ¡Ya puedes DECORAR el changarro desde la TIENDA!' : w.level === 5 ? ' ¡La cajita se puede ampliar en la TIENDA!'
+      : w.level === 2 ? ' ¡Ya puedes DECORAR el changarro desde la TIENDA!' : w.level === SPOIL_LEVEL ? ' ¡Ojo! La comida que sobra se echa a perder: compra el Refri de sobrantes' : w.level === 3 ? ' Nueva bebida: Agua de Horchata' : w.level === 13 ? ' ¡Ya puedes comprar la Máquina de garra!'
       : w.level === REMODEL.level ? ' ¡Ya puedes remodelar el changarro!' : w.level === ARENA.level ? ' ¡Ya puedes construir la Arena!' : '';
     toast(w, `¡Nivel ${w.level}!${extra}`); sfx('fanfare');
     const p = actorPos(n, n.resting);
@@ -1779,11 +2259,14 @@ function slamPos(w, cu) {                                      // posición en p
 
 /* ---------- Pedidos: un platillo al azar y, a veces, una michelada para acompañar ---------- */
 // ¿Se puede preparar esto con lo que hay en el local? (la comida pide comal; las micheladas, refri)
-const canMake = k => RECIPES[k].drink ? !!LAYOUT.fridge : LAYOUT.comals.length > 0;
+const canMake = k => RECIPES[k].drink ? !!LAYOUT.fridge && !!shelfItem(k) : LAYOUT.comals.length > 0 && !!shelfItem(k);
 function makeOrder(w) {
   if (w.tut) return [{ key: 'pastor', done: false }];                                  // en el tutorial todos piden el taco que acabas de aprender a cocinar
-  const menu = MENU.filter(k => RECIPES[k].level <= w.level && canMake(k)), main = pick(menu), items = [{ key: main, done: false }];   // solo piden lo que ya está desbloqueado y se puede cocinar
-  if (main !== 'michelada' && canMake('michelada') && Math.random() < .25) items.push({ key: 'michelada', done: false });
+  const menu = MENU.filter(k => RECIPES[k].level <= w.level && canMake(k));                       // solo piden lo que ya está desbloqueado y se puede cocinar
+  if (!menu.length) return [{ key: 'pastor', done: false }];                                          // (sin barra donde exhibir: pide lo básico)
+  const foods = menu.filter(k => !RECIPES[k].drink), drinks = menu.filter(k => RECIPES[k].drink);
+  const main = drinks.length && (!foods.length || Math.random() < .16) ? pick(drinks) : pick(foods), items = [{ key: main, done: false }];
+  if (!RECIPES[main].drink && drinks.length && Math.random() < .3) items.push({ key: pick(drinks), done: false });      // a veces piden una bebida para acompañar (cualquiera de las desbloqueadas)
   return items;
 }
 const slotsOf = (w, station) => station === 'fridge' ? w.dslots : w.slots;
@@ -1796,7 +2279,7 @@ const stockTotal = w => MENU.reduce((s, k) => s + w.stock[k], 0);
 const effRep = w => Math.max(0, w.rep - w.repTemp);               // máscaras que se ven (la reputación menos el castigo temporal)
 function spawnCustomer(w, vip = null, gem = null) {               // vip = definición de VIPS o null · gem = personaje que regala gemas
   if (!LAYOUT.comals.length && !LAYOUT.fridge) return false;                // sin nada que cocinar no llega nadie
-  let free = SEATS.filter(s => !s.customer && !(s.tb.down > 0));            // sin las mesas volcadas
+  let free = SEATS.filter(s => !s.customer && !(s.tb.down > 0) && s.tb.chair);   // sin las mesas volcadas ni las que no tienen sillas
   if (vip) { const alone = free.filter(s => s.tb.seats.every(x => !x.customer)); if (alone.length) free = alone; }   // el VIP prefiere una mesa para él solo
   if (!free.length) return false;
   const seat = pick(free);
@@ -1810,7 +2293,7 @@ function spawnCustomer(w, vip = null, gem = null) {               // vip = defin
     ...cells.map(n => Grid.pt(n.c, n.r))
   ];
   pts[pts.length - 1] = { x: seat.gx, y: seat.gy };
-  const pmax = vip ? vip.patience : gem ? gem.patience : Math.max(24, 42 - (w.day - 1) * 3);
+  const pmax = (vip ? vip.patience : gem ? gem.patience : Math.max(24, 42 - (w.day - 1) * 3)) * (1 + .03 * comfortOf(seat.tb));       // sillas cómodas: clientes más pacientes
   const cu = {
     x: SPAWN_X, y: SIDE_Y, path: pts, speed: vip ? vip.speed : gem ? gem.speed : rand(1.6, 2.0), dir: -1, phase: rand(0, 6), moving: true, alpha: 1,
     state: 'enter', seat, look: vip ? VIP_LOOKS[vip.key] : gem ? gem.look : randomLook(), off: rand(0, 6), seated: false, patience: pmax, pmax, timer: 0, bubbleT: 0, eatT: 0, angry: false,
@@ -1978,7 +2461,7 @@ function updateCustomer(w, cu, dt) {
       cu.timer -= dt;
       if (cu.timer <= 0) {
         cu.state = 'wait'; cu.bubbleT = 0; sfx('bubble');
-        if (cu.order.some(i => i.key === 'michelada')) {          // la michelada los entretiene: la espera se congela un rato
+        if (cu.order.some(i => RECIPES[i.key].drink)) {           // la bebida los entretiene: la espera se congela un rato
           cu.freeze = FREEZE_TIME;
           const p = actorPos(cu, true);
           addPart(w, { type: 'text', text: '¡Espera congelada!', x: p.x, y: p.y - 112, vy: -22, life: 1.7, color: '#9be3ff' });
@@ -2006,13 +2489,13 @@ function updateCustomer(w, cu, dt) {
         addPart(w, { type: 'crumb', x: x0, y: y0, vx: (lx - x0) / T0, vy: (ly - y0 - .5 * g * T0 * T0) / T0, gy: ly, life: 1.6, col: pick(['#e8c36a', '#c4492a', '#3fb04f', '#f6d77f']) });
       }
       if (cu.eatT >= EAT_TIME) {
-        const total = orderTotal(cu) * (cu.vip ? cu.vd.mult : 1), tip = Math.round(total * .25 * clamp(cu.patience / cu.pmax, 0, 1));
-        w.coins.push({ x: seat.plate.x + rand(-8, 8), y: seat.plate.y - 2 + rand(-3, 3), v: total + tip, t: 0, vip: !!cu.vip, xp: cu.vip ? cu.vd.xp : 0,
+        const total = orderTotal(cu) * (cu.vip ? cu.vd.mult : 1), tbl = cu.seat.tb, tip = Math.round(total * (.25 + (TABLES[tbl.style] || TABLES.mantel).tip + .01 * comfortOf(tbl)) * clamp(cu.patience / cu.pmax, 0, 1));
+        w.coins.push({ x: seat.plate.x + rand(-8, 8), y: seat.plate.y - 2 + rand(-3, 3), v: total + tip, t: 0, vip: !!cu.vip, xp: cu.vip ? cu.vd.xp : cu.gd ? (cu.gd.xp || 0) : 0,
           gems: cu.gd ? Math.round(rand(cu.gd.gems[0], cu.gd.gems[1])) : 0 });
         w.dayServed += 1; w.totalServed += 1;
         addRep(w, cu.vip ? REP.serve * 2 : REP.serve);                              // cada cliente bien atendido devuelve color a la máscara
         addPart(w, { type: 'text', text: cu.vip ? '¡LEGENDARIO!' : '¡Delicioso!', x: p.x, y: p.y - 92, vy: -26, life: 1.4, color: cu.vip ? P.gold : '#9af0b8' });
-        if (cu.gd) { toast(w, `¡${cu.gd.name} quedó encantado! Cobra su moneda: trae gemas`); sfx('fanfare'); }
+        if (cu.gd) { if (cu.gd.rep) addRep(w, cu.gd.rep); toast(w, `¡${cu.gd.name} quedó encantado! ${cu.gd.note || 'Cobra su moneda: trae gemas'}`); sfx('fanfare'); }
         if (cu.vip) { toast(w, `¡${cu.vd.name} quedó fascinado! Cobra x${cu.vd.mult} y un bono de ${cu.vd.xp} XP`); sfx('fanfare'); }
         sfx('coin');
         leaveSeat(w, cu, false);
@@ -2141,40 +2624,62 @@ function updateWaiter(w, m, dt) {
 
 /* ---------- Tienda: mobiliario, equipamiento y contratación ---------- */
 // Lo que se compra llega al inventario (la "cajita"), que tiene lugares limitados; de ahí se coloca desde el modo EDITAR.
-const countOf = (w, type) => w.furn.filter(f => f.type === type).length + w.inv.filter(f => f.type === type).length + (w.edit && w.edit.held && w.edit.held.it.type === type ? 1 : 0);
+const countOf = (w, type) => w.furn.filter(f => f.type === type).length + w.inv.filter(f => f.type === type).length + (w.outs || []).filter(f => f.type === type).length + (w.edit && w.edit.held && w.edit.held.it.type === type ? 1 : 0);
 const nextInvTier = w => INV_TIERS.find(t => t.cap > w.invCap) || null;
-const maxOf = (w, type) => type === 'table' ? (DECO.arena ? ARENA.maxTables : SHOP.maxTables) : type === 'fridge' ? SHOP.maxFridges : type === 'drinks' ? 1 : (DECO.arena ? ARENA.maxComals : SHOP.maxComals);
+const maxOf = (w, type) => type === 'table' ? (DECO.arena ? ARENA.maxTables : SHOP.maxTables) : type === 'comal' ? (DECO.arena ? ARENA.maxComals : SHOP.maxComals) : 1;
+// Precios de lo nuevo (nivel mínimo y pesos). El resto de la economía sigue igual: ver PRICES, STAFF, REMODEL y ARENA
+const CLAW_LEVEL = 13, CLAW_PRICE = 3000, CARTEL_LEVEL = 8, CARTEL_PRICE = 1200, BAR2_LEVEL = 5, BAR2_PRICE = 650, STORAGE_PRICE = 1600, DRINKS_PRICE = 120;
 function shopItems(w) {
-  const comals = countOf(w, 'comal'), tables = countOf(w, 'table'), fridges = countOf(w, 'fridge'), drinksN = countOf(w, 'drinks'), tier = nextInvTier(w), full = w.inv.length >= w.invCap;
-  const fullMsg = full ? `Inventario lleno (${w.inv.length}/${w.invCap})` : null;
-  const mc = maxOf(w, 'comal'), mt = maxOf(w, 'table');
+  const cnt = t => countOf(w, t), tier = nextInvTier(w), full = w.inv.length >= w.invCap;
+  const fullMsg = full ? `Inventario lleno (${w.inv.length}/${w.invCap})` : null, lvl = n => w.level < n ? `Requiere nivel ${n}` : null;
+  const comals = cnt('comal'), tables = cnt('table'), fridges = cnt('fridge'), mc = maxOf(w, 'comal'), mt = maxOf(w, 'table');
   const staff = id => { const d = STAFF[id]; return { id, tab: d.tab, name: d.name, desc: d.desc, price: d.price, done: w.staff.some(m => m.id === id), need: w.level < d.level ? `Requiere nivel ${d.level}` : null }; };
   const arenaNeed = !DECO.remodeled ? 'Primero remodela el changarro' : w.level < ARENA.level ? `Requiere nivel ${ARENA.level}` : null;
-  return [
+  const one = (id, name, desc, price, level, extra = {}) => Object.assign({ id, tab: 'furn', name, desc, price, done: cnt(id) >= 1, need: lvl(level) || fullMsg }, extra);
+  const rows = [
     { id: 'comal', tab: 'furn', name: comals >= mc ? 'Comales' : comals === 0 ? 'Comal de lámina' : `${comals + 1}º Comal`, desc: comals === 0 ? 'Aquí se cocinan los tacos. Tú lo colocas en el piso' : comals >= 2 ? 'Otro fogón: tres recetas a la vez' : 'Dos recetas a la vez', price: priceOf('comal', comals), done: comals >= mc, need: fullMsg },
-    { id: 'table', tab: 'furn', name: tables >= mt ? 'Mesas' : tables === 0 ? 'Mesa con mantel' : `Mesa adicional #${tables + 1}`, desc: tables === 0 ? 'Mesa con dos sillas: aquí comen tus clientes' : 'Otra mesa con dos sillas: más clientes a la vez', price: priceOf('table', tables), done: tables >= mt, need: fullMsg },
-    { id: 'fridge', tab: 'furn', name: 'Refrigerador', desc: 'Prepara micheladas (frías y con escarcha) para acompañar', price: priceOf('fridge', fridges), done: fridges >= SHOP.maxFridges, need: fullMsg },
-    { id: 'drinks', tab: 'furn', name: 'Mostrador de bebidas', desc: 'Aquí reposan las micheladas que salen del refri, listas para servir', price: priceOf('drinks', drinksN), done: drinksN >= 1, need: fridges < 1 ? 'Primero compra el refrigerador' : fullMsg },
-    { id: 'inv', tab: 'furn', hide: w.level < 5, name: 'Ampliar inventario', desc: tier ? `La cajita pasa de ${w.invCap} a ${tier.cap} lugares` : `Inventario al máximo (${w.invCap} lugares)`, price: tier ? tier.price : 0, done: !tier, need: tier && w.level < tier.level ? `Requiere nivel ${tier.level}` : null },
-    staff('waiter1'), staff('waiter2'), staff('mistico'), staff('anil'),
-    { id: 'remodel', tab: 'works', name: 'Remodelar Changarro', desc: 'El local se ensancha (más lugar para mesas). Suma ½ máscara', price: REMODEL.price, done: !!DECO.remodeled, need: w.level < REMODEL.level ? `Requiere nivel ${REMODEL.level}` : null },
-    { id: 'arena', tab: 'works', name: 'Mega Ampliación: Arena', desc: 'Cuadrilátero central, hasta 6 mesas y 3 comales. Llegan VIPs nuevos', price: ARENA.price, done: !!DECO.arena, need: arenaNeed }
+    { id: 'fridge', tab: 'furn', name: 'Refrigerador', desc: 'Prepara micheladas, aguas de sabores y cervezas bien frías', price: priceOf('fridge', fridges), done: fridges >= 1, need: fullMsg },
+    { id: 'drinks', tab: 'furn', name: 'Mostrador de bebidas', desc: 'Aquí reposan las bebidas que salen del refri (caben seis tipos)', price: DRINKS_PRICE, done: cnt('drinks') >= 1, need: fridges < 1 ? 'Primero compra el refrigerador' : fullMsg },
+    one('bar2', 'Barra de antojitos', 'Exhibe elotes, tostadas, pambazos, chilaquiles, cochinita y pozole', BAR2_PRICE, BAR2_LEVEL),
+    one('storage', 'Refri de sobrantes', `Guarda hasta ${STORAGE_CAP} porciones al cerrar: lo demás se echa a perder`, STORAGE_PRICE, SPOIL_LEVEL),
+    one('cartel', 'Cartel de tacos', 'Tu nombre con lucecitas, afuera en el pasto; brilla de noche y atrae más clientes', CARTEL_PRICE, CARTEL_LEVEL),
+    one('garra', 'Máquina de garra', 'Prueba tu suerte: monedas, gemas, energía y fama como premio', CLAW_PRICE, CLAW_LEVEL),
+    { id: 'inv', tab: 'furn', hide: w.level < 5, name: 'Ampliar inventario', desc: tier ? `La cajita pasa de ${w.invCap} a ${tier.cap} lugares` : `Inventario al máximo (${w.invCap} lugares)`, price: tier ? tier.price : 0, done: !tier, need: tier && w.level < tier.level ? `Requiere nivel ${tier.level}` : null }
   ];
+  Object.keys(TABLES).forEach(k => {
+    const T = TABLES[k];
+    rows.push({ id: k === 'mantel' ? 'table' : 'table_' + k, tab: 'tables', name: T.name, desc: T.desc, price: T.gems ? 0 : tablePrice(k, tables), gems: T.gems || 0, done: false,
+      need: tables >= mt ? `Ya tienes el máximo de mesas (${mt})` : lvl(T.level) || fullMsg });
+  });
+  Object.keys(CHAIRS).forEach(k => {
+    const C = CHAIRS[k];
+    rows.push({ id: 'chairs_' + k, tab: 'chairs', name: C.name, desc: C.desc + ' · juego de 2', price: C.gems ? 0 : C.price, gems: C.gems || 0, done: false, need: lvl(C.level) || fullMsg });
+  });
+  rows.push(staff('waiter1'), staff('waiter2'), staff('mistico'), staff('anil'),
+    { id: 'remodel', tab: 'works', name: 'Remodelar Changarro', desc: 'El local se ensancha (más lugar para mesas). Suma ½ máscara', price: REMODEL.price, done: !!DECO.remodeled, need: w.level < REMODEL.level ? `Requiere nivel ${REMODEL.level}` : null },
+    { id: 'arena', tab: 'works', name: 'Mega Ampliación: Arena', desc: 'Cuadrilátero central, hasta 6 mesas y 3 comales. Llegan VIPs nuevos', price: ARENA.price, done: !!DECO.arena, need: arenaNeed });
+  return rows;
 }
-// Todas las pestañas se ven desde el inicio, pero se van desbloqueando con el nivel (candado hasta entonces): MUEBLES, DECORAR 2, PERSONAL 10, OBRAS 15, LEYENDAS 30
-const SHOP_TABS = [['furn', 'MUEBLES', 1], ['decor', 'DECORAR', 2], ['staff', 'MESEROS', 10], ['works', 'OBRAS', 15], ['legend', 'ESPECIALES', 30]];
-const shopTabs = w => SHOP_TABS;
+// Todas las pestañas se ven desde el inicio, pero se van desbloqueando con el nivel (candado hasta entonces). DECORAR y LUCHADOR abren su propia vista
+const SHOP_TABS = [['furn', 'MUEBLES', 1], ['tables', 'MESAS', 1], ['chairs', 'SILLAS', 1], ['decor', 'DECORAR', 2], ['staff', 'MESEROS', 10], ['works', 'OBRAS', 15], ['legend', 'ESPECIALES', 30], ['look', 'LUCHADOR', 1]];
 const tabLocked = (w, t) => w.level < t[2];
-const shopRows = w => shopItems(w).filter(i => i.tab === w.shopTab && !i.hide);
-const SHOPBOX = { x: 150, y: 88, w: 660, rowH: 62, top: 104 };
-SHOPBOX.h = SHOPBOX.top + 5 * SHOPBOX.rowH + 34;                       // hasta cinco filas por pestaña
-const shopTabBtn = (w, i) => { const t = shopTabs(w)[i]; return { x: SHOPBOX.x + 24 + i * 90, y: SHOPBOX.y + 38, w: 86, h: 30, label: t[1], key: t[0] }; };
+const shopTabs = w => SHOP_TABS;
+const SHOP_PER = 5;
+const shopRowsAll = w => shopItems(w).filter(i => i.tab === w.shopTab && !i.hide);
+const shopPages = w => Math.max(1, Math.ceil(shopRowsAll(w).length / SHOP_PER));
+const shopRows = w => { w.shopPage = clamp(w.shopPage || 0, 0, shopPages(w) - 1); return shopRowsAll(w).slice(w.shopPage * SHOP_PER, w.shopPage * SHOP_PER + SHOP_PER); };
+const SHOPBOX = { x: 110, y: 84, w: 740, rowH: 60, top: 104 };
+SHOPBOX.h = SHOPBOX.top + 5 * SHOPBOX.rowH + 46;                       // hasta cinco filas por página
+const shopTabBtn = (w, i) => { const t = shopTabs(w)[i]; return { x: SHOPBOX.x + 18 + i * 84, y: SHOPBOX.y + 38, w: 81, h: 30, label: t[1], key: t[0] }; };
 const shopBtn = i => ({ x: SHOPBOX.x + SHOPBOX.w - 170, y: SHOPBOX.y + SHOPBOX.top + i * SHOPBOX.rowH + 7, w: 150, h: 38 });
+const shopPrev = { x: SHOPBOX.x + 24, y: SHOPBOX.y + SHOPBOX.h - 40, w: 44, h: 28, label: '◀', size: 15, style: 'dark' };
+const shopNext = { x: SHOPBOX.x + 120, y: SHOPBOX.y + SHOPBOX.h - 40, w: 44, h: 28, label: '▶', size: 15, style: 'dark' };
 const shopClose = { x: SHOPBOX.x + SHOPBOX.w - 40, y: SHOPBOX.y + 10, w: 30, h: 30 };
 function canBuy(w, it) {
   if (it.open) return { ok: true };
   if (it.done) return { ok: false, why: 'Comprado' };
   if (it.need) return { ok: false, why: it.need };
+  if (it.gems) return w.gems < it.gems ? { ok: false, why: `Faltan ${it.gems - w.gems} gemas` } : { ok: true };
   if (w.money < it.price) return { ok: false, why: `Faltan ${pesos(it.price - w.money)}` };
   return { ok: true };
 }
@@ -2182,31 +2687,45 @@ function buy(w, id) {
   const it = shopItems(w).find(i => i.id === id), chk = canBuy(w, it);
   if (!chk.ok) { sfx('nope'); w.moneyFlash = .8; toast(w, chk.why === 'Comprado' ? 'Ya lo compraste' : chk.why); return false; }
   const tier = nextInvTier(w);
-  w.money -= it.price; w.dayCost += it.price;
+  if (it.gems) w.gems -= it.gems; else { w.money -= it.price; w.dayCost += it.price; }
   sfx('fanfare');
   if (id === 'remodel') doRemodel(w);
   else if (id === 'inv') { w.invCap = tier.cap; toast(w, `¡Inventario ampliado a ${tier.cap} lugares!`); }
   else if (id === 'arena') doArena(w);
   else if (STAFF[id]) { const m = makeStaff(id, true, w.staff.length); w.staff.push(m); w.shop = false; toast(w, `¡Contrataste a ${STAFF[id].name}!`); }
   else {                                                         // mueble nuevo: entra al inventario y se pasa directo a colocarlo
-    const piece = makeFurn(id);
+    let piece, msg = 'Toca una loseta del piso para colocarlo (o guárdalo en la cajita)';
+    if (id === 'table' || id.startsWith('table_')) piece = makeFurn('table', 0, 0, 0, { style: id === 'table' ? 'mantel' : id.slice(6), chair: w.tut ? 'plastico' : null });   // en el tutorial la primera mesa ya trae sillas
+    else if (id.startsWith('chairs_')) { piece = makeFurn('chairs', 0, 0, 0, { style: id.slice(7) }); msg = 'Toca la mesa a la que quieres ponerle estas sillas'; }
+    else { piece = makeFurn(id); if (id === 'cartel') msg = 'Toca una loseta de pasto afuera del local para plantar el cartel'; }
     w.inv.push(piece); w.shop = false; enterEdit(w); editPick(w, piece, 'inv');
-    toast(w, 'Toca una loseta del piso para colocarlo (o guárdalo en la cajita)');
+    toast(w, msg);
   }
   Game.save();
   return true;
 }
+const shopCur = w => w.shopView && w.shopView !== 'main' ? w.shopView : w.shopTab;        // pestaña que se ve encendida
+function shopChrome(w, hit) {                                    // cerrar y pestañas: iguales en la tienda y en "Luchador"
+  if (hit(shopClose)) { w.shop = false; w.shopView = 'main'; sfx('back'); return true; }
+  const tabs = shopTabs(w);
+  for (let i = 0; i < tabs.length; i++) if (hit(shopTabBtn(w, i))) {
+    if (tabs[i][0] === 'decor' || tabs[i][0] === 'look') {
+      if (tabLocked(w, tabs[i])) { sfx('nope'); toast(w, `${tabs[i][1]} se desbloquea en el nivel ${tabs[i][2]}`); }
+      else { w.shopView = tabs[i][0]; w.decPage = 0; w.lookCat = w.lookCat || 'mask'; sfx('click'); }
+    } else { if (w.shopTab !== tabs[i][0]) { w.shopTab = tabs[i][0]; w.shopPage = 0; sfx('click'); } w.shopView = 'main'; }
+    return true;
+  }
+  return false;
+}
 function shopPointer(w, x, y) {
   const hit = b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
   if (w.shopView === 'decor') { decorPointer(w, x, y, hit); return; }
-  if (hit(shopClose)) { w.shop = false; w.shopView = 'main'; sfx('back'); return; }
-  const tabs = shopTabs(w);
-  for (let i = 0; i < tabs.length; i++) if (hit(shopTabBtn(w, i))) {
-    if (tabs[i][0] === 'decor') {
-      if (tabLocked(w, tabs[i])) { sfx('nope'); toast(w, `DECORAR se desbloquea en el nivel ${tabs[i][2]}`); }
-      else { w.shopView = 'decor'; w.decPage = 0; sfx('click'); }
-    } else if (w.shopTab !== tabs[i][0]) { w.shopTab = tabs[i][0]; sfx('click'); }
-    return;
+  if (shopChrome(w, hit)) return;
+  if (w.shopView === 'look') { lookPointer(w, x, y, hit); if (!hit({ x: SHOPBOX.x, y: SHOPBOX.y, w: SHOPBOX.w, h: SHOPBOX.h })) { w.shop = false; w.shopView = 'main'; sfx('back'); } return; }
+  const pages = shopPages(w);
+  if (pages > 1) {
+    if (hit(shopPrev)) { w.shopPage = (w.shopPage + pages - 1) % pages; sfx('click'); return; }
+    if (hit(shopNext)) { w.shopPage = (w.shopPage + 1) % pages; sfx('click'); return; }
   }
   const items = shopRows(w);
   for (let i = 0; i < items.length; i++) if (hit(shopBtn(i))) { buy(w, items[i].id); return; }
@@ -2229,7 +2748,7 @@ function loseRep(w, amt = REP.lose) {
 }
 function doRemodel(w) {
   w.coins.forEach(co => collectCoin(w, co, true)); w.coins = [];       // las monedas están en pantalla: se cobran antes de mover la cámara
-  w.deco.remodeled = true; applyRemodel(true); rebuildLayout(w);
+  w.deco.remodeled = true; applyRemodel(true); rebuildLayout(w); fixOuts(w);
   LAYOUT.tables.forEach(placeSeats);                                  // los platos de cada mesa se reubican en el lienzo ensanchado
   addRep(w, REMODEL.bonus);
   planVips(w, hourOf(w));
@@ -2348,6 +2867,12 @@ function decorPointer(w, x, y, hit) {
 
 /* ---------- Modo edición: levantar, guardar y colocar muebles ---------- */
 const EDIT = { x: W - 14 - 256, y: 72, w: 256, top: 54, cell: 52, cols: 4 };
+// Botones de zoom: pegados al borde izquierdo de la pantalla (con el lienzo ensanchado quedan fuera de la zona central)
+const zoomBtns = () => [
+  { x: 12 - EX, y: 392, w: 38, h: 36, label: '+', size: 26, style: 'dark', fn: () => camZoomAt(1.3, CAMC.x, CAMC.y) },
+  { x: 12 - EX, y: 434, w: 38, h: 36, label: '−', size: 28, style: 'dark', fn: () => camZoomAt(1 / 1.3, CAMC.x, CAMC.y) },
+  { x: 12 - EX, y: 476, w: 38, h: 30, label: '1:1', size: 14, style: 'dark', fn: () => camReset() }
+];
 const editSlot = i => ({ x: EDIT.x + 14 + (i % EDIT.cols) * (EDIT.cell + 4), y: EDIT.y + EDIT.top + Math.floor(i / EDIT.cols) * (EDIT.cell + 4), w: EDIT.cell, h: EDIT.cell });
 const editRows = w => Math.ceil(w.invCap / EDIT.cols);
 const editH = w => EDIT.top + editRows(w) * (EDIT.cell + 4) + 168;
@@ -2368,39 +2893,85 @@ function exitEdit(w) {
   w.edit = null; repathAll(w); sfx('back'); Game.save();
   return true;
 }
+/* ---------- Afuera: el cartel se planta en el pasto (no en la banqueta, ni dentro del local, ni sobre un árbol o un farol) ---------- */
+const outBox = o => { const p = S(o.c + .5, o.r + .5); return { x0: p.x - 42, x1: p.x + 42, y0: p.y - FURN.cartel.h - 14, y1: p.y + 14 }; };
+function outCanPlace(w, c, r, self) {
+  if (c >= 0 && c < COLS && r >= 0 && r < ROWS) return 'Eso es dentro del local: el cartel va afuera, en el pasto';
+  const zone = (c >= COLS && c <= COLS + 5 && r >= -1 && r <= ROWS + 3) || (r >= ROWS && r <= ROWS + 4 && c >= -3 && c <= COLS + 5);
+  if (!zone) return 'Ahí no hay pasto: usa la zona verde al frente o al costado';
+  const p = S(c + .5, r + .5);
+  if (p.x < 40 || p.x > W - 40 || p.y < HUD + 150 || p.y > H - 8) return 'Ahí se saldría de la pantalla';
+  if (EXT_PROPS.some(q => Math.hypot(q.x - (c + .5), q.y - (r + .5)) < 1.05)) return 'Ahí estorba un árbol o un farol';
+  if ((w.outs || []).some(o => o !== self && o.c === c && o.r === r)) return 'Ahí ya hay otro cartel';
+  return null;
+}
+function fixOuts(w) {                                              // al ensanchar el local, lo que quedó adentro se pasa al pasto más cercano (o a la cajita)
+  const keep = [];
+  (w.outs || []).forEach(o => {
+    if (!outCanPlace(w, o.c, o.r, o)) { keep.push(o); return; }
+    let best = null, bd = 1e9;
+    for (let r = -1; r <= ROWS + 4; r++) for (let c = -3; c <= COLS + 5; c++) if (!outCanPlace(w, c, r, o) && !keep.some(k => k.c === c && k.r === r)) { const d = Math.abs(c - o.c) + Math.abs(r - o.r); if (d < bd) { bd = d; best = { c, r }; } }
+    if (best) { o.c = best.c; o.r = best.r; keep.push(o); } else w.inv.push(makeFurn(o.type));
+  });
+  w.outs = keep;
+}
+function reseat(tb) {                                              // los clientes de la mesa siguen en sus sillas, que cambiaron de lugar
+  tb.seats.forEach(s => { const cu = s.customer; if (cu) { cu.held = false; if (cu.seated) { cu.x = s.gx; cu.y = s.gy; cu.dir = s.dir; } } });
+}
+function displaceActors(w) {                                       // quien haya quedado parado sobre una pieza recién colocada se pasa a la loseta libre más cercana
+  const fix = e => {
+    if (e.x < 0 || e.y < 0 || e.x >= COLS || e.y >= ROWS) return;
+    const k = Grid.cell(e.x, e.y);
+    if (Grid.blocked[k.r * COLS + k.c]) { const s = nearestFree(e.x, e.y); e.x = s.x; e.y = s.y; e.path = []; if ('task' in e) e.task = null; }
+  };
+  w.customers.forEach(cu => { if (!cu.seated && cu.state !== 'slam') fix(cu); });
+  [w.novato].concat(w.staff).forEach(m => { if (m && !m.resting) fix(m); });
+}
 function editHover(w, x, y) {
   const e = w.edit; if (!e) return;
-  if (x >= EDIT.x && x <= EDIT.x + EDIT.w && y >= EDIT.y && y <= EDIT.y + editH(w)) { e.hit = null; e.hover = null; return; }   // sobre el panel no se señala nada del local (antes un mueble escondido detrás, como la banca, "robaba" el botón GIRAR)
+  if (x >= EDIT.x && x <= EDIT.x + EDIT.w && y >= EDIT.y && y <= EDIT.y + editH(w)) { e.hit = null; e.hitOut = null; e.hover = null; e.chairTo = null; return; }   // sobre el panel no se señala nada del local (antes un mueble escondido detrás, como la banca, "robaba" el botón GIRAR)
+  if (zoomBtns().some(b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h)) { e.hit = null; e.hitOut = null; e.hover = null; e.chairTo = null; return; }
+  const q = camWorld(x, y); x = q.x; y = q.y;                       // el cursor, ya en coordenadas del mundo (con zoom)
   const iso = screenToIso(x, y);
   e.hover = (iso.x >= 0 && iso.y >= 0 && iso.x < COLS && iso.y < ROWS) ? { c: Math.floor(iso.x), r: Math.floor(iso.y) } : null;
-  e.hit = null;
+  e.hoverOut = { c: Math.floor(iso.x), r: Math.floor(iso.y) };      // (para lo que se planta afuera)
+  e.hit = null; e.hitOut = null; e.chairTo = null;
+  const depth = it => { const d = dimsOf(it); return it.c + it.r + d.fw + d.fh; };
   if (!e.held) {                                                   // el mueble más cercano a la cámara bajo el cursor
-    const depth = it => { const d = dimsOf(it); return it.c + it.r + d.fw + d.fh; };
     e.hit = w.furn.filter(it => inBox(itemBox(it), x, y)).sort((a, b) => depth(b) - depth(a))[0] || null;
     if (e.hit) e.last = e.hit;                                     // el último mueble señalado: así el botón GIRAR sirve aunque el cursor ya esté en el panel
+    else e.hitOut = (w.outs || []).filter(o => inBox(outBox(o), x, y)).sort((a, b) => (b.c + b.r) - (a.c + a.r))[0] || null;
+  } else if (e.held.it.type === 'chairs') {                        // con sillas en la mano se señala la mesa que las recibe
+    e.chairTo = w.furn.filter(it => it.type === 'table' && inBox(itemBox(it), x, y)).sort((a, b) => depth(b) - depth(a))[0] || null;
   }
 }
-const tapKey = (w, e) => { const a = e.hover && e.held ? anchorFor(e.held.it, e.hover) : null; return a ? a.c + ',' + a.r + ',' + (e.held.it.rot || 0) : null; };
+const isOut = it => !!(it && FURN[it.type] && FURN[it.type].out);
+const tapKey = (w, e) => {
+  if (!e.held) return null;
+  if (e.held.it.type === 'chairs') return e.chairTo ? 'ch' + e.chairTo.id : null;
+  if (isOut(e.held.it)) return e.hoverOut ? 'o' + e.hoverOut.c + ',' + e.hoverOut.r : null;
+  const a = e.hover ? anchorFor(e.held.it, e.hover) : null; return a ? a.c + ',' + a.r + ',' + (e.held.it.rot || 0) : null;
+};
 const rotTarget = w => { const e = w.edit; return e.hit || (e.last && w.furn.includes(e.last) ? e.last : null); };
 const anchorFor = (it, hov) => { const d = dimsOf(it); return { c: hov.c - Math.floor((d.fw - 1) / 2), r: hov.r - Math.floor((d.fh - 1) / 2) }; };
 // Gira la pieza 90° (largo a lo largo de isoX ↔ isoY). Con un mueble en la mano lo gira ahí; si no, gira el que está bajo el cursor si cabe.
 function editRotate(w) {
   const e = w.edit; if (!e) return false;
   if (e.held) {
+    if (e.held.it.type === 'chairs' || isOut(e.held.it)) { toast(w, e.held.it.type === 'chairs' ? 'Las sillas no se giran: tócalas sobre una mesa' : 'El cartel no se gira'); sfx('nope'); return false; }
     e.held.it.rot = e.held.it.rot ? 0 : 1; if (e.held.it.type === 'table') placeSeats(e.held.it);
     e.armed = null; toast(w, 'Girado: toca una loseta verde para soltarlo'); sfx('click'); return true;
   }
   const it = rotTarget(w);
   if (!it) { toast(w, 'Toca un mueble para levantarlo y luego gíralo con R o con GIRAR'); sfx('nope'); return false; }
-  if (it.type === 'table' && it.seats.some(s => s.customer)) { toast(w, 'Hay clientes en esa mesa'); sfx('nope'); return false; }
-  if (it.type === 'bench' && w.bench.some(b => b)) { toast(w, 'Alguien está descansando en la banca'); sfx('nope'); return false; }
+  if (it.type === 'bench') w.bench.forEach(m => { if (m) standUp(w, m); });                   // quien descansa en la banca se levanta
   const before = it.rot || 0; it.rot = before ? 0 : 1;
   let spot = null;                                                  // intenta girar sobre su misma esquina; si no cabe, con el centro en el mismo sitio
   const d0 = FURN[it.type], cx = it.c + (before ? d0.fh : d0.fw) / 2, cy = it.r + (before ? d0.fw : d0.fh) / 2;
   for (const [c, r] of [[it.c, it.r], [Math.round(cx - dimsOf(it).fw / 2), Math.round(cy - dimsOf(it).fh / 2)]]) if (!spot && !canPlace(w, it, c, r)) spot = { c, r };
   if (spot) {
-    it.c = spot.c; it.r = spot.r; if (it.type === 'table') placeSeats(it);
-    rebuildLayout(w); repathAll(w); sfx('click'); Game.save();
+    it.c = spot.c; it.r = spot.r; if (it.type === 'table') { placeSeats(it); reseat(it); }
+    rebuildLayout(w); displaceActors(w); repathAll(w); sfx('click'); Game.save();
     return true;
   }
   it.rot = before;                                                  // no cabe donde está: lo levanta ya girado para soltarlo donde quepa
@@ -2412,34 +2983,61 @@ function editRotate(w) {
 function editPick(w, it, from) {
   const e = w.edit;
   if (from === 'map') {
-    if (it.type === 'table' && it.seats.some(s => s.customer)) { toast(w, 'Hay clientes en esa mesa'); sfx('nope'); return false; }
-    if (it.type === 'bench' && w.bench.some(b => b)) { toast(w, 'Alguien está descansando en la banca'); sfx('nope'); return false; }
+    if (it.type === 'table') it.seats.forEach(s => { if (s.customer) s.customer.held = true; });     // sus clientes esperan: al soltarla la mesa se sientan en las mismas sillas
+    if (it.type === 'bench') w.bench.forEach(m => { if (m) standUp(w, m); });                          // quien descansa en la banca se levanta
     w.furn = w.furn.filter(f => f !== it); rebuildLayout(w);
-  } else w.inv = w.inv.filter(f => f !== it);
-  e.held = { it, from, origin: { c: it.c, r: it.r, rot: it.rot || 0 } }; e.hit = null; e.armed = null; sfx('pickup');
+  } else if (from === 'out') w.outs = w.outs.filter(o => o !== it);
+  else w.inv = w.inv.filter(f => f !== it);
+  e.held = { it, from, origin: { c: it.c, r: it.r, rot: it.rot || 0 } }; e.hit = null; e.hitOut = null; e.armed = null; sfx('pickup');
   return true;
+}
+function editApplyChairs(w) {                                       // pone el juego de sillas que llevas en la mesa señalada (las anteriores vuelven a la cajita)
+  const e = w.edit, h = e.held, tb = e.chairTo;
+  if (!tb) { toast(w, 'Toca una mesa para ponerle las sillas'); sfx('nope'); return false; }
+  const old = tb.chair, nu = h.it.style;
+  tb.chair = nu; e.held = null; e.armed = null; sfx('serve');
+  toast(w, `${CHAIRS[nu].name}: puestas en la mesa`);
+  if (old && old !== nu) {
+    if (w.inv.length < w.invCap) w.inv.push(makeFurn('chairs', 0, 0, 0, { style: old }));
+    else { const C = CHAIRS[old]; if (C.gems) w.gems += Math.floor(C.gems / 2); else w.money += Math.round(C.price / 2); toast(w, `${CHAIRS[nu].name} puestas. Las anteriores se vendieron a la mitad (la cajita está llena)`); }
+  }
+  Game.save(); return true;
 }
 function editPlace(w) {
   const e = w.edit, h = e.held;
-  if (!h || !e.hover) return false;
+  if (!h) return false;
+  if (h.it.type === 'chairs') return editApplyChairs(w);
+  if (isOut(h.it)) {                                                // afuera, en el pasto
+    const hv = e.hoverOut; if (!hv) return false;
+    const why = outCanPlace(w, hv.c, hv.r, h.it);
+    if (why) { toast(w, why); sfx('nope'); return false; }
+    h.it.c = hv.c; h.it.r = hv.r; w.outs.push(h.it); e.held = null; e.armed = null; sfx('serve'); toast(w, '¡Cartel plantado! Tócalo (fuera del modo edición) para ponerle tu nombre'); Game.save();
+    return true;
+  }
+  if (!e.hover) return false;
   const a = anchorFor(h.it, e.hover), why = canPlace(w, h.it, a.c, a.r);
   if (why) { toast(w, why); sfx('nope'); return false; }
   h.it.c = a.c; h.it.r = a.r; if (h.it.type === 'table') placeSeats(h.it);
-  w.furn.push(h.it); rebuildLayout(w); e.held = null; e.armed = null; e.last = h.it; sfx('serve'); Game.save();      // (queda como "el último": GIRAR lo vuelve a girar)
+  w.furn.push(h.it); rebuildLayout(w);
+  if (h.it.type === 'table') reseat(h.it);
+  displaceActors(w);
+  e.held = null; e.armed = null; e.last = h.it; sfx('serve'); Game.save();      // (queda como "el último": GIRAR lo vuelve a girar)
   return true;
 }
 function editCancel(w) {                                          // suelta el mueble donde estaba (o de vuelta al inventario)
   const e = w.edit, h = e.held;
   if (!h) return;
-  if (h.from === 'map') { h.it.c = h.origin.c; h.it.r = h.origin.r; h.it.rot = h.origin.rot; if (h.it.type === 'table') placeSeats(h.it); w.furn.push(h.it); rebuildLayout(w); }
+  if (h.from === 'map') { h.it.c = h.origin.c; h.it.r = h.origin.r; h.it.rot = h.origin.rot; if (h.it.type === 'table') { placeSeats(h.it); reseat(h.it); } w.furn.push(h.it); rebuildLayout(w); displaceActors(w); }
+  else if (h.from === 'out') { h.it.c = h.origin.c; h.it.r = h.origin.r; w.outs.push(h.it); }
   else w.inv.push(h.it);
   e.held = null; sfx('back');
 }
 function editStore(w) {
   const e = w.edit, h = e.held;
   if (!h) { toast(w, 'Levanta un mueble para guardarlo'); sfx('nope'); return; }
-  if (h.from === 'map' && w.inv.length >= w.invCap) { toast(w, `Inventario lleno (${w.inv.length}/${w.invCap})`); sfx('nope'); return; }
-  w.inv.push(h.it); e.held = null; sfx('pickup'); toast(w, `${FURN[h.it.type].name}: guardado en el inventario`);
+  if (h.from !== 'inv' && w.inv.length >= w.invCap) { toast(w, `Inventario lleno (${w.inv.length}/${w.invCap})`); sfx('nope'); return; }
+  if (h.it.type === 'table') h.it.seats.forEach(s => { const cu = s.customer; if (cu) { cu.held = false; leaveSeat(w, cu, false); toast(w, 'Los clientes de esa mesa se fueron'); } });    // la mesa guardada deja a sus clientes sin lugar
+  w.inv.push(h.it); e.held = null; sfx('pickup'); toast(w, `${h.it.type === 'chairs' ? CHAIRS[h.it.style].name : FURN[h.it.type].name}: guardado en el inventario`);
 }
 function editPointer(w, x, y) {
   const e = w.edit, hit = b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h, B = editBtns(w);
@@ -2457,6 +3055,7 @@ function editPointer(w, x, y) {
     }
     editPlace(w);
   } else if (e.hit) editPick(w, e.hit, 'map');
+  else if (e.hitOut) editPick(w, e.hitOut, 'out');
 }
 function repathAll(w) {                                           // tras mover muebles, los que caminan buscan un camino nuevo
   const entry = DOOR.cells[0], door = Grid.pt(entry.c, entry.r), tail = [{ x: DOOR.ix, y: -.3 }, { x: DOOR.ix, y: SIDE_Y }, { x: EXIT_X, y: SIDE_Y }];
@@ -2491,13 +3090,14 @@ function canCook(w, key) {
   if (r.level > w.level) return { ok: false, locked: true, why: `Nivel ${r.level}` };
   if (w.money < r.cost) return { ok: false, why: `Faltan ${pesos(r.cost - w.money)}` };
   if (!slotFor(w, r.station)) return { ok: false, full: true, why: r.station === 'fridge' ? 'Refri ocupado' : 'Comal ocupado' };
+  if (!shelfItem(key)) return { ok: false, shelf: true, why: r.shelf === 'bar2' ? 'Sin barra' : 'Sin mostrador', long: r.shelf === 'bar2' ? 'Falta la barra de antojitos' : 'Falta el mostrador de bebidas' };
   return { ok: true };
 }
 function startCook(w, key) {
   const chk = canCook(w, key), r = RECIPES[key];
   if (!chk.ok) {
     sfx('nope'); w.moneyFlash = chk.locked ? 0 : .8;
-    toast(w, chk.locked ? `${r.name} se desbloquea en el nivel ${r.level}` : chk.full ? (r.station === 'fridge' ? 'El refrigerador está ocupado: espera a que termine una tanda' : 'Este comal está ocupado: espera a que termine la tanda o usa el otro') : `No te alcanza para ${r.name}. ${chk.why}`);
+    toast(w, chk.shelf ? `${chk.long}: cómprala en la TIENDA y colócala en el modo EDITAR` : chk.locked ? `${r.name} se desbloquea en el nivel ${r.level}` : chk.full ? (r.station === 'fridge' ? 'El refrigerador está ocupado: espera a que termine una tanda' : 'Este comal está ocupado: espera a que termine la tanda o usa el otro') : `No te alcanza para ${r.name}. ${chk.why}`);
     return false;
   }
   const slot = slotFor(w, r.station);
@@ -2505,23 +3105,38 @@ function startCook(w, key) {
   w.money -= r.cost; w.dayCost += r.cost; spend(w, STAM.cook);
   const p = r.station === 'fridge' ? fridgeRingPos(0) : comalPos(w.panelIdx);
   addPart(w, { type: 'text', text: '-' + pesos(r.cost), x: p.x, y: p.y - 30, vy: -34, life: 1.2, color: '#ff8fa0' });
-  sfx(r.drink ? 'pour' : 'sizzle');
+  sfx(r.drink ? 'drinkStart' : 'cookStart');
+  slot.snd = .5;
   return true;
 }
-// El panel se ajusta al alto del lienzo: con los 8 platillos del comal las filas se hacen un poco más bajas para que todo quepa
-const fitPanel = w => { const n = STATIONS[w.panel || 'comal'].items.length; PANEL.rowH = Math.min(60, Math.floor((H - PANEL.y - PANEL.top - 34) / n)); };
-const panelH = w => { fitPanel(w); return PANEL.top + STATIONS[w.panel].items.length * PANEL.rowH + 28; };
+// Lo que se ve en el panel: lo desbloqueado y el siguiente por desbloquear (así se ve qué sigue), en páginas de 7
+const PANEL_PER = 7;
+function panelPage(w) {
+  const all = STATIONS[w.panel || 'comal'].items, unl = all.filter(k => RECIPES[k].level <= w.level), nxt = all.find(k => RECIPES[k].level > w.level);
+  const list = nxt ? unl.concat([nxt]) : unl, pages = Math.max(1, Math.ceil(list.length / PANEL_PER));
+  w.panelPage = clamp(w.panelPage || 0, 0, pages - 1);
+  return { pages, rows: list.slice(w.panelPage * PANEL_PER, w.panelPage * PANEL_PER + PANEL_PER) };
+}
+// El panel se ajusta al alto del lienzo: con muchos platillos las filas se hacen un poco más bajas para que todo quepa
+const fitPanel = w => { const n = panelPage(w).rows.length; PANEL.rowH = Math.min(60, Math.floor((H - PANEL.y - PANEL.top - 56) / Math.max(1, n))); };
+const panelH = w => { fitPanel(w); const P_ = panelPage(w); return PANEL.top + P_.rows.length * PANEL.rowH + (P_.pages > 1 ? 56 : 28); };
+const panelPrev = w => ({ x: PANEL.x + 14, y: PANEL.y + panelH(w) - 44, w: 44, h: 30, label: '◀', size: 16, style: 'dark' });
+const panelNext = w => ({ x: PANEL.x + PANEL.w - 58, y: PANEL.y + panelH(w) - 44, w: 44, h: 30, label: '▶', size: 16, style: 'dark' });
 function panelPointer(w, x, y) {
   const hit = b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
   if (hit(panelClose)) { w.panel = false; sfx('back'); return; }
   fitPanel(w);
-  const items = STATIONS[w.panel].items;
-  for (let i = 0; i < items.length; i++) if (hit(panelBtn(i))) { if (startCook(w, items[i])) w.panel = false; return; }
+  const pg = panelPage(w);
+  if (pg.pages > 1) {
+    if (hit(panelPrev(w))) { w.panelPage = (w.panelPage + pg.pages - 1) % pg.pages; sfx('click'); return; }
+    if (hit(panelNext(w))) { w.panelPage = (w.panelPage + 1) % pg.pages; sfx('click'); return; }
+  }
+  for (let i = 0; i < pg.rows.length; i++) if (hit(panelBtn(i))) { if (startCook(w, pg.rows[i])) w.panel = false; return; }
   if (!hit({ x: PANEL.x, y: PANEL.y, w: PANEL.w, h: panelH(w) })) { w.panel = false; sfx('back'); }     // clic fuera: cierra
 }
 
-function comalClick(w, i = 0) { w.panel = (w.panel === 'comal' && w.panelIdx === i) ? false : 'comal'; w.panelIdx = i; sfx('click'); }
-function fridgeClick(w) { w.panel = w.panel === 'fridge' ? false : 'fridge'; sfx('click'); }
+function comalClick(w, i = 0) { w.panel = (w.panel === 'comal' && w.panelIdx === i) ? false : 'comal'; w.panelIdx = i; w.panelPage = 0; sfx('click'); }
+function fridgeClick(w) { w.panel = w.panel === 'fridge' ? false : 'fridge'; w.panelPage = 0; sfx('click'); }
 function barClick(w, key) {
   const n = w.novato;
   sfx('click');
@@ -2554,13 +3169,22 @@ function collectCoin(w, coin, auto) {
   }
   const gain = coin.v + (coin.xp || 0);                            // cobrar también da experiencia: 1 XP por peso (+ bono del VIP)
   if (!auto) {
-    addPart(w, { type: 'fly', x: coin.x, y: coin.y, tx: 205, ty: 30, life: .6 });
+    const sp = camScreen(coin.x, coin.y);
+    addPart(w, { type: 'fly', x: sp.x, y: sp.y, tx: 205, ty: 30, life: .6 });
     addPart(w, { type: 'text', text: `+${pesos(coin.v)}  +${gain} XP`, x: coin.x, y: coin.y - 12, vy: -40, life: 1.2, color: P.gold });
     addXp(w, gain);
     sfx('coin');
   } else addXp(w, gain);
 }
 
+// ¿El toque cayó sobre el escenario (y no sobre un botón o un panel)? Solo esos se esperan a que el dedo se levante para distinguirlos de un arrastre.
+function clickDeferrable(w, x, y) {
+  if (w.phase !== 'play' || w.shop || w.panel || w.modal || y < HUD) return false;
+  if (w.tut && (TUT[w.tut.s] === 'intro' || TUT[w.tut.s] === 'outro' || UI.hit(tutBtnSkip))) return false;
+  if (zoomBtns().some(b => UI.hit(b))) return false;
+  if (w.edit && x >= EDIT.x && x <= EDIT.x + EDIT.w && y >= EDIT.y && y <= EDIT.y + editH(w)) return false;
+  return true;
+}
 function worldPointer(w, x, y) {
   // superposiciones (resumen / fin de partida)
   if (w.phase !== 'play') {
@@ -2569,7 +3193,11 @@ function worldPointer(w, x, y) {
     return;
   }
   if (w.tut && tutPointer(w, x, y)) return;                        // ventanas del tutorial y botón de saltarlo
+  if (w.modal === 'sign') { signPointer(w, x, y); return; }
+  if (w.modal === 'claw') { clawPointer(w, x, y); return; }
   if (w.shop) { shopPointer(w, x, y); return; }
+  const zb = zoomBtns().find(b => UI.hit(b));                      // botones + − del zoom
+  if (zb) { zb.fn(); sfx('click'); return; }
   if (w.edit) {                                                   // modo edición: solo el botón EDITAR (sale) y el panel/escenario
     const eb = w.btns.find(b => b.label === 'EDITAR');
     if (UI.hit(eb)) { exitEdit(w); return; }
@@ -2578,6 +3206,7 @@ function worldPointer(w, x, y) {
   const hb = w.btns.find(b => UI.hit(b));
   if (hb) { hb.fn(); return; }
   if (w.panel) { panelPointer(w, x, y); return; }
+  const sy = y, q = camWorld(x, y); x = q.x; y = q.y;              // de aquí en adelante: puntos del mundo (con zoom y desplazamiento)
   for (let i = w.coins.length - 1; i >= 0; i--) {
     const c = w.coins[i];
     if (Math.hypot(x - c.x, y - (c.y - 4)) < 26) { w.coins.splice(i, 1); collectCoin(w, c); Game.save(); return; }
@@ -2587,6 +3216,8 @@ function worldPointer(w, x, y) {
   if (restHit(x, y)) { restClick(w); return; }
   const sk = stockAt(w, x, y);                                    // pilas de la barra de comida lista y del mostrador de bebidas
   if (sk) { barClick(w, sk); return; }
+  if ((w.outs || []).some(o => inBox(outBox(o), x, y))) { openSign(w); return; }               // el cartel: se le pone nombre
+  if (LAYOUT.claw && inBox(itemBox(LAYOUT.claw, 16), x, y)) { openClaw(w); return; }          // la máquina de garra
   // el Novato y los clientes sentados: recibe el clic el que está más cerca de la cámara (mayor isoX+isoY)
   const nov = w.novato;
   const cands = w.customers.filter(cu => cu.seated).map(cu => ({ d: cu.x + cu.y, cu }));
@@ -2600,7 +3231,7 @@ function worldPointer(w, x, y) {
     }
   }
   const iso = screenToIso(x, y);
-  if (y > HUD && iso.x >= 0 && iso.y >= 0 && iso.x < COLS && iso.y < ROWS) {
+  if (sy > HUD && iso.x >= 0 && iso.y >= 0 && iso.x < COLS && iso.y < ROWS) {
     const cell = Grid.cell(iso.x, iso.y);
     if (Grid.free(cell.c, cell.r) && assignPath(w, [cell])) { w.novato.task = null; sfx('click'); }
     else if (!Grid.free(cell.c, cell.r)) sfx('nope');
@@ -2631,6 +3262,10 @@ function updateWorld(w, dt) {
   w.doorA = clamp(w.doorA + w.doorV * dt, -1.35, 1.35);
 
   if (w.phase === 'play') {
+    w.customers.forEach(cu => {                                                  // red de seguridad: nadie se queda atado a una mesa que ya no está en el local
+      if (cu.held && !(w.edit && w.edit.held && cu.seat && w.edit.held.it === cu.seat.tb)) cu.held = false;
+      if (cu.seat && !w.furn.includes(cu.seat.tb) && !(w.edit && w.edit.held && w.edit.held.it === cu.seat.tb)) leaveSeat(w, cu, false);
+    });
     if (w.repTemp > 0) w.repTemp = Math.max(0, w.repTemp - dt / 60);          // la máscara perdida por el sillazo se recupera en un minuto
     for (const it of w.furn) if (it.type === 'table' && it.down > 0) {         // mesas volcadas: el personal las vuelve a poner
       it.downT += dt; it.down -= dt;
@@ -2647,7 +3282,7 @@ function updateWorld(w, dt) {
       w.spawnT -= dt;
       if (w.spawnT <= 0) {
         const h = hourOf(w), rush = h >= 13 && h < 15.5 ? .6 : h < 9 ? 1.35 : h >= 18.5 ? 1.25 : 1;      // hora de la comida: más gente; temprano y de noche, menos
-        const base = clamp(9.5 - (w.day - 1) * .9, 4.2, 9.5) * rush;
+        const base = clamp(9.5 - (w.day - 1) * .9, 4.2, 9.5) * rush * (w.outs && w.outs.length ? .94 : 1);       // el cartel de afuera atrae ~6 % más clientes
         w.spawnT = spawnCustomer(w) ? rand(base * .7, base * 1.3) : 1;
       }
     } else if (!w.closedWarned) { w.closedWarned = true; toast(w, '¡Son las 8:00 PM! Cerramos: atiende a los últimos clientes'); sfx('door'); }
@@ -2661,8 +3296,12 @@ function updateWorld(w, dt) {
         else addPart(w, { type: 'steam', x: sp.x + rand(-8, 8), y: sp.y - 8, vx: rand(-6, 6), vy: -rand(18, 32), life: rand(.8, 1.3) });
       }
       const r = RECIPES[s.dish];
+      if ((s.snd = (s.snd || 0) - dt) <= 0) {                      // se oye cómo se cocina: chisporroteo y espátula (comal) o hielo y chorros (bebidas)
+        if (station === 'fridge') { sfx(pick(['ice', 'shaker', 'glug', 'fizz', 'squeeze'])); s.snd = rand(.7, 1.3); }
+        else { sfx(pick(['crackle', 'crackle', 'spatula', 'chop', 'sizzle2'])); s.snd = rand(.4, .9); }
+      }
       if (s.t >= r.time) {                                         // tanda lista: las porciones pasan a la barra (comida) o al mostrador de bebidas
-        s.state = 'empty'; w.stock[s.dish] += r.yield; sfx('ready');
+        s.state = 'empty'; w.stock[s.dish] += r.yield; sfx(r.drink ? 'ding' : 'ready');
         const bp = stockPos(s.dish) || sp;                          // (si el mostrador no está colocado, se avisa donde se cocinó)
         addPart(w, { type: 'text', text: `+${r.yield} ${r.short}`, x: bp.x, y: bp.y - 34, vy: -26, life: 1.5, color: P.gold });
         for (let k = 0; k < 6; k++) addPart(w, { type: 'spark', x: bp.x, y: bp.y - 10, vx: rand(-40, 40), vy: -rand(20, 60), life: .6 });
@@ -2712,15 +3351,30 @@ function updateWorld(w, dt) {
   w.parts = w.parts.filter(p => p.life > 0);
 }
 
+// Lo que se guarda en el refri de sobrantes (los envases cerrados, como la cerveza, no se echan a perder)
+const perishable = k => !RECIPES[k].keep;
+const storedCount = w => MENU.reduce((n, k) => n + (perishable(k) ? w.stock[k] : 0), 0);
+function spoilStock(w) {                                              // al cerrar: lo que no cabe en el refri de sobrantes se tira. Primero se guarda lo más caro
+  const out = { kept: 0, lost: 0, loss: 0, active: w.level >= SPOIL_LEVEL, fridge: !!LAYOUT.storage };
+  if (!out.active) return out;
+  let room = LAYOUT.storage ? STORAGE_CAP : 0;
+  MENU.filter(k => perishable(k) && w.stock[k] > 0).sort((a, b) => RECIPES[b].price - RECIPES[a].price).forEach(k => {
+    const n = w.stock[k], keep = Math.min(n, room), r = RECIPES[k];
+    room -= keep; out.kept += keep; out.lost += n - keep; out.loss += (n - keep) * r.cost / r.yield; w.stock[k] = keep;
+  });
+  out.loss = Math.round(out.loss);
+  return out;
+}
 function finishDay(w) {
   w.coins.forEach(c => collectCoin(w, c, true)); w.coins = [];
   if (w.dayAngry === 0 && w.rep < 5) { w.rep = Math.min(5, w.rep + 1); w.perfect = true; }
+  w.spoil = spoilStock(w);
   w.phase = 'summary';
   Game.save();
   sfx('fanfare');
   w.overlay = [
-    { label: 'Siguiente día', x: 262, y: 392, w: 210, h: 52, style: 'green', size: 24, fn: () => { w.day += 1; startDay(w); Game.save(); } },
-    { label: 'Guardar y salir', x: 488, y: 392, w: 210, h: 52, style: 'dark', size: 24, fn: () => setState('MENU') }
+    { label: 'Siguiente día', x: 262, y: 424, w: 210, h: 52, style: 'green', size: 24, fn: () => { w.day += 1; startDay(w); Game.save(); } },
+    { label: 'Guardar y salir', x: 488, y: 424, w: 210, h: 52, style: 'dark', size: 24, fn: () => setState('MENU') }
   ];
 }
 function endGame(w) {
@@ -2754,9 +3408,9 @@ function isoBox(c, x0, y0, x1, y1, z0, z1, col, lw = 1.6) {
 function drawGround(c) {
   const g = c.createLinearGradient(0, HUD, 0, H);
   g.addColorStop(0, '#5aa65a'); g.addColorStop(1, '#3a7a46');
-  c.fillStyle = g; c.fillRect(0, HUD, W, H - HUD);
+  c.fillStyle = g; c.fillRect(-1500, -1000, 4000, 2800);                      // enorme: con el zoom alejado se ve más mundo
   c.strokeStyle = 'rgba(25,80,40,.35)'; c.lineWidth = 1.4; c.beginPath();
-  for (let i = 0; i < 150; i++) { const x = hash(i) * W, y = HUD + hash(i + 400) * (H - HUD); c.moveTo(x, y); c.lineTo(x - 2, y - 5); c.moveTo(x, y); c.lineTo(x + 2, y - 5); }
+  for (let i = 0; i < 260; i++) { const x = -330 + hash(i) * (W + 660), y = HUD - 150 + hash(i + 400) * (H - HUD + 300); c.moveTo(x, y); c.lineTo(x - 2, y - 5); c.moveTo(x, y); c.lineTo(x + 2, y - 5); }
   c.stroke();
 
   const X0 = -16, X1 = 28;
@@ -2981,8 +3635,9 @@ function drawWalls(c, w) {
     const ny = lona ? 24 : 10;
     c.save(); c.shadowColor = '#ff3d8b'; c.shadowBlur = 10 * fl;
     c.fillStyle = '#16072c'; rr(c, 6.5 * U, ny, 84, 38, 6); c.fill(); c.lineWidth = 2; c.strokeStyle = `rgba(255,95,162,${fl})`; c.stroke();
-    txt(c, 'TAQUERÍA', 6.5 * U + 42, ny + 17, { font: `400 15px ${FONT_DISPLAY}`, align: 'center', color: `rgba(255,170,210,${fl})` });
-    txt(c, 'EL RING', 6.5 * U + 42, ny + 32, { font: `400 14px ${FONT_DISPLAY}`, align: 'center', color: `rgba(255,220,120,${fl})` });
+    const sg = signOf(), n1 = (sg.t1 || '').toUpperCase(), n2 = (sg.t2 || '').toUpperCase();
+    txt(c, n1, 6.5 * U + 42, ny + 17, { font: `400 ${fitDisplay(c, n1, 76, 15)}px ${FONT_DISPLAY}`, align: 'center', color: `rgba(255,170,210,${fl})` });
+    txt(c, n2, 6.5 * U + 42, ny + 32, { font: `400 ${fitDisplay(c, n2, 76, 14)}px ${FONT_DISPLAY}`, align: 'center', color: `rgba(255,220,120,${fl})` });
     c.restore();
   }
   c.restore();
@@ -3079,13 +3734,14 @@ function drawComalItem(c, w, it) {
   }
 }
 
-// Barra de comida lista: una pila por platillo
+// Barra de comida lista (y barra de antojitos): una pila por platillo
+const CT_BAR2 = { top: '#e0b070', left: '#1f8f94', right: '#17707a' };
 function drawBarItem(c, w, it) {
-  counterBox(c, it, CT_WOOD);
+  counterBox(c, it, it.type === 'bar2' ? CT_BAR2 : CT_WOOD);
   const o = S(it.c + .04, it.r + .92, 34); c.save(); c.translate(o.x, o.y); c.transform(1, .5, 0, 1, 0, 0);
-  txt(c, 'COMIDA LISTA', 1.5 * U, 21, { font: `700 9px ${FONT_UI}`, align: 'center', color: 'rgba(255,240,210,.8)', ls: 1 });
+  txt(c, it.type === 'bar2' ? 'ANTOJITOS' : 'COMIDA LISTA', 1.5 * U, 21, { font: `700 9px ${FONT_UI}`, align: 'center', color: 'rgba(255,240,210,.8)', ls: 1 });
   c.restore();
-  FOODS.forEach((k, i) => {
+  SHELF_KEYS[it.type].forEach((k, i) => {
     const q = barSlot(i), p = S(it.c + q[0], it.r + q[1], 34);              // (se dibuja sin girar: withMirror se encarga)
     if (RECIPES[k].level > w.level && w.stock[k] === 0) return;                          // todavía bloqueado: sin lugar marcado
     if (w.stock[k] > 0) drawStack(c, k, w.stock[k], p.x, p.y);
@@ -3125,16 +3781,45 @@ function drawFridge(c, w, it) {
   });
 }
 
-// Mostrador de bebidas: aquí quedan las micheladas listas
+// Una bebida lista: un vaso con su contador (en el mostrador caben seis tipos)
+function drawDrinkStack(c, key, count, x, y) {
+  drawDish(c, key, x - 3, y - 9, 6.6);
+  const bx = x + 8, by = y - 15;
+  c.fillStyle = P.ink; c.beginPath(); c.arc(bx, by, 7.4, 0, 6.3); c.fill(); c.lineWidth = 1.4; c.strokeStyle = '#5fd0ff'; c.stroke();
+  txt(c, String(count), bx, by + 4.2, { font: `700 11px ${FONT_UI}`, align: 'center', color: '#bfeaff' });
+}
+// Mostrador de bebidas: aquí quedan listas las micheladas, las aguas de sabores y las cervezas
 function drawDrinks(c, w, it) {
-  isoBox(c, it.c + .12, it.r + .1, it.c + .88, it.r + .8, 0, 34, { top: '#c98b4e', left: '#2a62c9', right: '#1f4a9c' });
-  const p = S(it.c + .5, it.r + .5, 34), n = w.stock.michelada;
-  if (n > 0) drawStack(c, 'michelada', n, p.x, p.y);
-  else {
-    c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 1.3; c.setLineDash([3, 3]);
-    c.beginPath(); c.ellipse(p.x, p.y, 13, 6.5, 0, 0, 6.3); c.stroke(); c.setLineDash([]);
-    c.save(); c.globalAlpha = .3; drawDish(c, 'michelada', p.x, p.y - 3, 5.5); c.restore();
-  }
+  isoBox(c, it.c + .08, it.r + .1, it.c + 1.92, it.r + .86, 0, 34, { top: '#c98b4e', left: '#2a62c9', right: '#1f4a9c' });
+  const o = S(it.c + .08, it.r + .86, 34); c.save(); c.translate(o.x, o.y); c.transform(1, .5, 0, 1, 0, 0);
+  txt(c, 'BEBIDAS LISTAS', 1.5 * U - 4, 20, { font: `700 8px ${FONT_UI}`, align: 'center', color: 'rgba(220,240,255,.85)', ls: 1 });
+  c.restore();
+  SHELF_KEYS.drinks.forEach((k, i) => {
+    const q = drinkSlot(i), p = S(it.c + q[0], it.r + q[1], 34), n = w.stock[k];
+    if (RECIPES[k].level > w.level && n === 0) return;
+    if (n > 0) drawDrinkStack(c, k, n, p.x, p.y);
+    else {
+      c.strokeStyle = 'rgba(255,255,255,.3)'; c.lineWidth = 1.2; c.setLineDash([3, 3]);
+      c.beginPath(); c.ellipse(p.x, p.y, 10, 5, 0, 0, 6.3); c.stroke(); c.setLineDash([]);
+      c.save(); c.globalAlpha = .3; drawDish(c, k, p.x, p.y - 5, 5.2); c.restore();
+    }
+  });
+}
+// Refri de sobrantes (nivel 5): lo que no se vende en el día se guarda aquí; sin él, la comida que sobra se echa a perder al cerrar
+function drawStorageItem(c, w, it) {
+  const x0 = it.c + .1, x1 = it.c + .9, y0 = it.r + .08, y1 = it.r + .74, H = FURN.storage.h;
+  isoBox(c, x0, y0, x1, y1, 0, H, { top: '#eef4fa', left: '#b9c9d8', right: '#8fa3b8' });
+  const o = S(x0, y1, H), uw = (x1 - x0) * U;
+  c.save(); c.translate(o.x, o.y); c.transform(1, .5, 0, 1, 0, 0);
+  c.lineWidth = 1.4; c.strokeStyle = P.ink; c.fillStyle = '#dfeaf4'; rr(c, 3, 5, uw - 6, H * .46, 3); c.fill(); c.stroke(); rr(c, 3, H * .52, uw - 6, H * .42, 3); c.fill(); c.stroke();
+  c.fillStyle = '#6b7f95'; c.fillRect(uw - 8, 14, 2.2, 12); c.fillRect(uw - 8, H * .6, 2.2, 12);                         // manijas
+  c.strokeStyle = '#5fb0ff'; c.lineWidth = 1.4; c.lineCap = 'round';                                                      // copo de nieve
+  for (let k = 0; k < 3; k++) { const a = k * Math.PI / 3, cx = uw / 2 - 2, cy = H * .26; c.beginPath(); c.moveTo(cx + Math.cos(a) * 6, cy + Math.sin(a) * 6); c.lineTo(cx - Math.cos(a) * 6, cy - Math.sin(a) * 6); c.stroke(); }
+  txt(c, 'SOBRANTES', uw / 2 - 1, H - 7, { font: `700 6px ${FONT_UI}`, align: 'center', color: '#355a82', ls: .5 });
+  c.restore();
+  const n = storedCount(w), tag = S(it.c + .5, it.r + .4, H + 11);                                                          // rótulo con lo que cabe
+  c.fillStyle = P.ink; rr(c, tag.x - 25, tag.y - 7, 50, 14, 5); c.fill(); c.lineWidth = 1.3; c.strokeStyle = n >= STORAGE_CAP ? '#ff8fa0' : '#5fd0ff'; c.stroke();
+  txt(c, `${n} / ${STORAGE_CAP}`, tag.x, tag.y + 3.6, { font: `700 10px ${FONT_UI}`, align: 'center', color: '#bfeaff', ls: .5 });
 }
 
 // Banca de dos lugares con suero: aquí descansan el Novato y el mesero
@@ -3208,13 +3893,24 @@ function drawVitrinaItem(c, w, it) {
 }
 
 function drawChair(c, s) {
-  const cx = s.gx, cy = s.gy, seat = () => isoBox(c, cx - .26, cy - .26, cx + .26, cy + .26, 13, 17, { top: '#ffc43a', left: '#ffb21e', right: '#d98f00' });
+  const tb = s.tb, key = tb && tb.chair; if (!key || !CHAIRS[key]) return;                  // mesa sin sillas: no hay nada que dibujar
+  const C = CHAIRS[key], cx = s.gx, cy = s.gy, stool = !!C.stool, legH = stool ? 20 : 14, z0 = stool ? 19 : 13, z1 = stool ? 24 : 17;
+  const seat = () => isoBox(c, cx - .26, cy - .26, cx + .26, cy + .26, z0, z1, C.seat);
   c.fillStyle = 'rgba(0,0,0,.18)'; isoEllipse(c, cx, cy, 0, .4); c.fill();
-  c.strokeStyle = '#5a3a00'; c.lineWidth = 3; c.lineCap = 'round';
-  [[-.2, -.2], [.2, -.2], [-.2, .2], [.2, .2]].forEach(([dx, dy]) => { const a = S(cx + dx, cy + dy, 0), b = S(cx + dx, cy + dy, 14); c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); c.stroke(); });
-  const bo = s.outer < 0 ? -.3 : .3, rot = s.tb && s.tb.rot;               // el respaldo queda en el extremo de la mesa
-  const back = () => rot ? isoBox(c, cx - .24, cy + bo - .04, cx + .24, cy + bo + .04, 17, 46, { top: '#ffcb4d', left: '#ffb21e', right: '#d98f00' })
-    : isoBox(c, cx + bo - .04, cy - .24, cx + bo + .04, cy + .24, 17, 46, { top: '#ffcb4d', left: '#ffb21e', right: '#d98f00' });
+  c.strokeStyle = C.leg; c.lineWidth = stool ? 3.4 : 3; c.lineCap = 'round';
+  [[-.2, -.2], [.2, -.2], [-.2, .2], [.2, .2]].forEach(([dx, dy]) => { const a = S(cx + dx, cy + dy, 0), b = S(cx + dx, cy + dy, legH); c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); c.stroke(); });
+  if (stool) { seat(); const t = S(cx, cy, z1); c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 1.4; c.beginPath(); c.ellipse(t.x, t.y, 10, 5, 0, Math.PI * 1.1, Math.PI * 1.9); c.stroke(); return; }
+  const bo = s.outer < 0 ? -.3 : .3, rot = tb.rot, bh = C.tall || 46;
+  const back = () => {
+    if (rot) isoBox(c, cx - .24, cy + bo - .04, cx + .24, cy + bo + .04, z1, bh, C.back); else isoBox(c, cx + bo - .04, cy - .24, cx + bo + .04, cy + .24, z1, bh, C.back);
+    const fx = rot ? cx : cx + bo + .04, fy = rot ? cy + bo + .04 : cy, zm = (z1 + bh) / 2, m = S(fx, fy, zm);
+    const line = z => { const p = rot ? S(cx - .24, fy, z) : S(fx, cy - .24, z), q = rot ? S(cx + .24, fy, z) : S(fx, cy + .24, z); c.beginPath(); c.moveTo(p.x, p.y); c.lineTo(q.x, q.y); c.stroke(); };
+    if (C.slats) { c.strokeStyle = 'rgba(60,35,15,.55)'; c.lineWidth = 1.4; line(z1 + (bh - z1) * .35); line(z1 + (bh - z1) * .68); }
+    if (C.emblem) { c.save(); c.translate(m.x, m.y); c.scale(1, .9); drawMask(c, 0, 0, 6.5, MASKS.blue); c.restore(); }
+    if (C.tiles) { c.fillStyle = '#f4f6fb'; c.strokeStyle = P.ink; c.lineWidth = 1; for (const k of [-1, 1]) { c.beginPath(); c.arc(m.x + k * 4.5, m.y, 2.2, 0, 6.3); c.fill(); c.stroke(); } c.fillStyle = '#e0364a'; c.beginPath(); c.arc(m.x, m.y - 5, 1.6, 0, 6.3); c.fill(); }
+    if (C.gem) { drawGem(c, m.x, m.y, 5); const tp = S(fx, fy, bh); c.fillStyle = '#ffe27a'; c.strokeStyle = P.ink; c.lineWidth = 1; star(c, tp.x, tp.y - 5, 5, 2.2); c.fill(); c.stroke(); }
+    if (key === 'acolchada') { c.fillStyle = 'rgba(255,255,255,.25)'; c.beginPath(); c.arc(m.x - 3, m.y - 3, 1.7, 0, 6.3); c.arc(m.x + 3, m.y + 3, 1.7, 0, 6.3); c.fill(); }
+  };
   if (s.outer < 0) { back(); seat(); } else { seat(); back(); }
 }
 
@@ -3247,23 +3943,60 @@ function drawTable(c, tb, w) {                                   // la mesa y su
   });
 }
 function drawTableBody(c, tb) {                                  // sin girar, tb.c es la silla izquierda: la mesa ocupa las losetas tb.c+1 y tb.c+2
-  const tc = tb.c + 1, x0 = tc + .08, x1 = tc + 1.92, y0 = tb.r + .1, y1 = tb.r + .9, z = 30;
+  const T = tb.style || 'mantel', tc = tb.c + 1, x0 = tc + .08, x1 = tc + 1.92, y0 = tb.r + .1, y1 = tb.r + .9, z = 30;
   c.fillStyle = 'rgba(0,0,0,.2)'; isoPoly(c, [S(x0 - .1, y0 + .1, 0), S(x1 + .18, y0 + .1, 0), S(x1 + .18, y1 + .2, 0), S(x0 - .1, y1 + .2, 0)]); c.fill();
-  c.strokeStyle = '#4a3320'; c.lineWidth = 3; c.lineCap = 'round';
-  [[x0 + .2, y0 + .15], [x1 - .2, y0 + .15], [x0 + .2, y1 - .15], [x1 - .2, y1 - .15]].forEach(([lx, ly]) => { const a = S(lx, ly, 0), b = S(lx, ly, 8); c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); c.stroke(); });
-  isoBox(c, x0, y0, x1, y1, 8, z, { top: '#fff4e6', left: '#d9374a', right: '#a92a3a' }, 2);       // mantel de plástico colgante
-  c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 2;
-  for (let x = x0 + .15; x < x1; x += .3) { const a = S(x, y1, 11), b = S(x, y1, z - 2); c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); c.stroke(); }
-  // gingham sobre la cubierta (plano de losetas)
-  const o = S(x0, y0, z);
-  c.save(); c.translate(o.x, o.y); c.transform(TW / 2, TH / 2, -TW / 2, TH / 2, 0, 0);
-  const wd = x1 - x0, ht = y1 - y0;
-  c.fillStyle = 'rgba(224,54,74,.55)';
-  for (let i = 0; i * .2 < wd; i += 2) c.fillRect(i * .2, 0, Math.min(.2, wd - i * .2), ht);
-  for (let j = 0; j * .2 < ht; j += 2) c.fillRect(0, j * .2, wd, Math.min(.2, ht - j * .2));
-  c.restore();
-  c.fillStyle = 'rgba(255,255,255,.3)'; isoPoly(c, [S(x0 + .15, y0 + .05, z), S(x0 + .55, y0 + .05, z), S(x0 + .35, y1 - .05, z), S(x0 + .05, y1 - .05, z)]); c.fill();
-  isoPoly(c, [S(x0, y0, z), S(x1, y0, z), S(x1, y1, z), S(x0, y1, z)]); c.lineWidth = 2; c.strokeStyle = P.ink; c.stroke();
+  const legs = (col, h, lw = 3) => { c.strokeStyle = col; c.lineWidth = lw; c.lineCap = 'round'; [[x0 + .2, y0 + .15], [x1 - .2, y0 + .15], [x0 + .2, y1 - .15], [x1 - .2, y1 - .15]].forEach(([lx, ly]) => { const a = S(lx, ly, 0), b = S(lx, ly, h); c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); c.stroke(); }); };
+  const topPlane = fn => { const o = S(x0, y0, z); c.save(); c.translate(o.x, o.y); c.transform(TW / 2, TH / 2, -TW / 2, TH / 2, 0, 0); fn(x1 - x0, y1 - y0); c.restore(); };
+  const outline = () => { isoPoly(c, [S(x0, y0, z), S(x1, y0, z), S(x1, y1, z), S(x0, y1, z)]); c.lineWidth = 2; c.strokeStyle = P.ink; c.stroke(); };
+  if (T === 'madera') {
+    legs('#4a2e16', 24, 4.2);
+    isoBox(c, x0, y0, x1, y1, 23, z, { top: '#d9a066', left: '#b07a40', right: '#8a5a2c' }, 2);
+    c.strokeStyle = 'rgba(80,45,15,.45)'; c.lineWidth = 1.2;
+    for (const f of [.33, .66]) { const a = S(x0, lerp(y0, y1, f), z), b = S(x1, lerp(y0, y1, f), z); c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); c.stroke(); }
+    c.fillStyle = 'rgba(80,45,15,.35)'; for (const [kx, ky] of [[.3, .2], [.7, .55], [.5, .85]]) { const p = S(lerp(x0, x1, kx), lerp(y0, y1, ky), z); c.beginPath(); c.ellipse(p.x, p.y, 3, 1.5, 0, 0, 6.3); c.fill(); }
+    outline();
+  } else if (T === 'barril') {
+    isoBox(c, x0 + .08, y0, x1 - .08, y1, 0, 28, { top: '#c98b4e', left: '#7a4a2a', right: '#5e3820' }, 2);
+    c.strokeStyle = '#aab3c2'; c.lineWidth = 2.6; c.lineCap = 'butt';
+    for (const zk of [6, 14, 22]) { const a = S(x0 + .08, y1, zk), b = S(x1 - .08, y1, zk), d = S(x1 - .08, y0, zk); c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); c.lineTo(d.x, d.y); c.stroke(); }
+    c.strokeStyle = 'rgba(40,20,8,.5)'; c.lineWidth = 1.1;
+    for (let k = 1; k < 7; k++) { const a = S(lerp(x0 + .08, x1 - .08, k / 7), y1, 1), b = S(lerp(x0 + .08, x1 - .08, k / 7), y1, 27); c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); c.stroke(); }
+    c.strokeStyle = 'rgba(80,45,15,.4)'; for (const f of [.33, .66]) { const a = S(x0 + .08, lerp(y0, y1, f), 28), b = S(x1 - .08, lerp(y0, y1, f), 28); c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); c.stroke(); }
+  } else if (T === 'talavera') {
+    legs('#2a4a9a', 24, 4);
+    isoBox(c, x0, y0, x1, y1, 23, z, { top: '#f4f6fb', left: '#3f66c9', right: '#2a4a9a' }, 2);
+    topPlane((wd, ht) => {
+      for (let i = 0; i < 6; i++) for (let j = 0; j < 2; j++) {
+        const px = i * wd / 6, py = j * ht / 2, cw = wd / 6, ch = ht / 2; c.fillStyle = (i + j) & 1 ? '#3f66c9' : '#f4f6fb'; c.fillRect(px, py, cw, ch);
+        c.fillStyle = (i + j) & 1 ? '#f4f6fb' : '#3f66c9'; c.beginPath(); c.arc(px + cw / 2, py + ch / 2, Math.min(cw, ch) * .22, 0, 6.3); c.fill();
+      }
+    });
+    outline();
+  } else if (T === 'ring' || T === 'oro') {
+    const gold = T === 'oro';
+    legs(gold ? '#8a6a1a' : '#2b2540', 8, 3);
+    isoBox(c, x0, y0, x1, y1, 8, z, gold ? { top: '#ffe27a', left: '#e3b53a', right: '#b88a1f' } : { top: '#2f56c9', left: '#c4272f', right: '#8f1c26' }, 2);
+    c.strokeStyle = gold ? 'rgba(255,255,255,.55)' : '#fff'; c.lineWidth = 2.4;
+    for (const zk of [14, 20]) { const a = S(x0, y1, zk), b = S(x1, y1, zk), d = S(x1, y0, zk); c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); c.lineTo(d.x, d.y); c.stroke(); }
+    topPlane((wd, ht) => { c.strokeStyle = gold ? '#fff6c8' : '#ffffff'; c.lineWidth = .05; c.strokeRect(.12, .1, wd - .24, ht - .2); c.fillStyle = gold ? 'rgba(255,255,255,.2)' : 'rgba(255,200,61,.9)'; c.beginPath(); c.ellipse(wd / 2, ht / 2, .5, .27, 0, 0, 6.3); c.fill(); });
+    const m = S((x0 + x1) / 2, (y0 + y1) / 2, z); c.save(); c.translate(m.x, m.y); c.scale(1, .5); drawMask(c, 0, 0, 12, gold ? MASKS.ring : MASKS.blue); c.restore();
+    if (gold) { c.fillStyle = '#fff'; for (let k = 0; k < 3; k++) { const a2 = Math.max(0, Math.sin(clock * 2.6 + k * 2.1)), p = S(lerp(x0, x1, .2 + k * .3), lerp(y0, y1, .3 + (k % 2) * .4), z); star(c, p.x, p.y, 1.5 + 3 * a2, 1, 4); c.globalAlpha = a2; c.fill(); c.globalAlpha = 1; } }
+    outline();
+  } else {                                                          // mantel de plástico a cuadros
+    legs('#4a3320', 8);
+    isoBox(c, x0, y0, x1, y1, 8, z, { top: '#fff4e6', left: '#d9374a', right: '#a92a3a' }, 2);       // mantel de plástico colgante
+    c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 2;
+    for (let x = x0 + .15; x < x1; x += .3) { const a = S(x, y1, 11), b = S(x, y1, z - 2); c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); c.stroke(); }
+    const o = S(x0, y0, z);                                          // gingham sobre la cubierta (plano de losetas)
+    c.save(); c.translate(o.x, o.y); c.transform(TW / 2, TH / 2, -TW / 2, TH / 2, 0, 0);
+    const wd = x1 - x0, ht = y1 - y0;
+    c.fillStyle = 'rgba(224,54,74,.55)';
+    for (let i = 0; i * .2 < wd; i += 2) c.fillRect(i * .2, 0, Math.min(.2, wd - i * .2), ht);
+    for (let j = 0; j * .2 < ht; j += 2) c.fillRect(0, j * .2, wd, Math.min(.2, ht - j * .2));
+    c.restore();
+    c.fillStyle = 'rgba(255,255,255,.3)'; isoPoly(c, [S(x0 + .15, y0 + .05, z), S(x0 + .55, y0 + .05, z), S(x0 + .35, y1 - .05, z), S(x0 + .05, y1 - .05, z)]); c.fill();
+    outline();
+  }
   // servilletero y salsa
   isoBox(c, tc + .92, tb.r + .38, tc + 1.08, tb.r + .58, z, z + 8, { top: '#dfe2ea', left: '#c9ccd6', right: '#a9acb8' }, 1.2);
   const sb = S(tc + 1.2, tb.r + .5, z); c.fillStyle = '#c4272f'; rr(c, sb.x - 3, sb.y - 14, 6, 14, 2.5); c.fill(); c.lineWidth = 1.3; c.strokeStyle = P.ink; c.stroke();
@@ -3274,7 +4007,9 @@ function drawFurn(c, w, it) {
   withMirror(c, it, () => {
     switch (it.type) {
       case 'comal': drawComalItem(c, w, it); break;
-      case 'bar': drawBarItem(c, w, it); break;
+      case 'bar': case 'bar2': drawBarItem(c, w, it); break;
+      case 'storage': drawStorageItem(c, w, it); break;
+      case 'garra': drawClawItem(c, w, it); break;
       case 'fridge': drawFridge(c, w, it); break;
       case 'drinks': drawDrinks(c, w, it); break;
       case 'bench': drawBench(c, w, it); break;
@@ -3395,7 +4130,7 @@ function drawTinted(c, x, y, opts, alpha) {
   oc.globalCompositeOperation = 'source-over';
   c.drawImage(tintCv, x - 80, y - 150, 160, 190);
 }
-function drawNovatoActor(c, w, nv = w.novato, look = LUCHADORES.novato) {                 // sirve para el Novato y para el mesero contratado
+function drawNovatoActor(c, w, nv = w.novato, look = nv === w.novato ? playerLook(w) : LUCHADORES.novato) {                 // sirve para el Novato y para el mesero contratado
   const p = actorPos(nv, nv.resting), rage = nv.furia || nv.busy;
   const opts = Object.assign({}, look, nv.resting
     ? { state: 'eat', t: w.t, dir: -1, seated: true, scale: 1.04, tacosLeft: 3, eatKey: 'suero' }
@@ -3433,22 +4168,27 @@ function drawStaminaBar(c, w, nv = w.novato) {
 }
 // Carteles cómicos de los castigos: [línea 1, línea 2, color de la estrella, color del óvalo]
 const FX_BIG = { sillazo: ['¡SILLAZO!', 'DE LUCHA', '#ff9f43', '#7c3aed'], vuelo: ['¡CRASH!', 'VUELO SUICIDA', '#5fd0ff', '#2a4fb8'], llave: ['¡LLAVE!', 'DE SUMISIÓN', '#c4a2ff', '#4c2a9a'] };
+function drawDong(c, w) {                                                    // ¡DONG!: llega un VIP (campana de ring con aros de sonido), en coordenadas de pantalla
+  for (const f of w.fx) {
+    if (f.type !== 'dong') continue;
+    const k = f.t / f.life, pop = easeOutBack(clamp(f.t / .25, 0, 1)), a = k > .8 ? (1 - k) / .2 : 1;
+    const shake = f.t < .6 ? Math.sin(f.t * 70) * 3 : 0;
+    c.save(); c.globalAlpha = clamp(a, 0, 1);
+    c.translate(480 + shake * 2, 128); c.scale(pop, pop); c.rotate(Math.sin(f.t * 22) * Math.max(0, .16 - f.t * .1));
+    for (let k2 = 0; k2 < 3; k2++) { c.strokeStyle = `rgba(255,214,90,${.5 - k2 * .14})`; c.lineWidth = 4; c.beginPath(); c.arc(0, -4, 44 + k2 * 14 + f.t * 24, -2.5, -.64); c.stroke(); c.beginPath(); c.arc(0, -4, 44 + k2 * 14 + f.t * 24, 3.78, 5.64); c.stroke(); }
+    c.lineJoin = 'round'; c.lineWidth = 3; c.strokeStyle = P.ink; c.fillStyle = '#ffc83d';
+    c.beginPath(); c.moveTo(-26, 24); c.quadraticCurveTo(-30, -22, 0, -30); c.quadraticCurveTo(30, -22, 26, 24); c.closePath(); c.fill(); c.stroke();
+    c.fillStyle = '#e0a300'; c.fillRect(-30, 24, 60, 7); c.strokeRect(-30, 24, 60, 7);
+    c.fillStyle = '#7a4a1e'; c.beginPath(); c.arc(0, 38, 7, 0, 6.3); c.fill(); c.stroke();
+    txt(c, '¡DONG!', 0, 76, { font: `400 40px ${FONT_DISPLAY}`, align: 'center', color: '#fff3b0', stroke: P.ink, sw: 8 });
+    c.restore();
+  }
+}
 function drawFx(c, w) {
   for (const f of w.fx) {
     const k = f.t / f.life, pop = easeOutBack(clamp(f.t / .25, 0, 1)), a = k > .8 ? (1 - k) / .2 : 1;
     const shake = f.t < .6 ? Math.sin(f.t * 70) * 3 : 0;
-    if (f.type === 'dong') {                                                  // ¡DONG!: llega el VIP (campana de ring con aros de sonido)
-      c.save(); c.globalAlpha = clamp(a, 0, 1);
-      c.translate(480 + shake * 2, 128); c.scale(pop, pop); c.rotate(Math.sin(f.t * 22) * Math.max(0, .16 - f.t * .1));
-      for (let k2 = 0; k2 < 3; k2++) { c.strokeStyle = `rgba(255,214,90,${.5 - k2 * .14})`; c.lineWidth = 4; c.beginPath(); c.arc(0, -4, 44 + k2 * 14 + f.t * 24, -2.5, -.64); c.stroke(); c.beginPath(); c.arc(0, -4, 44 + k2 * 14 + f.t * 24, 3.78, 5.64); c.stroke(); }
-      c.lineJoin = 'round'; c.lineWidth = 3; c.strokeStyle = P.ink; c.fillStyle = '#ffc83d';
-      c.beginPath(); c.moveTo(-26, 24); c.quadraticCurveTo(-30, -22, 0, -30); c.quadraticCurveTo(30, -22, 26, 24); c.closePath(); c.fill(); c.stroke();
-      c.fillStyle = '#e0a300'; c.fillRect(-30, 24, 60, 7); c.strokeRect(-30, 24, 60, 7);
-      c.fillStyle = '#7a4a1e'; c.beginPath(); c.arc(0, 38, 7, 0, 6.3); c.fill(); c.stroke();
-      txt(c, '¡DONG!', 0, 76, { font: `400 40px ${FONT_DISPLAY}`, align: 'center', color: '#fff3b0', stroke: P.ink, sw: 8 });
-      c.restore();
-      continue;
-    }
+    if (f.type === 'dong') continue;                                          // la campana va aparte (en coordenadas de pantalla)
     const fxk = FX_BIG[f.type], big = !!fxk;
     c.save(); c.globalAlpha = clamp(a, 0, 1);
     c.translate(f.x + shake, f.y - k * 10); c.rotate(-.1 + Math.sin(f.t * 12) * .02); c.scale(pop * (big ? 1.12 : 1), pop * (big ? 1.12 : 1));
@@ -3496,7 +4236,7 @@ function drawBubble(c, cu, t) {
 
 /* ---------- Panel del comal y avisos al pasar el cursor ---------- */
 function drawCookPanel(c, w) {
-  const st = STATIONS[w.panel], list = w.panel === 'fridge' ? w.dslots : [w.slots[w.panelIdx]], Q = Object.assign({}, PANEL, { h: panelH(w) }), used = list.filter(s => s.state === 'cook').length;
+  const st = STATIONS[w.panel], list = w.panel === 'fridge' ? w.dslots : [w.slots[w.panelIdx]], Q = Object.assign({}, PANEL, { h: panelH(w) }), used = list.filter(s => s.state === 'cook').length, pg = panelPage(w);
   const title = w.panel === 'comal' && w.slots.length > 1 ? `COMAL ${w.panelIdx + 1}` : st.title;
   const accent = w.panel === 'fridge' ? '#5fd0ff' : P.gold;
   c.save();
@@ -3511,18 +4251,22 @@ function drawCookPanel(c, w) {
   c.strokeStyle = P.white; c.lineWidth = 2.4; c.lineCap = 'round'; c.beginPath();
   c.moveTo(cl.x + 9, cl.y + 9); c.lineTo(cl.x + 19, cl.y + 19); c.moveTo(cl.x + 19, cl.y + 9); c.lineTo(cl.x + 9, cl.y + 19); c.stroke();
   const k = Q.rowH / 60;                                              // escala de la fila (1 = 60 px)
-  st.items.forEach((key, i) => {
+  pg.rows.forEach((key, i) => {
     const r = RECIPES[key], y = Q.y + Q.top + i * Q.rowH, chk = canCook(w, key), b = panelBtn(i);
     if (i % 2 === 0) { c.fillStyle = 'rgba(255,255,255,.05)'; c.fillRect(Q.x + 6, y, Q.w - 12, Q.rowH); }
     c.fillStyle = P.ink; c.beginPath(); c.arc(Q.x + 34, y + Q.rowH / 2, 22 * k, 0, 6.3); c.fill(); c.lineWidth = 2; c.strokeStyle = chk.ok ? P.violet : '#4a4560'; c.stroke();
     c.save(); c.globalAlpha = chk.ok ? 1 : .55; drawDish(c, key, Q.x + 34, y + Q.rowH / 2 - 1, 12 * k); c.restore();
-    txt(c, r.name, Q.x + 64, y + 22 * k, { font: `700 16px ${FONT_UI}`, color: chk.ok ? P.cream : '#9d96b4' });
+    txt(c, r.name, Q.x + 64, y + 22 * k, { font: `700 ${r.name.length > 22 ? 14.5 : 16}px ${FONT_UI}`, color: chk.ok ? P.cream : '#9d96b4' });
     txt(c, `Cuesta ${pesos(r.cost)} · ${r.time} seg`, Q.x + 64, y + 38 * k, { font: `600 13px ${FONT_UI}`, color: P.muted });
     txt(c, `Rinde ${r.yield} ${r.unit} · venta ${pesos(r.price)} c/u`, Q.x + 64, y + 53 * k, { font: `600 13px ${FONT_UI}`, color: chk.ok ? P.gold : '#8a7a50' });
     drawButton(c, Object.assign({ label: chk.locked ? `NIVEL ${r.level}` : 'COCINAR', style: 'green', size: 15 }, b, { disabled: !chk.ok }));
     if (!chk.ok && !chk.locked) txt(c, chk.why.toUpperCase(), b.x + b.w / 2, b.y + b.h + 9, { font: `700 10.5px ${FONT_UI}`, align: 'center', color: '#ff8fa0', ls: .6 });
   });
-  txt(c, 'Toca fuera del panel para cerrar', Q.x + Q.w / 2, Q.y + Q.h - 9, { font: `600 12px ${FONT_UI}`, align: 'center', color: P.muted, ls: .5 });
+  if (pg.pages > 1) {
+    drawButton(c, panelPrev(w)); drawButton(c, panelNext(w));
+    txt(c, `Página ${w.panelPage + 1} de ${pg.pages}`, Q.x + Q.w / 2, Q.y + Q.h - 23, { font: `700 14px ${FONT_UI}`, align: 'center', color: P.cream, ls: .5 });
+    txt(c, 'Toca fuera para cerrar', Q.x + Q.w / 2, Q.y + Q.h - 8, { font: `600 11px ${FONT_UI}`, align: 'center', color: P.muted, ls: .5 });
+  } else txt(c, 'Toca fuera del panel para cerrar', Q.x + Q.w / 2, Q.y + Q.h - 9, { font: `600 12px ${FONT_UI}`, align: 'center', color: P.muted, ls: .5 });
   c.restore();
 }
 /* ---------- Tienda ---------- */
@@ -3563,6 +4307,47 @@ function drawShopIcon(c, id, x, y, w) {
     c.strokeStyle = '#fff'; c.lineWidth = 2;
     for (const [px, py] of [[x - 24, y + 4], [x, y - 8], [x + 24, y + 4], [x, y + 16]]) { c.beginPath(); c.moveTo(px, py); c.lineTo(px, py - 17); c.stroke(); }
     c.beginPath(); c.moveTo(x - 24, y - 13); c.lineTo(x, y - 25); c.lineTo(x + 24, y - 13); c.lineTo(x, y - 1); c.closePath(); c.strokeStyle = '#ff6a78'; c.stroke();
+  } else if (id === 'bar2') {                                   // barra de antojitos: mostrador turquesa con elote y tostada
+    c.beginPath(); c.moveTo(x - 22, y - 2); c.lineTo(x, y - 12); c.lineTo(x + 22, y - 2); c.lineTo(x, y + 8); c.closePath(); c.fillStyle = '#e0b070'; c.fill(); c.stroke();
+    c.beginPath(); c.moveTo(x - 22, y - 2); c.lineTo(x, y + 8); c.lineTo(x, y + 20); c.lineTo(x - 22, y + 10); c.closePath(); c.fillStyle = '#1f8f94'; c.fill(); c.stroke();
+    c.beginPath(); c.moveTo(x + 22, y - 2); c.lineTo(x, y + 8); c.lineTo(x, y + 20); c.lineTo(x + 22, y + 10); c.closePath(); c.fillStyle = '#17707a'; c.fill(); c.stroke();
+    drawDish(c, 'elote', x - 8, y - 9, 6.5); drawDish(c, 'tostada', x + 8, y - 6, 6.5);
+  } else if (id === 'storage') {                                 // refri de sobrantes: plateado con copo de nieve
+    c.beginPath(); c.moveTo(x - 12, y + 14); c.lineTo(x - 12, y - 18); c.lineTo(x + 12, y - 18); c.lineTo(x + 12, y + 14); c.closePath(); c.fillStyle = '#b9c9d8'; c.fill(); c.stroke();
+    c.fillStyle = '#eef4fa'; rr(c, x - 9, y - 15, 18, 13, 2); c.fill(); c.stroke(); rr(c, x - 9, y + 1, 18, 11, 2); c.fill(); c.stroke();
+    c.strokeStyle = '#3d94f0'; c.lineWidth = 1.5; c.lineCap = 'round';
+    for (let k = 0; k < 3; k++) { const a = k * Math.PI / 3; c.beginPath(); c.moveTo(x + Math.cos(a) * 5, y - 8.5 + Math.sin(a) * 5); c.lineTo(x - Math.cos(a) * 5, y - 8.5 - Math.sin(a) * 5); c.stroke(); }
+  } else if (id === 'garra') {                                   // máquina de garra: cabina azul, marquesina amarilla y base roja
+    c.fillStyle = '#2f6fd0'; rr(c, x - 14, y - 22, 28, 40, 3); c.fill(); c.stroke();
+    c.fillStyle = '#ffd23a'; rr(c, x - 14, y - 26, 28, 9, 3); c.fill(); c.stroke();
+    c.fillStyle = '#bfe3ff'; rr(c, x - 10, y - 14, 20, 18, 2); c.fill(); c.stroke();
+    ['#ff7ab8', '#7bd957', '#c98b4e'].forEach((col, k) => { c.fillStyle = col; c.beginPath(); c.arc(x - 6 + k * 6, y, 3.2, 0, 6.3); c.fill(); });
+    c.strokeStyle = '#555b6b'; c.lineWidth = 1.6; c.beginPath(); c.moveTo(x, y - 14); c.lineTo(x, y - 7); c.moveTo(x - 3, y - 4); c.lineTo(x, y - 7); c.lineTo(x + 3, y - 4); c.stroke(); c.strokeStyle = P.ink;
+    c.fillStyle = '#c4272f'; rr(c, x - 14, y + 6, 28, 12, 3); c.fill(); c.lineWidth = 1.8; c.stroke();
+  } else if (id === 'cartel') {                                  // cartel de tacos: poste, tablero y aro con máscara de neón
+    c.strokeStyle = '#6b7080'; c.lineWidth = 3; c.beginPath(); c.moveTo(x, y + 20); c.lineTo(x, y - 6); c.stroke(); c.strokeStyle = P.ink; c.lineWidth = 1.6;
+    c.fillStyle = '#1d3b3a'; rr(c, x - 21, y - 14, 42, 17, 4); c.fill(); c.stroke();
+    ['#ff3d3d', '#ffc83d', '#3ddc84', '#ff8a3d', '#5fd0ff'].forEach((col, k) => { c.fillStyle = col; c.fillRect(x - 17 + k * 7, y - 9, 5, 8); });
+    c.fillStyle = '#2a1250'; c.beginPath(); c.arc(x, y - 21, 8, 0, 6.3); c.fill(); c.strokeStyle = '#ff5fa2'; c.lineWidth = 2; c.stroke();
+    c.fillStyle = '#5fe8ff'; c.beginPath(); c.arc(x - 2.4, y - 22, 1.5, 0, 6.3); c.arc(x + 2.4, y - 22, 1.5, 0, 6.3); c.fill();
+  } else if (id.startsWith('chairs_')) {                         // dos sillas del estilo elegido
+    const C = CHAIRS[id.slice(7)];
+    [-11, 11].forEach((dx, k) => {
+      c.strokeStyle = C.leg; c.lineWidth = 2.4; c.beginPath(); c.moveTo(x + dx - 6, y + 16); c.lineTo(x + dx - 6, y + 6); c.moveTo(x + dx + 6, y + 16); c.lineTo(x + dx + 6, y + 6); c.stroke();
+      c.strokeStyle = P.ink; c.lineWidth = 1.6;
+      if (!C.stool) { c.fillStyle = C.back.left; rr(c, x + dx - 6, y - 15, 12, 20, 3); c.fill(); c.stroke(); }
+      c.fillStyle = C.seat.top; c.beginPath(); c.moveTo(x + dx - 9, y + 5); c.lineTo(x + dx + 9, y + 5); c.lineTo(x + dx + 7, y + 10); c.lineTo(x + dx - 7, y + 10); c.closePath(); c.fill(); c.stroke();
+      if (C.emblem) drawMask(c, x + dx, y - 6, 3.6, MASKS.blue);
+      if (C.gem) drawGem(c, x + dx, y - 6, 3.4);
+    });
+  } else if (id.startsWith('table_')) {                          // mesa con el color del estilo
+    const T = id.slice(6), col = { madera: ['#d9a066', '#b07a40', '#8a5a2c'], barril: ['#c98b4e', '#7a4a2a', '#5e3820'], talavera: ['#f4f6fb', '#3f66c9', '#2a4a9a'], ring: ['#2f56c9', '#c4272f', '#8f1c26'], oro: ['#ffe27a', '#e3b53a', '#b88a1f'] }[T];
+    c.beginPath(); c.moveTo(x - 25, y - 2); c.lineTo(x, y - 15); c.lineTo(x + 25, y - 2); c.lineTo(x, y + 11); c.closePath(); c.fillStyle = col[0]; c.fill(); c.stroke();
+    if (T === 'talavera') { c.fillStyle = '#3f66c9'; for (let k = -2; k <= 2; k++) { c.beginPath(); c.arc(x + k * 8, y - 2 + Math.abs(k) * 3.4, 2.2, 0, 6.3); c.fill(); } }
+    if (T === 'ring' || T === 'oro') { c.save(); c.translate(x, y - 2); c.scale(1, .5); drawMask(c, 0, 0, 8, T === 'oro' ? MASKS.ring : MASKS.blue); c.restore(); }
+    if (T === 'madera' || T === 'barril') { c.strokeStyle = 'rgba(60,35,15,.5)'; c.lineWidth = 1.2; for (const k of [-6, 4]) { c.beginPath(); c.moveTo(x - 18 + k, y - 5 + k * .2); c.lineTo(x + 8 + k, y - 12 + k * .2); c.stroke(); } c.strokeStyle = P.ink; c.lineWidth = 1.8; }
+    c.beginPath(); c.moveTo(x - 25, y - 2); c.lineTo(x, y + 11); c.lineTo(x, y + 20); c.lineTo(x - 25, y + 7); c.closePath(); c.fillStyle = col[1]; c.fill(); c.stroke();
+    c.beginPath(); c.moveTo(x + 25, y - 2); c.lineTo(x, y + 11); c.lineTo(x, y + 20); c.lineTo(x + 25, y + 7); c.closePath(); c.fillStyle = col[2]; c.fill(); c.stroke();
   } else {                                                      // mesa con mantel a cuadros
     c.beginPath(); c.moveTo(x - 25, y - 2); c.lineTo(x, y - 15); c.lineTo(x + 25, y - 2); c.lineTo(x, y + 11); c.closePath(); c.fillStyle = '#fff4e6'; c.fill(); c.stroke();
     c.fillStyle = 'rgba(224,54,74,.6)';
@@ -3626,7 +4411,7 @@ function drawDecorPreview(c, it, x, y, w, h, t) {
 function drawDecor(c, w) {
   const B = DECBOX, list = decorList(w.decCat), pages = Math.max(1, Math.ceil(list.length / 8));
   w.decPage = Math.min(w.decPage, pages - 1);
-  c.fillStyle = 'rgba(8,4,24,.74)'; c.fillRect(0, HUD, W, H - HUD);
+  c.fillStyle = 'rgba(8,4,24,.74)'; c.fillRect(-EX, HUD, CW, H - HUD);
   drawPanel(c, B.x, B.y, B.w, B.h, 'DECORAR');
   const cl = decClose, ch = UI.hit(cl); if (ch) UI.cursor = true;
   rr(c, cl.x, cl.y, cl.w, cl.h, 8); c.fillStyle = ch ? '#5a3a8a' : '#2a1a52'; c.fill(); c.lineWidth = 1.6; c.strokeStyle = 'rgba(255,255,255,.35)'; c.stroke();
@@ -3665,7 +4450,7 @@ function drawDecor(c, w) {
   }
   const blurb = { floor: 'El piso cambia todo el local', paint: 'La primera pintura nueva suma ½ máscara de reputación', bunting: 'Banderas para las dos paredes',
     wall: 'Cada póster tiene su lugar en la pared; tócalo otra vez para quitarlo', furn: 'Van a la cajita: luego los colocas (y los giras) en EDITAR', awning: 'La primera lona nueva suma ½ máscara de reputación',
-    gem: 'Solo con gemas: las regalan visitantes especiales (30 % de que llegue uno cada día)' }[w.decCat];
+    gem: 'Solo con gemas: las regalan visitantes especiales; con más máscaras de reputación llegan más seguido' }[w.decCat];
   txt(c, blurb, B.x + B.w / 2, B.y + B.h - 8, { font: `600 13px ${FONT_UI}`, align: 'center', color: P.muted });
   drawButton(c, decBack);
   drawCoin(c, B.x + B.w - 250, B.y + 394, 11, 0);
@@ -3673,42 +4458,130 @@ function drawDecor(c, w) {
   drawGem(c, B.x + B.w - 120, B.y + 393, 10);
   txt(c, String(w.gems), B.x + B.w - 104, B.y + 402, { font: `700 22px ${FONT_UI}`, color: '#9ff0ff', stroke: P.ink, sw: 4 });
 }
-function drawShop(c, w) {
-  if (w.shopView === 'decor') { drawDecor(c, w); return; }
-  const B = SHOPBOX, items = shopRows(w);
-  c.fillStyle = 'rgba(8,4,24,.74)'; c.fillRect(0, HUD, W, H - HUD);
+// tamaño de letra que hace caber un texto en un ancho dado (nunca baja de minSize)
+function fitDisplay(c, s, maxW, size) { c.save(); c.font = `400 ${size}px ${FONT_DISPLAY}`; const wd = c.measureText(s).width; c.restore(); return wd > maxW ? Math.max(8, Math.floor(size * maxW / wd * 10) / 10) : size; }
+function fitFont(c, s, maxW, size, weight = 600, minSize = 10) {
+  c.save(); c.font = `${weight} ${size}px ${FONT_UI}`; const wd = c.measureText(s).width; c.restore();
+  return wd > maxW ? Math.max(minSize, Math.floor(size * maxW / wd * 10) / 10) : size;
+}
+function drawShopChrome(c, w) {                                  // fondo, título, cerrar, pestañas, dinero y gemas
+  const B = SHOPBOX, cur = shopCur(w);
+  c.fillStyle = 'rgba(8,4,24,.74)'; c.fillRect(-EX, HUD, CW, H - HUD);
   drawPanel(c, B.x, B.y, B.w, B.h, 'TIENDA');
   const cl = shopClose, ch = UI.hit(cl); if (ch) UI.cursor = true;
   rr(c, cl.x, cl.y, cl.w, cl.h, 8); c.fillStyle = ch ? '#5a3a8a' : '#2a1a52'; c.fill(); c.lineWidth = 1.6; c.strokeStyle = 'rgba(255,255,255,.35)'; c.stroke();
   c.strokeStyle = P.white; c.lineWidth = 2.4; c.lineCap = 'round'; c.beginPath();
   c.moveTo(cl.x + 10, cl.y + 10); c.lineTo(cl.x + 20, cl.y + 20); c.moveTo(cl.x + 20, cl.y + 10); c.lineTo(cl.x + 10, cl.y + 20); c.stroke();
-  shopTabs(w).forEach((tb, i) => {                                                   // pestañas: aparecen conforme subes de nivel
-    const q = shopTabBtn(w, i), on = w.shopTab === tb[0], hov = UI.hit(q), deco = tb[0] === 'decor', lock = tabLocked(w, tb);
+  shopTabs(w).forEach((tb, i) => {                                                   // pestañas: se desbloquean con el nivel
+    const q = shopTabBtn(w, i), on = cur === tb[0], hov = UI.hit(q), sub = tb[0] === 'decor' || tb[0] === 'look', lock = tabLocked(w, tb);
     if (hov) UI.cursor = true;
-    rr(c, q.x, q.y, q.w, q.h, 9); c.fillStyle = on ? '#e29a12' : lock ? '#1a1030' : hov ? '#4a2c80' : deco ? '#1b5a6a' : '#241447'; c.fill(); c.lineWidth = on ? 3 : 1.6; c.strokeStyle = on ? P.gold : lock ? 'rgba(255,255,255,.18)' : deco ? '#5fe8ff' : 'rgba(255,255,255,.3)'; c.stroke();
+    rr(c, q.x, q.y, q.w, q.h, 9); c.fillStyle = on ? '#e29a12' : lock ? '#1a1030' : hov ? '#4a2c80' : sub ? '#1b5a6a' : '#241447'; c.fill(); c.lineWidth = on ? 3 : 1.6; c.strokeStyle = on ? P.gold : lock ? 'rgba(255,255,255,.18)' : sub ? '#5fe8ff' : 'rgba(255,255,255,.3)'; c.stroke();
     if (lock) {                                                                       // candado + nivel que lo abre
-      const lx = q.x + 10, ly = q.y + 15;
+      const lx = q.x + 9, ly = q.y + 15;
       c.strokeStyle = '#9d96b4'; c.lineWidth = 1.8; c.beginPath(); c.arc(lx, ly - 2, 3.4, Math.PI, 0); c.stroke();
       c.fillStyle = '#9d96b4'; rr(c, lx - 5, ly - 1, 10, 8, 2); c.fill();
-      txt(c, q.label, q.x + q.w / 2 + 6, q.y + 15, { font: `700 12px ${FONT_UI}`, align: 'center', color: on ? '#3a2408' : '#8f89a6', ls: .4 });
+      txt(c, q.label, q.x + q.w / 2 + 6, q.y + 15, { font: `700 11.5px ${FONT_UI}`, align: 'center', color: on ? '#3a2408' : '#8f89a6', ls: .3 });
       txt(c, `NIVEL ${tb[2]}`, q.x + q.w / 2 + 6, q.y + 26, { font: `700 9px ${FONT_UI}`, align: 'center', color: on ? '#8a1c2c' : '#ff9aa8', ls: .6 });
-    } else txt(c, q.label, q.x + q.w / 2, q.y + 21, { font: `700 14px ${FONT_UI}`, align: 'center', color: on ? P.ink : P.cream, ls: .8 });
+    } else txt(c, q.label, q.x + q.w / 2, q.y + 20, { font: `700 ${fitFont(c, q.label, q.w - 8, 13.5, 700)}px ${FONT_UI}`, align: 'center', color: on ? P.ink : P.cream, ls: .5 });
   });
-  drawCoin(c, B.x + B.w - 160, B.y + 53, 11, 0);
-  txt(c, pesos(w.shownMoney), B.x + B.w - 144, B.y + 62, { font: `700 24px ${FONT_UI}`, color: w.moneyFlash > 0 ? '#ff7a8c' : P.white, stroke: P.ink, sw: 4 });
-  if (w.gemsSeen || w.gems > 0) { drawGem(c, B.x + B.w - 160, B.y + 88, 8); txt(c, String(w.gems), B.x + B.w - 144, B.y + 94, { font: `700 18px ${FONT_UI}`, color: '#9ff0ff', stroke: P.ink, sw: 3 }); }
+  drawCoin(c, B.x + 36, B.y + 20, 10, 0);                                             // dinero y gemas arriba, a los lados del título
+  txt(c, pesos(w.shownMoney), B.x + 52, B.y + 28, { font: `700 22px ${FONT_UI}`, color: w.moneyFlash > 0 ? '#ff7a8c' : P.white, stroke: P.ink, sw: 4 });
+  if (w.gemsSeen || w.gems > 0) { drawGem(c, B.x + B.w - 150, B.y + 20, 8); txt(c, String(w.gems), B.x + B.w - 136, B.y + 27, { font: `700 20px ${FONT_UI}`, color: '#9ff0ff', stroke: P.ink, sw: 3 }); }
+}
+function drawShop(c, w) {
+  if (w.shopView === 'decor') { drawDecor(c, w); return; }
+  if (w.shopView === 'look') { drawLook(c, w); return; }
+  const B = SHOPBOX, items = shopRows(w), pages = shopPages(w);
+  drawShopChrome(c, w);
   items.forEach((it, i) => {
     const y = B.y + B.top + i * B.rowH, chk = canBuy(w, it), b = shopBtn(i);
     if (i % 2 === 0) { c.fillStyle = 'rgba(255,255,255,.05)'; c.fillRect(B.x + 8, y, B.w - 16, B.rowH); }
-    drawShopIcon(c, it.id, B.x + 56, y + B.rowH / 2, w);
-    const dim = !chk.ok && !it.done;
-    txt(c, it.name, B.x + 106, y + 22, { font: `700 21px ${FONT_UI}`, color: dim ? '#9d96b4' : P.cream });
-    txt(c, it.desc, B.x + 106, y + 38, { font: `600 13.5px ${FONT_UI}`, color: P.muted });
-    txt(c, it.open ? 'Ya remodelado' : it.done ? (it.id === 'inv' ? 'Al máximo' : STAFF[it.id] ? 'Contratado' : it.id === 'arena' ? 'Construida' : it.id === 'remodel' ? 'Ya remodelado' : 'En tu taquería') : pesos(it.price), B.x + 106, y + 55,{ font: `700 17px ${FONT_UI}`, color: it.open || it.done ? '#9af0b8' : dim ? '#8a7a50' : P.gold, ls: .5 });
+    drawShopIcon(c, it.id, B.x + 52, y + B.rowH / 2, w);
+    const dim = !chk.ok && !it.done, tw = B.w - 170 - 106 - 14;
+    txt(c, it.name, B.x + 96, y + 21, { font: `700 ${fitFont(c, it.name, tw, 21, 700)}px ${FONT_UI}`, color: dim ? '#9d96b4' : P.cream });
+    txt(c, it.desc, B.x + 96, y + 37, { font: `600 ${fitFont(c, it.desc, tw, 13.5)}px ${FONT_UI}`, color: P.muted });
+    if (it.open || it.done) txt(c, it.open ? 'Ya remodelado' : it.id === 'inv' ? 'Al máximo' : STAFF[it.id] ? 'Contratado' : it.id === 'arena' ? 'Construida' : it.id === 'remodel' ? 'Ya remodelado' : 'En tu taquería', B.x + 96, y + 54, { font: `700 17px ${FONT_UI}`, color: '#9af0b8', ls: .5 });
+    else if (it.gems) { drawGem(c, B.x + 106, y + 49, 7); txt(c, `${it.gems} gemas`, B.x + 118, y + 55, { font: `700 17px ${FONT_UI}`, color: w.gems >= it.gems ? '#9ff0ff' : '#ff8fa0', ls: .5 }); }
+    else txt(c, pesos(it.price), B.x + 96, y + 54, { font: `700 17px ${FONT_UI}`, color: dim ? '#8a7a50' : P.gold, ls: .5 });
     drawButton(c, Object.assign({ label: it.open ? 'DECORAR' : it.done ? 'COMPRADO' : it.need ? 'BLOQUEADO' : 'COMPRAR', style: it.open ? 'teal' : 'green', size: 18 }, b, { disabled: !chk.ok }));
-    if (!chk.ok && !it.done) txt(c, chk.why.toUpperCase(), b.x + b.w / 2, b.y + b.h + 11, { font: `700 10.5px ${FONT_UI}`, align: 'center', color: '#ff8fa0', ls: .6 });
+    if (!chk.ok && !it.done) txt(c, chk.why.toUpperCase(), b.x + b.w / 2, b.y + b.h + 11, { font: `700 ${fitFont(c, chk.why.toUpperCase(), 200, 10.5, 700, 8)}px ${FONT_UI}`, align: 'center', color: '#ff8fa0', ls: .5 });
   });
-  txt(c, 'El juego queda en pausa mientras compras', B.x + B.w / 2, B.y + B.h - 14, { font: `600 13px ${FONT_UI}`, align: 'center', color: P.muted, ls: 1 });
+  if (pages > 1) { drawButton(c, shopPrev); drawButton(c, shopNext); txt(c, `${w.shopPage + 1} / ${pages}`, B.x + 94, B.y + B.h - 21, { font: `700 15px ${FONT_UI}`, align: 'center', color: P.cream }); }
+  txt(c, 'El juego queda en pausa mientras compras', B.x + B.w / 2 + 30, B.y + B.h - 16, { font: `600 13px ${FONT_UI}`, align: 'center', color: P.muted, ls: 1 });
+}
+/* ---------- Mi luchador: personalización del personaje principal ---------- */
+const LOOK_DEFAULT = { mask: 'novato', hoodie: '#eeeadf', shoes: 'novato', skin: '#e8b98a', pants: '#23232b', label: 0 };
+const LOOK_LABELS = [['EL', 'NOVATO'], ['EL', 'CHEF'], ['TACO', 'MASTER'], ['EL', 'PATRÓN'], ['LUCHA', 'CAFÉ'], ['MI', 'TAQUERÍA'], ['LA', 'JEFA'], ['EL', 'CAMPEÓN']];
+const LOOK_CATS = [['mask', 'MÁSCARA'], ['hoodie', 'SUDADERA'], ['shoes', 'TENIS'], ['skin', 'PIEL'], ['pants', 'PANTALÓN'], ['label', 'ESTAMPADO']];
+// Cada opción: k = valor guardado, name, price (pesos), gems (solo con gemas) y level. Lo que cuesta 0 ya es tuyo
+const LOOK_OPTS = {
+  mask:   [{ k: 'novato', name: 'Verde Novato', price: 0, level: 1 }, { k: 'rosa', name: 'Rosa mexicano', price: 200, level: 3 }, { k: 'turquesa', name: 'Turquesa', price: 200, level: 3 }, { k: 'rayo', name: 'Rayo azul', price: 350, level: 5 },
+           { k: 'noche', name: 'Noche negra', price: 350, level: 5 }, { k: 'michelada', name: 'Michelada', price: 600, level: 8 }, { k: 'oro', name: 'Oro de campeón', gems: 12, level: 1 }],
+  hoodie: [['#eeeadf', 'Blanco hueso', 0, 1], ['#17171c', 'Negro', 60, 2], ['#3b5bdb', 'Azul rey', 60, 2], ['#7c3aed', 'Morado', 80, 3], ['#d6342c', 'Rojo lucha', 80, 3], ['#ffb21e', 'Amarillo', 80, 4], ['#14a38b', 'Turquesa', 100, 5], ['#e8509a', 'Rosa', 100, 5], ['#2b3a67', 'Marino', 100, 6]]
+    .map(a => ({ k: a[0], name: a[1], price: a[2], level: a[3] })),
+  shoes:  [['novato', 'Verde Novato', 0, 1], ['blanco', 'Blancos', 40, 2], ['rojo', 'Rojos', 40, 2], ['azul', 'Azules', 40, 2], ['amarillo', 'Amarillos', 40, 3], ['camo', 'Camuflaje', 80, 4]].map(a => ({ k: a[0], name: a[1], price: a[2], level: a[3] })),
+  skin:   [['#e8b98a', 'Clara', 0, 1], ['#f1c27d', 'Dorada', 0, 1], ['#e0ac69', 'Trigueña', 0, 1], ['#c68642', 'Morena', 0, 1], ['#8d5524', 'Canela oscura', 0, 1]].map(a => ({ k: a[0], name: a[1], price: a[2], level: a[3] })),
+  pants:  [['#23232b', 'Negro', 0, 1], ['#2d3550', 'Mezclilla', 40, 2], ['#3a3a44', 'Gris', 40, 2], ['#4a3b2c', 'Café', 40, 3], ['#6b1d4a', 'Vino', 80, 5], ['#1f5a3a', 'Verde bosque', 80, 5]].map(a => ({ k: a[0], name: a[1], price: a[2], level: a[3] })),
+  label:  [[0, 0, 1], [1, 50, 2], [2, 80, 3], [3, 120, 5], [4, 100, 4], [5, 100, 4], [6, 80, 3], [7, 150, 8]].map(a => ({ k: a[0], name: LOOK_LABELS[a[0]].join(' '), price: a[1], level: a[2] }))
+};
+const playerLook = w => { const l = Object.assign({}, LOOK_DEFAULT, w.char && w.char.look); return { hoodie: l.hoodie, mask: l.mask, shoes: l.shoes, skin: l.skin, pants: l.pants, label: LOOK_LABELS[l.label] || LOOK_LABELS[0] }; };
+const lookOwn = (w, cat, o) => (!o.price && !o.gems) || !!(w.char && w.char.own[cat + ':' + o.k]);
+const LOOKBOX = { x: SHOPBOX.x + 270, y: SHOPBOX.y + 84, w: 446 };
+const lookChip = i => ({ x: LOOKBOX.x + i * 75, y: LOOKBOX.y, w: 71, h: 28, key: LOOK_CATS[i][0], label: LOOK_CATS[i][1] });
+const lookCard = i => ({ x: LOOKBOX.x + (i % 4) * 113, y: LOOKBOX.y + 38 + Math.floor(i / 4) * 104, w: 107, h: 98 });
+function lookPointer(w, x, y, hit) {
+  for (let i = 0; i < LOOK_CATS.length; i++) if (hit(lookChip(i))) { if (w.lookCat !== LOOK_CATS[i][0]) { w.lookCat = LOOK_CATS[i][0]; sfx('click'); } return; }
+  const cat = w.lookCat || 'mask', opts = LOOK_OPTS[cat];
+  for (let i = 0; i < opts.length; i++) if (hit(lookCard(i))) { lookPick(w, cat, opts[i]); return; }
+}
+function lookPick(w, cat, o) {
+  const ch = w.char, key = cat + ':' + o.k;
+  if (w.level < o.level) { sfx('nope'); toast(w, `${o.name}: se desbloquea en el nivel ${o.level}`); return; }
+  if (!lookOwn(w, cat, o)) {
+    if (o.gems) { if (w.gems < o.gems) { sfx('nope'); toast(w, `Faltan ${o.gems - w.gems} gemas`); return; } w.gems -= o.gems; }
+    else { if (w.money < o.price) { sfx('nope'); w.moneyFlash = .8; toast(w, `Faltan ${pesos(o.price - w.money)}`); return; } w.money -= o.price; w.dayCost += o.price; }
+    ch.own[key] = true; sfx(o.gems ? 'fanfare' : 'coin'); toast(w, `¡Nuevo look: ${o.name}!`);
+  } else sfx('click');
+  ch.look[cat] = o.k; Game.save();
+}
+// Muestra de cada opción dentro de su tarjeta
+function drawLookSwatch(c, cat, o, cx, cy, w, t) {
+  if (cat === 'mask') { c.save(); drawFace(c, cx, cy + 2, 17, MASK_STYLES[o.k], { look: 0, angry: false, blink: false, open: 0 }); c.restore(); }
+  else if (cat === 'hoodie' || cat === 'skin' || cat === 'pants') { c.fillStyle = o.k; c.strokeStyle = P.ink; c.lineWidth = 2.5; c.beginPath(); c.arc(cx, cy, 17, 0, 6.3); c.fill(); c.stroke(); c.fillStyle = 'rgba(255,255,255,.3)'; c.beginPath(); c.arc(cx - 6, cy - 6, 5, 0, 6.3); c.fill(); }
+  else if (cat === 'shoes') { const S_ = SHOES[o.k]; c.save(); c.translate(cx, cy + 2); c.lineJoin = 'round'; c.lineWidth = 2; c.strokeStyle = P.ink; c.fillStyle = S_.sole; rr(c, -20, 2, 40, 9, 4); c.fill(); c.stroke(); c.fillStyle = S_.upper; c.beginPath(); c.moveTo(-18, 3); c.lineTo(-16, -12); c.lineTo(-2, -12); c.lineTo(20, 2); c.closePath(); c.fill(); c.stroke(); c.fillStyle = S_.accent; c.fillRect(-12, -6, 10, 3); c.restore(); }
+  else { const lb = LOOK_LABELS[o.k]; c.fillStyle = '#17171c'; rr(c, cx - 30, cy - 17, 60, 36, 7); c.fill(); c.lineWidth = 2; c.strokeStyle = P.ink; c.stroke(); txt(c, lb[0], cx, cy - 2, { font: `700 12px ${FONT_UI}`, align: 'center', color: '#e0603f', ls: .5 }); txt(c, lb[1], cx, cy + 13, { font: `700 ${lb[1].length > 7 ? 11 : 13}px ${FONT_UI}`, align: 'center', color: '#e0603f', ls: .3 }); }
+}
+function drawLook(c, w) {
+  const B = SHOPBOX, cat = w.lookCat || 'mask', opts = LOOK_OPTS[cat], ch = w.char, cur = ch.look[cat];
+  drawShopChrome(c, w);
+  // vista previa a la izquierda: el luchador gira un poco y respira
+  const px = B.x + 24, py = B.y + 84, pw = 232, ph = 330;
+  c.save(); rr(c, px, py, pw, ph, 14); c.clip();
+  const g = c.createLinearGradient(0, py, 0, py + ph); g.addColorStop(0, '#2a1058'); g.addColorStop(1, '#4a1a3a'); c.fillStyle = g; c.fillRect(px, py, pw, ph);
+  c.fillStyle = 'rgba(255,214,90,.12)'; c.beginPath(); c.moveTo(px + pw / 2 - 18, py); c.lineTo(px + pw / 2 + 18, py); c.lineTo(px + pw / 2 + 96, py + ph); c.lineTo(px + pw / 2 - 96, py + ph); c.closePath(); c.fill();
+  c.fillStyle = '#8f1d33'; c.fillRect(px, py + ph - 70, pw, 70); c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(px + pw / 2, py + ph - 52, 62, 12, 0, 0, 6.3); c.fill();
+  drawLuchador(c, px + pw / 2, py + ph - 50, Object.assign({}, playerLook(w), { state: Math.floor(w.t / 4) % 2 ? 'idle' : 'idle', t: w.t, dir: Math.sin(w.t * .7) > 0 ? 1 : -1, scale: 3.1 }));
+  c.restore(); rr(c, px, py, pw, ph, 14); c.lineWidth = 3; c.strokeStyle = P.gold; c.stroke();
+  txt(c, 'TU LUCHADOR', px + pw / 2, py + 28, { font: `400 20px ${FONT_DISPLAY}`, align: 'center', color: P.gold, stroke: P.ink, sw: 4 });
+  // categorías
+  LOOK_CATS.forEach((ct, i) => {
+    const q = lookChip(i), on = cat === ct[0], hov = UI.hit(q); if (hov) UI.cursor = true;
+    rr(c, q.x, q.y, q.w, q.h, 8); c.fillStyle = on ? '#e29a12' : hov ? '#4a2c80' : '#241447'; c.fill(); c.lineWidth = on ? 3 : 1.6; c.strokeStyle = on ? P.gold : 'rgba(255,255,255,.3)'; c.stroke();
+    txt(c, q.label, q.x + q.w / 2, q.y + 19, { font: `700 ${fitFont(c, q.label, q.w - 6, 12.5, 700)}px ${FONT_UI}`, align: 'center', color: on ? P.ink : P.cream, ls: .3 });
+  });
+  opts.forEach((o, i) => {
+    const q = lookCard(i), sel = String(cur) === String(o.k), own = lookOwn(w, cat, o), locked = w.level < o.level, hov = UI.hit(q) && !locked; if (UI.hit(q)) UI.cursor = true;
+    rr(c, q.x, q.y, q.w, q.h, 12); c.fillStyle = hov ? 'rgba(255,255,255,.13)' : 'rgba(255,255,255,.06)'; c.fill();
+    c.lineWidth = sel ? 3.5 : 2; c.strokeStyle = sel ? '#9af0b8' : o.gems ? 'rgba(95,232,255,.7)' : hov ? P.gold : 'rgba(255,255,255,.22)'; c.stroke();
+    c.save(); c.globalAlpha = locked ? .35 : 1; drawLookSwatch(c, cat, o, q.x + q.w / 2, q.y + 36, w, w.t); c.restore();
+    txt(c, o.name, q.x + q.w / 2, q.y + 70, { font: `700 ${fitFont(c, o.name, q.w - 10, 13.5, 700, 9)}px ${FONT_UI}`, align: 'center', color: locked ? '#9d96b4' : P.cream });
+    if (locked) txt(c, `NIVEL ${o.level}`, q.x + q.w / 2, q.y + 89, { font: `700 12px ${FONT_UI}`, align: 'center', color: '#ff8fa0', ls: .4 });
+    else if (sel) txt(c, '✓ PUESTO', q.x + q.w / 2, q.y + 89, { font: `700 12.5px ${FONT_UI}`, align: 'center', color: '#9af0b8', ls: .4 });
+    else if (own) txt(c, 'TUYO · PONER', q.x + q.w / 2, q.y + 89, { font: `700 12px ${FONT_UI}`, align: 'center', color: P.muted, ls: .3 });
+    else if (o.gems) { drawGem(c, q.x + q.w / 2 - 14, q.y + 85, 6); txt(c, String(o.gems), q.x + q.w / 2 - 5, q.y + 91, { font: `700 15px ${FONT_UI}`, color: w.gems >= o.gems ? '#9ff0ff' : '#ff8fa0' }); }
+    else txt(c, pesos(o.price), q.x + q.w / 2, q.y + 91, { font: `700 15px ${FONT_UI}`, align: 'center', color: w.money >= o.price ? P.gold : '#ff8fa0' });
+  });
+  txt(c, 'Tu luchador se ve así en el changarro. Lo básico es gratis; lo demás se compra con monedas o gemas', B.x + B.w / 2, B.y + B.h - 14, { font: `600 13px ${FONT_UI}`, align: 'center', color: P.muted });
 }
 function drawTip(c, x, y, lines) {
   c.save(); c.font = `700 15px ${FONT_UI}`;
@@ -3720,38 +4593,472 @@ function drawTip(c, x, y, lines) {
 }
 function drawTooltips(c, w) {
   if (UI.mx > 430 && UI.mx < 585 && UI.my < HUD) {                    // explicación de la reputación al pasar el cursor por las máscaras
-    drawTip(c, 300, HUD + 8, ['Reputación en máscaras', 'Cliente enojado: la máscara se desvanece 1/3 (con 3 se pierde)', 'Cliente bien atendido: recupera 1/4', 'Sin máscaras no pasa nada: se vuelve a subir todo el día']);
+    const er = effRep(w);
+    drawTip(c, 300, HUD + 8, ['Reputación en máscaras', 'Cliente enojado: la máscara se desvanece 1/3 (con 3 se pierde)', 'Cliente bien atendido: recupera 1/4',
+      `Con ${er.toFixed(1)} máscaras: ${Math.round(gemChance(w) * 100)} % de que hoy lleguen visitantes con gemas`, 'Más máscaras: más gemas, más VIPs y personajes famosos (La Reina del Ring con 3, El Cronista con 2)']);
     return;
   }
   if (w.panel) return;
-  const sk = stockAt(w, UI.mx, UI.my);                              // pilas de la barra y del mostrador de bebidas
-  if (sk) { const p = stockPos(sk); UI.cursor = true; drawTip(c, p.x + 26, p.y - 58, [RECIPES[sk].name, `${w.stock[sk]} listas · venta ${pesos(RECIPES[sk].price)} c/u`]); return; }
+  const m = camWorld(UI.mx, UI.my), mx = m.x, my = m.y;                   // el cursor en coordenadas del mundo (con zoom)
+  const tip = (x, y, lines) => { const q = camScreen(x, y); drawTip(c, q.x, q.y, lines); };
+  const sk = stockAt(w, mx, my);                              // pilas de la barra y del mostrador de bebidas
+  if (sk) { const p = stockPos(sk); UI.cursor = true; tip(p.x + 26, p.y - 58, [RECIPES[sk].name, `${w.stock[sk]} listas · venta ${pesos(RECIPES[sk].price)} c/u`]); return; }
   for (const cu of w.customers) {                                  // qué pidió cada cliente
     if (cu.state !== 'wait') continue;
     const p = actorPos(cu, true);
-    if (UI.mx > p.x - 25 && UI.mx < p.x + 25 && UI.my > p.y - 80 && UI.my < p.y + 12) {
+    if (mx > p.x - 25 && mx < p.x + 25 && my > p.y - 80 && my < p.y + 12) {
       UI.cursor = true;
       const bits = cu.order.map(i => (i.done ? '✓ ' : '') + RECIPES[i.key].name);
-      drawTip(c, p.x + 30, p.y - 118, ['Pidió:', ...bits].concat(cu.freeze > 0 ? [`Espera congelada ${Math.ceil(cu.freeze)} s`] : [])); return;
+      tip(p.x + 30, p.y - 118, ['Pidió:', ...bits].concat(cu.freeze > 0 ? [`Espera congelada ${Math.ceil(cu.freeze)} s`] : [])); return;
     }
   }
   const nv = w.novato, np = actorPos(nv, nv.resting);
-  if (UI.mx > np.x - 25 && UI.mx < np.x + 25 && UI.my > np.y - 80 && UI.my < np.y + 12) {
+  if (mx > np.x - 25 && mx < np.x + 25 && my > np.y - 80 && my < np.y + 12) {
     UI.cursor = true;
-    drawTip(c, np.x + 30, np.y - 120, [`El Novato · Nivel ${w.level}`, `Energía ${Math.round(nv.stamina)} de ${maxStamina(w)}`, nv.resting ? 'Toca para que vuelva al trabajo' : 'Toca para que vaya a descansar']); return;
+    tip(np.x + 30, np.y - 120, [`El Novato · Nivel ${w.level}`, `Energía ${Math.round(nv.stamina)} de ${maxStamina(w)}`, nv.resting ? 'Toca para que vuelva al trabajo' : 'Toca para que vaya a descansar']); return;
   }
   for (const wt of w.staff) {
     if (wt.entering) continue;
     const wp = actorPos(wt, wt.resting);
-    if (UI.mx > wp.x - 25 && UI.mx < wp.x + 25 && UI.my > wp.y - 80 && UI.my < wp.y + 12) {
-      drawTip(c, wp.x + 30, wp.y - 120, [STAFF[wt.id].name, `Energía ${Math.round(wt.stamina)} de 100`, wt.stun > 0 ? '¡Fuera de combate!' : wt.resting ? 'Descansando en la banca' : STAFF[wt.id].desc]); return;
+    if (mx > wp.x - 25 && mx < wp.x + 25 && my > wp.y - 80 && my < wp.y + 12) {
+      tip(wp.x + 30, wp.y - 120, [STAFF[wt.id].name, `Energía ${Math.round(wt.stamina)} de 100`, wt.stun > 0 ? '¡Fuera de combate!' : wt.resting ? 'Descansando en la banca' : STAFF[wt.id].desc]); return;
     }
   }
-  if (restHit(UI.mx, UI.my)) { UI.cursor = true; const bp = TS(LAYOUT.bench, 1, .4, 70); drawTip(c, bp.x - 150, bp.y - 20, ['Vestidor con suero', 'Banca de dos lugares: toca para que el Novato descanse']); return; }
+  if (restHit(mx, my)) { UI.cursor = true; const bp = TS(LAYOUT.bench, 1, .4, 70); tip(bp.x - 150, bp.y - 20, ['Vestidor con suero', 'Banca de dos lugares: toca para que el Novato descanse']); return; }
   const cp = comalPos();
-  const hov = w.slots.findIndex((_, i) => comalHit(UI.mx, UI.my, i));
-  if (hov >= 0) { UI.cursor = true; const hp = comalPos(hov); drawTip(c, hp.x + 70, hp.y - 40, [w.slots.length > 1 ? `Comal ${hov + 1}` : 'Comal', 'Toca para elegir qué cocinar']); }
-  else if (fridgeHit(UI.mx, UI.my)) { UI.cursor = true; const fp = fridgeRingPos(0); drawTip(c, fp.x + 30, fp.y - 20, ['Refrigerador', 'Micheladas: toca para prepararlas']); }
+  const hov = w.slots.findIndex((_, i) => comalHit(mx, my, i));
+  if (hov >= 0) { UI.cursor = true; const hp = comalPos(hov); tip(hp.x + 70, hp.y - 40, [w.slots.length > 1 ? `Comal ${hov + 1}` : 'Comal', 'Toca para elegir qué cocinar']); }
+  else if (fridgeHit(mx, my)) { UI.cursor = true; const fp = fridgeRingPos(0); tip(fp.x + 30, fp.y - 20, ['Refrigerador', 'Micheladas: toca para prepararlas']); }
+}
+
+/* =========================================================
+   CARTEL DE TACOS (afuera, en el pasto): poste con aro de neón, tablero con el nombre del negocio, chiles y papel picado.
+   Se edita tocándolo; tiene lucecitas que parpadean y por la noche brilla.
+   ========================================================= */
+const SIGN_STYLES = [
+  { name: 'Arcoíris',       letters: ['#ff3d3d', '#ffc83d', '#3ddc84', '#ff8a3d', '#5fd0ff', '#ff5fa2', '#b57cff'], board: '#1d3b3a', frame: '#e0364a', neon: '#ff5a3a', ring: '#e0364a', halo: '255,150,80' },
+  { name: 'Neón rosa',      letters: ['#ff7ab8', '#ffb3d9'], board: '#1b0f38', frame: '#ff3d8b', neon: '#5fe8ff', ring: '#ff3d8b', halo: '255,90,170' },
+  { name: 'Dorado',         letters: ['#ffe27a', '#ffc83d', '#ffb21e'], board: '#2a1250', frame: '#ffc83d', neon: '#ff8a3d', ring: '#ffc83d', halo: '255,200,90' },
+  { name: 'Tricolor',       letters: ['#3ddc84', '#fff4e6', '#ff4d5e'], board: '#1b2a3a', frame: '#2fbf71', neon: '#ff4d5e', ring: '#2fbf71', halo: '120,255,170' },
+  { name: 'Azul eléctrico', letters: ['#5fd0ff', '#ffffff', '#8fb0ff'], board: '#0d1b3a', frame: '#3b82f6', neon: '#ffd23a', ring: '#3b82f6', halo: '110,170,255' }
+];
+const signOf = () => Object.assign({ t1: 'ENMASCARADOS', t2: 'TACOS', st: 0, li: true }, DECO && DECO.sign);
+// Dibuja el cartel con el poste apoyado en (px, py). t = reloj (para los parpadeos)
+function drawCartelAt(c, px, py, t, glow = 0) {
+  const D = signOf(), ST = SIGN_STYLES[D.st] || SIGN_STYLES[0], ink = P.ink;
+  c.save(); c.translate(px, py); c.lineJoin = 'round'; c.lineCap = 'round';
+  c.fillStyle = 'rgba(0,0,0,.22)'; c.beginPath(); c.ellipse(4, 3, 34, 11, 0, 0, 6.3); c.fill();
+  c.fillStyle = '#3a3e4a'; c.strokeStyle = ink; c.lineWidth = 2;                                       // base de concreto
+  c.beginPath(); c.moveTo(-18, 0); c.lineTo(0, -9); c.lineTo(18, 0); c.lineTo(0, 9); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = '#555b6b'; c.beginPath(); c.moveTo(-18, 0); c.lineTo(0, 9); c.lineTo(0, 15); c.lineTo(-18, 6); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = '#434858'; c.beginPath(); c.moveTo(18, 0); c.lineTo(0, 9); c.lineTo(0, 15); c.lineTo(18, 6); c.closePath(); c.fill(); c.stroke();
+  const pg = c.createLinearGradient(-5, 0, 5, 0); pg.addColorStop(0, '#8a8f9e'); pg.addColorStop(.5, '#b0b5c2'); pg.addColorStop(1, '#5b6070');       // poste oxidado
+  c.fillStyle = pg; c.lineWidth = 2; rr(c, -5, -158, 10, 154, 3); c.fill(); c.stroke();
+  c.fillStyle = 'rgba(160,90,40,.45)'; for (let k = 0; k < 7; k++) c.fillRect(-4 + (k % 2) * 4, -140 + k * 20, 3, 6);
+  // papel picado colgando del poste hacia la izquierda y debajo del tablero
+  const flags = (x0, y0, x1, y1, n, sag, off) => {
+    c.strokeStyle = ink; c.lineWidth = 1.3; c.beginPath();
+    for (let i = 0; i <= 20; i++) { const f = i / 20; c[i ? 'lineTo' : 'moveTo'](lerp(x0, x1, f), lerp(y0, y1, f) + Math.sin(f * Math.PI) * sag); } c.stroke();
+    const cols = ['#e0364a', '#ffc83d', '#17a2b0', '#2fbf71', '#ff5fa2', '#ff8a3d', '#b57cff'];
+    for (let i = 1; i < n; i++) { const f = i / n, x = lerp(x0, x1, f), y = lerp(y0, y1, f) + Math.sin(f * Math.PI) * sag, sw = Math.sin(t * 1.8 + i * 1.3 + off) * 2;
+      c.fillStyle = cols[(i + off) % cols.length]; c.beginPath(); c.moveTo(x - 6, y); c.lineTo(x + 6, y); c.lineTo(x + sw, y + 13); c.closePath(); c.fill(); c.lineWidth = 1; c.stroke();
+      c.fillStyle = 'rgba(255,255,255,.7)'; c.beginPath(); c.arc(x + sw * .3, y + 4, 1.3, 0, 6.3); c.fill(); }
+  };
+  flags(-3, -150, -92, -108, 7, 10, 0);
+  flags(3, -60, 78, -88, 6, 9, 3);
+  // tablero con el nombre: curvo, con marco de color
+  const board = () => { c.beginPath(); c.moveTo(-70, -116); c.quadraticCurveTo(0, -156, 70, -116); c.lineTo(70, -86); c.quadraticCurveTo(0, -118, -70, -86); c.closePath(); };
+  c.lineWidth = 7; c.strokeStyle = ink; board(); c.stroke();
+  board(); c.fillStyle = ST.board; c.fill(); c.lineWidth = 4; c.strokeStyle = ST.frame; c.stroke();
+  const arc = f => ({ x: lerp(-60, 60, f), y: -101 + Math.sin(f * Math.PI) * -17.5 });                   // línea central del tablero
+  // línea 1: cada letra de un color, siguiendo la curva del tablero
+  { const s1 = (D.t1 || '').toUpperCase(), n = s1.length || 1; let fs = 20; c.font = `400 ${fs}px ${FONT_DISPLAY}`; const full = c.measureText(s1).width; if (full > 108) fs = Math.max(11, Math.floor(fs * 108 / full)); c.font = `400 ${fs}px ${FONT_DISPLAY}`;
+    const ws = [...s1].map(ch => c.measureText(ch).width), tot = ws.reduce((a, b) => a + b, 0); let acc = 0;
+    [...s1].forEach((ch, i) => { const f = clamp((acc + ws[i] / 2) / tot, .02, .98), p = arc(f), q = arc(f + .02), ang = Math.atan2(q.y - p.y, q.x - p.x) * .9;
+      c.save(); c.translate(lerp(-54, 54, f), p.y + fs * .08); c.rotate(ang); c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineWidth = 4; c.strokeStyle = ink; c.strokeText(ch, 0, 0); c.fillStyle = ST.letters[i % ST.letters.length]; c.fillText(ch, 0, 0); c.restore(); acc += ws[i]; }); }
+  // línea 2: tablero de neón
+  const fl = .8 + .2 * Math.sin(t * 7) * Math.sin(t * 2.3);
+  c.fillStyle = '#16072c'; rr(c, -46, -86, 92, 28, 7); c.fill(); c.lineWidth = 3; c.strokeStyle = ink; c.stroke(); c.lineWidth = 2; c.strokeStyle = ST.neon; c.globalAlpha = fl; rr(c, -43, -83, 86, 22, 5); c.stroke(); c.globalAlpha = 1;
+  { const s2 = (D.t2 || '').toUpperCase(); let fs = 21; c.font = `400 ${fs}px ${FONT_DISPLAY}`; const wd = c.measureText(s2).width; if (wd > 78) fs = Math.max(10, Math.floor(fs * 78 / wd)); c.font = `400 ${fs}px ${FONT_DISPLAY}`;
+    c.save(); c.shadowColor = ST.neon; c.shadowBlur = 8 * fl; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = ST.neon; c.globalAlpha = fl; c.fillText(s2, 0, -71); c.fillStyle = '#fff4e6'; c.globalAlpha = .45 * fl; c.fillText(s2, 0, -71.5); c.restore(); }
+  // aro superior con máscara de neón
+  c.lineWidth = 7; c.strokeStyle = ink; c.beginPath(); c.arc(0, -178, 31, 0, 6.3); c.stroke();
+  c.fillStyle = '#1d0f3a'; c.beginPath(); c.arc(0, -178, 28, 0, 6.3); c.fill(); c.lineWidth = 5; c.strokeStyle = ST.ring; c.stroke();
+  c.lineWidth = 1.6; c.strokeStyle = 'rgba(255,255,255,.55)'; c.beginPath(); c.arc(0, -178, 25, 3.6, 5.2); c.stroke();
+  c.save(); c.translate(0, -178); c.scale(16, 16); maskPath(c); c.lineWidth = .12; c.strokeStyle = `rgba(95,232,255,${fl})`; c.shadowColor = '#5fe8ff'; c.shadowBlur = 8; c.stroke();
+  c.fillStyle = `rgba(255,95,162,${fl * .85})`; for (const m of [-1, 1]) { eyePath(c, m); c.fill(); }
+  star(c, 0, -.66, .24, .1); c.fillStyle = `rgba(255,226,122,${fl})`; c.fill(); c.restore();
+  // chiles que cuelgan del tablero
+  const chile = (x, y, col, rot) => { c.save(); c.translate(x, y); c.rotate(rot); c.strokeStyle = '#2f8f4e'; c.lineWidth = 1.3; c.beginPath(); c.moveTo(0, -12); c.lineTo(0, -6); c.stroke();
+    c.fillStyle = col; c.strokeStyle = ink; c.lineWidth = 1.4; c.beginPath(); c.moveTo(-3.4, -6); c.quadraticCurveTo(-4, 8, 1, 17); c.quadraticCurveTo(3.6, 8, 3.4, -6); c.closePath(); c.fill(); c.stroke();
+    c.fillStyle = '#2f8f4e'; c.beginPath(); c.arc(0, -6, 3.6, Math.PI, 0); c.closePath(); c.fill(); c.stroke(); c.restore(); };
+  chile(-66, -96, '#e0364a', .15); chile(-72, -92, '#3fb04f', -.1); chile(66, -96, '#3fb04f', -.15); chile(72, -92, '#e0364a', .1);
+  chile(-26, -122, '#e0364a', .3); chile(30, -121, '#ff8a3d', -.3);
+  // lucecitas: alrededor del aro y del tablero (parpadean; con "luces: no" quedan apagadas)
+  if (D.li) {
+    const bulbs = [];
+    for (let i = 0; i < 14; i++) { const a = i / 14 * 6.283 + .2; bulbs.push([Math.cos(a) * 31, -178 + Math.sin(a) * 31]); }
+    for (let i = 0; i < 12; i++) { const f = i / 11, p = arc(f); bulbs.push([lerp(-66, 66, f), p.y - 19 + Math.pow(Math.abs(f - .5) * 2, 2) * 3]); }
+    for (let i = 0; i < 7; i++) bulbs.push([lerp(-46, 46, i / 6), -57]);
+    const bc = ['#ff5a5a', '#ffd23a', '#5fe8ff', '#7cf07c', '#ff8afc'];
+    bulbs.forEach(([bx, by], i) => { const on = (Math.sin(t * 5 + i * 1.7) + 1) / 2, col = bc[i % bc.length];
+      c.fillStyle = col; c.globalAlpha = .22 + .3 * on + glow * .3; c.beginPath(); c.arc(bx, by, 6.5, 0, 6.3); c.fill();
+      c.globalAlpha = 1; c.fillStyle = col; c.beginPath(); c.arc(bx, by, 2.5, 0, 6.3); c.globalAlpha = .55 + .45 * on; c.fill(); c.globalAlpha = 1; c.lineWidth = .9; c.strokeStyle = ink; c.stroke(); });
+  }
+  c.restore();
+}
+function drawCartel(c, w, gx, gy) { const p = S(gx + .5, gy + .5); drawCartelAt(c, p.x, p.y, clock, nightGlow(w)); }
+const nightGlow = w => clamp((hourOf(w) - 17.2) / 2.2, 0, 1);
+
+/* ---------- Editor del letrero: nombre del negocio con teclado en pantalla (también se puede escribir con el teclado) ---------- */
+const SIGN_ROWS = ['1234567890', 'QWERTYUIOP', 'ASDFGHJKLÑ', 'ZXCVBNM', 'ÁÉÍÓÚÜ&!.-'];
+const SIGN_MAX = [14, 10];
+const SIGNBOX = { x: 120, y: 70, w: 720, h: 476 };
+const signField = i => ({ x: SIGNBOX.x + 372, y: SIGNBOX.y + 44 + i * 58, w: 328, h: 40 });
+const signStyleBtn = i => ({ x: SIGNBOX.x + 372 + i * 66, y: SIGNBOX.y + 172, w: 62, h: 30 });
+const signLightBtn = { x: SIGNBOX.x + 372, y: SIGNBOX.y + 212, w: 150, h: 32, size: 15 };
+function signKeys() {
+  const out = [], kx = SIGNBOX.x + 372, ky = SIGNBOX.y + 256, kw = 31, gap = 3.2, rp = 36, kh = 32;
+  SIGN_ROWS.forEach((row, ri) => [...row].forEach((ch, i) => out.push({ x: kx + i * (kw + gap), y: ky + ri * rp, w: kw, h: kh, ch })));
+  out.push({ x: kx + 7 * (kw + gap), y: ky + 3 * rp, w: kw * 3 + gap * 2, h: kh, act: 'back', label: '⌫' });
+  out.push({ x: kx, y: ky + 5 * rp, w: kw * 6 + gap * 5, h: kh, ch: ' ', label: 'ESPACIO' });
+  out.push({ x: kx + 6 * (kw + gap) + 4, y: ky + 5 * rp, w: kw * 4 + gap * 3 - 4, h: kh, act: 'clear', label: 'BORRAR' });
+  return out;
+}
+function signType(w, ch) {
+  const D = DECO.sign, k = w.signField ? 't2' : 't1', mx = SIGN_MAX[w.signField || 0];
+  if ((D[k] || '').length >= mx) { sfx('nope'); return; }
+  D[k] = (D[k] || '') + ch; sfx('type');
+}
+function signKey(w, e) {
+  const D = DECO.sign, k = w.signField ? 't2' : 't1';
+  if (e.key === 'Escape' || e.key === 'Enter') { closeSign(w); return true; }
+  if (e.key === 'Tab') { w.signField = w.signField ? 0 : 1; sfx('click'); return true; }
+  if (e.key === 'Backspace') { D[k] = (D[k] || '').slice(0, -1); sfx('back'); return true; }
+  if (e.key && e.key.length === 1 && !e.ctrlKey && !e.metaKey) { const ch = e.key.toUpperCase(); if (/^[A-ZÑÁÉÍÓÚÜ0-9 &!.\-]$/.test(ch)) { signType(w, ch); return true; } }
+  return false;
+}
+function closeSign(w) { w.modal = null; if (!(DECO.sign.t1 || '').trim()) DECO.sign.t1 = 'ENMASCARADOS'; if (!(DECO.sign.t2 || '').trim()) DECO.sign.t2 = 'TACOS'; sfx('back'); toast(w, '¡Letrero guardado!'); Game.save(); }
+function openSign(w) { DECO.sign = Object.assign({ t1: 'ENMASCARADOS', t2: 'TACOS', st: 0, li: true }, DECO.sign); w.modal = 'sign'; w.signField = 0; w.panel = false; sfx('click'); }
+function signPointer(w, x, y) {
+  const hit = b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h, D = DECO.sign;
+  if (hit(signDoneBtn())) { closeSign(w); return; }
+  for (let i = 0; i < 2; i++) if (hit(signField(i))) { w.signField = i; sfx('click'); return; }
+  for (let i = 0; i < SIGN_STYLES.length; i++) if (hit(signStyleBtn(i))) { D.st = i; sfx('click'); return; }
+  if (hit(signLightBtn)) { D.li = !D.li; sfx('click'); return; }
+  const k = w.signField ? 't2' : 't1';
+  for (const key of signKeys()) if (hit(key)) {
+    if (key.act === 'back') { D[k] = (D[k] || '').slice(0, -1); sfx('back'); } else if (key.act === 'clear') { D[k] = ''; sfx('back'); } else signType(w, key.ch);
+    return;
+  }
+  if (!hit(SIGNBOX)) closeSign(w);
+}
+const signDoneBtn = () => ({ x: SIGNBOX.x + 40, y: SIGNBOX.y + SIGNBOX.h - 62, w: 250, h: 46, label: 'LISTO', size: 24, style: 'green' });
+function drawSignEditor(c, w) {
+  const B = SIGNBOX, D = DECO.sign, t = w.t;
+  c.fillStyle = 'rgba(8,4,24,.8)'; c.fillRect(-EX, 0, CW, H);
+  drawPanel(c, B.x, B.y, B.w, B.h, 'TU LETRERO');
+  // vista previa: de noche, para que se vea cómo brilla
+  c.save(); rr(c, B.x + 24, B.y + 28, 322, 364, 14); c.clip();
+  const g = c.createLinearGradient(0, B.y + 28, 0, B.y + 392); g.addColorStop(0, '#0b0724'); g.addColorStop(1, '#16311f'); c.fillStyle = g; c.fillRect(B.x + 24, B.y + 28, 322, 364);
+  const ST = SIGN_STYLES[D.st] || SIGN_STYLES[0], px = B.x + 185, py = B.y + 340;
+  c.save(); c.globalCompositeOperation = 'lighter';
+  for (const [hx, hy, hr] of [[0, -178, 90], [0, -100, 110]]) { const rg = c.createRadialGradient(px + hx, py + hy, 4, px + hx, py + hy, hr); rg.addColorStop(0, `rgba(${ST.halo},.5)`); rg.addColorStop(1, `rgba(${ST.halo},0)`); c.fillStyle = rg; c.beginPath(); c.arc(px + hx, py + hy, hr, 0, 6.3); c.fill(); }
+  c.restore();
+  drawCartelAt(c, px, py, t, 1);
+  c.restore(); rr(c, B.x + 24, B.y + 28, 322, 364, 14); c.lineWidth = 3; c.strokeStyle = P.gold; c.stroke();
+  txt(c, 'Así se ve de noche', B.x + 185, B.y + 50, { font: `600 14px ${FONT_UI}`, align: 'center', color: 'rgba(255,248,234,.7)', ls: 1 });
+  // campos de texto
+  ['Nombre de tu negocio', 'Segunda línea'].forEach((lab, i) => {
+    const q = signField(i), on = (w.signField || 0) === i, k = i ? 't2' : 't1';
+    txt(c, lab, q.x, q.y - 4, { font: `700 13px ${FONT_UI}`, color: P.muted, ls: 1 });
+    rr(c, q.x, q.y, q.w, q.h, 9); c.fillStyle = '#120a2a'; c.fill(); c.lineWidth = on ? 3.5 : 1.8; c.strokeStyle = on ? P.gold : P.violet; c.stroke();
+    const val = (D[k] || '').toUpperCase(), caret = on && Math.floor(t * 2) % 2 === 0 ? '▍' : '';
+    txt(c, val + caret, q.x + 12, q.y + 28, { font: `400 22px ${FONT_DISPLAY}`, color: P.cream });
+    txt(c, `${val.length}/${SIGN_MAX[i]}`, q.x + q.w - 10, q.y + 26, { font: `700 13px ${FONT_UI}`, align: 'right', color: val.length >= SIGN_MAX[i] ? '#ff8fa0' : P.muted });
+    if (UI.hit(q)) UI.cursor = true;
+  });
+  txt(c, 'Colores', B.x + 372, B.y + 164, { font: `700 13px ${FONT_UI}`, color: P.muted, ls: 1 });
+  SIGN_STYLES.forEach((S2, i) => {
+    const q = signStyleBtn(i), on = D.st === i; if (UI.hit(q)) UI.cursor = true;
+    rr(c, q.x, q.y, q.w, q.h, 8); c.fillStyle = S2.board; c.fill(); c.lineWidth = on ? 3.5 : 1.8; c.strokeStyle = on ? P.gold : S2.frame; c.stroke();
+    S2.letters.slice(0, 4).forEach((col, k, arr) => { c.fillStyle = col; c.beginPath(); c.arc(q.x + q.w / 2 + (k - (arr.length - 1) / 2) * 11, q.y + q.h / 2, 4.2, 0, 6.3); c.fill(); });
+  });
+  drawButton(c, Object.assign({}, signLightBtn, { label: D.li ? 'LUCES: SÍ' : 'LUCES: NO', style: D.li ? 'gold' : 'dark' }));
+  txt(c, 'Las lucecitas parpadean y de noche el cartel brilla', B.x + 536, B.y + 233, { font: `600 12.5px ${FONT_UI}`, color: P.muted });
+  signKeys().forEach(k => {
+    const hov = UI.hit(k); if (hov) UI.cursor = true;
+    rr(c, k.x, k.y, k.w, k.h, 6); c.fillStyle = k.act ? '#4a2c80' : hov ? '#4a2c80' : '#241447'; c.fill(); c.lineWidth = 1.5; c.strokeStyle = hov ? P.gold : 'rgba(255,255,255,.28)'; c.stroke();
+    txt(c, k.label || k.ch, k.x + k.w / 2, k.y + 22, { font: `700 ${k.label && k.label.length > 1 ? 13 : 18}px ${FONT_UI}`, align: 'center', color: P.cream });
+  });
+  drawButton(c, signDoneBtn());
+  txt(c, 'También puedes escribir con el teclado · Tab cambia de línea', B.x + B.w / 2, B.y + B.h - 8, { font: `600 12px ${FONT_UI}`, align: 'center', color: P.muted });
+}
+/* =========================================================
+   MÁQUINA DE GARRA (nivel 13, $3,000): al tocarla se juega una escena animada como la del video de referencia
+   (la cabina se acerca, la garra se desliza, baja, agarra un peluche luchador y lo lleva a la salida).
+   Cuesta jugar; los premios son al azar y el costo sube un poco con el nivel (así el premio en monedas rinde ≈ 80 % de lo que pagas, más gemas, energía o fama).
+   ========================================================= */
+const CLAW_MAX = 5;                                                  // jugadas por día
+const clawCost = w => Math.round((120 + 6 * w.level) / 5) * 5;
+const CLAW_PRIZES = [
+  { id: 'miss',    w: 24, plush: 'bear',      fail: true,        name: '¡Se resbaló!',           note: 'La garra soltó el peluche. Te llevas 15 XP de consuelo' },
+  { id: 'osito',   w: 30, plush: 'bear',      money: [120, 170], name: 'Peluche de osito',       note: 'Se lo vendes a un coleccionista' },
+  { id: 'rana',    w: 15, plush: 'frog',      money: [200, 280], name: 'Rana luchadora',         note: 'Un cliente te la compra encantado' },
+  { id: 'energia', w: 10, plush: 'blob',      stamina: true,     name: 'Bebida energética',      note: 'El Novato recupera toda su energía' },
+  { id: 'gema',    w: 8,  plush: 'gemblob',   gems: [1, 2],      name: 'Peluche con gema',       note: 'Traía una gema escondida en la panza' },
+  { id: 'fama',    w: 7,  plush: 'luchador',  rep: .34,          name: 'Peluche del Campeón',    note: 'Tu fama sube: +⅓ de máscara' },
+  { id: 'mega',    w: 6,  plush: 'luchadorOro', money: [600, 900], gems: [1, 1], name: '¡PREMIO MAYOR!', note: 'El peluche dorado vale oro (y una gema)' }
+];
+function pickClawPrize() { let r = Math.random() * CLAW_PRIZES.reduce((s, p) => s + p.w, 0); for (const p of CLAW_PRIZES) { if ((r -= p.w) < 0) return p; } return CLAW_PRIZES[1]; }
+const clawLeft = w => CLAW_MAX - (w.clawDay === w.day ? w.clawN : 0);
+function openClaw(w) { w.modal = 'claw'; w.panel = false; w.claw = { phase: 'menu', t: 0 }; sfx('click'); }
+function clawPlay(w) {
+  const cost = clawCost(w);
+  if (clawLeft(w) <= 0) { sfx('nope'); toast(w, 'La máquina ya no tiene más jugadas por hoy'); return; }
+  if (w.money < cost) { sfx('nope'); w.moneyFlash = .8; toast(w, `Faltan ${pesos(cost - w.money)}`); return; }
+  w.money -= cost; w.dayCost += cost; if (w.clawDay !== w.day) { w.clawDay = w.day; w.clawN = 0; } w.clawN++;
+  const prize = pickClawPrize(), m = cost / 150;
+  w.claw = { phase: 'play', t: 0, prize, cost, mult: m, tx: rand(430, 600), snd: {}, got: null, seed: Math.floor(Math.random() * 999) };
+  sfx('arcadeCoin'); Game.save();
+}
+function clawApply(w) {                                              // se entrega el premio cuando termina la animación (o si la saltas)
+  const C = w.claw, p = C.prize, n = w.novato; if (C.got) return;
+  const got = { lines: [] };
+  if (p.fail) { addXp(w, 15); got.lines.push('+15 XP'); }
+  if (p.money) { const v = Math.round(rand(p.money[0], p.money[1]) * C.mult / 5) * 5; w.money += v; got.lines.push('+' + pesos(v)); got.money = v; }
+  if (p.gems) { const g = Math.round(rand(p.gems[0], p.gems[1])); w.gems += g; w.gemsSeen = true; got.lines.push(`+${g} ${g === 1 ? 'gema' : 'gemas'}`); }
+  if (p.stamina) { n.stamina = maxStamina(w); n.furia = false; n.overwork = 0; n.zeroWarned = false; got.lines.push('Energía al 100 %'); }
+  if (p.rep) { addRep(w, p.rep); got.lines.push('+⅓ de máscara'); }
+  C.got = got; C.phase = 'result'; C.rt = 0; sfx(p.fail ? 'clawFail' : 'clawWin'); Game.save();
+}
+const CLAW_END = 8.4;
+function updateClaw(w, dt) {
+  const C = w.claw; if (!C) return;
+  C.t += dt; if (C.rt != null) C.rt += dt;
+  if (C.phase !== 'play') return;
+  const T = C.t, once = (k, at, snd) => { if (T >= at && !C.snd[k]) { C.snd[k] = 1; sfx(snd); } };
+  once('mv', 1.4, 'clawMove'); once('dn', 2.8, 'clawDown'); once('gr', 4.15, 'clawGrab'); once('up', 4.7, 'clawUp'); once('mv2', 6.0, 'clawMove'); once('dp', 7.3, 'clawDrop');
+  if (T >= CLAW_END) clawApply(w);
+}
+function clawPointer(w, x, y) {
+  const C = w.claw, hit = b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
+  if (C.phase === 'menu') {
+    if (hit(clawBtn('play'))) { clawPlay(w); return; }
+    if (hit(clawBtn('close')) || !hit(CLAWBOX)) { w.modal = null; sfx('back'); }
+  } else if (C.phase === 'play') { if (C.t > .6) { C.t = CLAW_END; clawApply(w); } }                      // tocar salta la animación
+  else if (C.phase === 'result') {
+    if (hit(clawBtn('again')) && clawLeft(w) > 0) { clawPlay(w); return; }
+    if (hit(clawBtn('done')) || hit(clawBtn('again'))) { w.modal = null; sfx('back'); }
+  }
+}
+const CLAWBOX = { x: 250, y: 100, w: 460, h: 400 };
+function clawBtn(k) {
+  if (k === 'play') return { x: CLAWBOX.x + 40, y: CLAWBOX.y + CLAWBOX.h - 76, w: 250, h: 50, size: 22, style: 'green' };
+  if (k === 'close') return { x: CLAWBOX.x + 310, y: CLAWBOX.y + CLAWBOX.h - 76, w: 110, h: 50, size: 20, style: 'dark', label: 'SALIR' };
+  if (k === 'again') return { x: 300, y: 508, w: 200, h: 54, size: 22, style: 'green', label: 'OTRA VEZ' };
+  return { x: 520, y: 508, w: 160, h: 54, size: 22, style: 'gold', label: 'LISTO' };
+}
+
+/* ---------- peluches ---------- */
+const PLUSH_COLS = [['#c98b4e', '#e8c08a'], ['#ff7ab8', '#ffc4de'], ['#b57cff', '#dcc4ff'], ['#5fd0ff', '#bfeaff'], ['#ffc83d', '#fff0b0'], ['#7bd957', '#d6f5b0']];
+function drawPlush(c, kind, x, y, s = 1, tilt = 0, pal = 0) {                       // (x, y) = centro de la cabeza
+  c.save(); c.translate(x, y); c.rotate(tilt); c.scale(s, s); c.lineJoin = 'round'; c.lineCap = 'round'; c.lineWidth = 2; c.strokeStyle = P.ink;
+  const [a, b] = PLUSH_COLS[pal % PLUSH_COLS.length], eyes = (dx, dy) => { c.fillStyle = P.ink; c.beginPath(); c.arc(-dx, dy, 1.9, 0, 6.3); c.arc(dx, dy, 1.9, 0, 6.3); c.fill(); c.fillStyle = '#fff'; c.beginPath(); c.arc(-dx - .6, dy - .7, .7, 0, 6.3); c.arc(dx - .6, dy - .7, .7, 0, 6.3); c.fill(); };
+  if (kind === 'bear') {
+    c.fillStyle = a; c.beginPath(); c.ellipse(0, 20, 17, 15, 0, 0, 6.3); c.fill(); c.stroke();
+    for (const sx of [-1, 1]) { c.fillStyle = a; c.beginPath(); c.arc(sx * 12, -11, 6.5, 0, 6.3); c.fill(); c.stroke(); c.fillStyle = b; c.beginPath(); c.arc(sx * 12, -11, 3.2, 0, 6.3); c.fill(); }
+    c.fillStyle = a; c.beginPath(); c.arc(0, 0, 15, 0, 6.3); c.fill(); c.stroke();
+    c.fillStyle = b; c.beginPath(); c.ellipse(0, 5, 7.5, 5.5, 0, 0, 6.3); c.fill(); c.stroke(); eyes(5.5, -3);
+    c.fillStyle = P.ink; c.beginPath(); c.ellipse(0, 2.6, 2.6, 1.8, 0, 0, 6.3); c.fill();
+  } else if (kind === 'frog') {
+    c.fillStyle = '#4fbf3f'; c.beginPath(); c.ellipse(0, 19, 17, 14, 0, 0, 6.3); c.fill(); c.stroke();
+    c.beginPath(); c.ellipse(0, 3, 18, 14, 0, 0, 6.3); c.fill(); c.stroke();
+    for (const sx of [-1, 1]) { c.fillStyle = '#4fbf3f'; c.beginPath(); c.arc(sx * 10, -10, 7, 0, 6.3); c.fill(); c.stroke(); c.fillStyle = '#fff'; c.beginPath(); c.arc(sx * 10, -10, 4.6, 0, 6.3); c.fill(); c.fillStyle = P.ink; c.beginPath(); c.arc(sx * 10 + 1, -9.5, 2.2, 0, 6.3); c.fill(); }
+    c.strokeStyle = P.ink; c.lineWidth = 1.8; c.beginPath(); c.arc(0, 4, 8.5, .15, Math.PI - .15); c.stroke();
+    c.fillStyle = '#ff7a8a'; c.beginPath(); c.arc(-11, 6, 2.6, 0, 6.3); c.arc(11, 6, 2.6, 0, 6.3); c.fill();
+    c.fillStyle = '#e0364a'; c.strokeStyle = P.ink; c.lineWidth = 1.5; c.beginPath(); c.moveTo(-9, -3); c.lineTo(9, -3); c.lineTo(8, -1); c.lineTo(-8, -1); c.closePath(); c.fill();     // antifaz
+  } else if (kind === 'blob' || kind === 'gemblob') {
+    c.fillStyle = kind === 'gemblob' ? '#35c9f0' : a; c.beginPath(); c.ellipse(0, 9, 18, 19, 0, 0, 6.3); c.fill(); c.stroke();
+    c.fillStyle = 'rgba(255,255,255,.35)'; c.beginPath(); c.ellipse(-7, -1, 4.5, 7, .4, 0, 6.3); c.fill(); eyes(6, 3);
+    c.strokeStyle = P.ink; c.lineWidth = 1.8; c.beginPath(); c.arc(0, 8, 4.5, .2, Math.PI - .2); c.stroke();
+    if (kind === 'gemblob') drawGem(c, 0, 20, 6);
+    else { c.fillStyle = '#ffd23a'; c.strokeStyle = P.ink; c.lineWidth = 1.2; c.beginPath(); c.moveTo(3, 13); c.lineTo(-3, 20); c.lineTo(0, 20); c.lineTo(-2, 27); c.lineTo(5, 18); c.lineTo(1, 18); c.closePath(); c.fill(); c.stroke(); }
+  } else {                                                                            // luchador (o dorado)
+    const gold = kind === 'luchadorOro';
+    c.fillStyle = gold ? '#e3b53a' : '#3b5bdb'; c.beginPath(); c.moveTo(-13, 10); c.lineTo(13, 10); c.lineTo(16, 34); c.lineTo(-16, 34); c.closePath(); c.fill(); c.stroke();
+    c.fillStyle = gold ? '#fff0b0' : '#ffd23a'; c.fillRect(-4, 16, 8, 3);
+    c.beginPath(); c.arc(0, 0, 16, 0, 6.3); c.fillStyle = gold ? '#ffe27a' : '#f1c27d'; c.fill(); c.stroke();
+    drawMask(c, 0, .5, 12.5, gold ? MASKS.ring : MASKS.novato);
+    if (gold) { c.fillStyle = '#fff'; star(c, 14, -14, 4, 1.6, 4); c.fill(); }
+  }
+  c.restore();
+}
+
+/* ---------- la cabina (se usa en la escena y, más chica, como mueble del local) ---------- */
+function drawClawCabinet(c, t, zoom) {
+  const X = 250, Y = 24, Wd = 460, Hh = 556;
+  // cuerpo azul
+  let g = c.createLinearGradient(X, 0, X + Wd, 0); g.addColorStop(0, '#16409a'); g.addColorStop(.5, '#2d6fe0'); g.addColorStop(1, '#16409a');
+  c.lineJoin = 'round'; c.lineWidth = 5; c.strokeStyle = P.ink; rr(c, X, Y + 70, Wd, Hh - 70, 14); c.fillStyle = g; c.fill(); c.stroke();
+  // marquesina
+  const mg = c.createLinearGradient(0, Y, 0, Y + 100); mg.addColorStop(0, '#1b3f9c'); mg.addColorStop(1, '#0d2260');
+  c.lineWidth = 5; rr(c, X - 12, Y + 4, Wd + 24, 98, 14); c.fillStyle = mg; c.fill(); c.stroke(); c.lineWidth = 4; c.strokeStyle = '#e0364a'; rr(c, X - 4, Y + 12, Wd + 8, 82, 10); c.stroke();
+  const titleG = c.createLinearGradient(0, Y + 24, 0, Y + 86); titleG.addColorStop(0, '#fff6b8'); titleG.addColorStop(.5, '#ffc83d'); titleG.addColorStop(1, '#ff8a3d');
+  c.save(); c.font = `400 56px ${FONT_DISPLAY}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineWidth = 9; c.strokeStyle = P.ink; c.strokeText('¡LA GARRA!', X + Wd / 2, Y + 58); c.fillStyle = titleG; c.fillText('¡LA GARRA!', X + Wd / 2, Y + 58); c.restore();
+  drawMask(c, X + Wd / 2, Y - 4, 17, MASKS.ring);                                                  // máscara de luchador sobre la marquesina
+  for (let i = 0; i < 18; i++) { const bx = X + 8 + i * (Wd - 16) / 17, on = Math.sin(t * 6 + i * .9) > 0; c.fillStyle = on ? '#fff3b0' : '#c9a23a'; c.beginPath(); c.arc(bx, Y + 14, 3.4, 0, 6.3); c.fill(); c.beginPath(); c.arc(bx, Y + 92, 3.4, 0, 6.3); c.fillStyle = on ? '#c9a23a' : '#fff3b0'; c.fill(); }
+  for (const sx of [X + 28, X + Wd - 28]) { c.fillStyle = '#ffd23a'; c.strokeStyle = P.ink; c.lineWidth = 2; star(c, sx, Y + 58, 13, 5.5); c.fill(); c.stroke(); }
+  // vitrina: marco claro
+  c.lineWidth = 5; c.strokeStyle = P.ink; rr(c, X + 18, Y + 108, Wd - 36, 312, 8); c.fillStyle = '#0a1a40'; c.fill(); c.stroke();
+  c.lineWidth = 3; c.strokeStyle = '#7cc4ff'; rr(c, X + 22, Y + 112, Wd - 44, 304, 6); c.stroke();
+  // base roja con tablero de control
+  g = c.createLinearGradient(0, Y + 430, 0, Y + Hh); g.addColorStop(0, '#e0364a'); g.addColorStop(1, '#a01c30');
+  c.lineWidth = 5; c.strokeStyle = P.ink; rr(c, X, Y + 426, Wd, Hh - 426, 10); c.fillStyle = g; c.fill(); c.stroke();
+  c.fillStyle = '#ffd23a'; c.fillRect(X + 6, Y + 480, Wd - 12, 7);
+  c.fillStyle = '#2a2d3a'; c.beginPath(); c.moveTo(X + 120, Y + 440); c.lineTo(X + 340, Y + 440); c.lineTo(X + 362, Y + 482); c.lineTo(X + 98, Y + 482); c.closePath(); c.fill(); c.lineWidth = 3; c.stroke();     // tablero
+  c.strokeStyle = '#8a8f9e'; c.lineWidth = 5; c.beginPath(); c.moveTo(X + 160, Y + 462); c.lineTo(X + 160, Y + 446); c.stroke(); c.fillStyle = '#e0364a'; c.beginPath(); c.arc(X + 160, Y + 442, 10, 0, 6.3); c.fill(); c.lineWidth = 2; c.strokeStyle = P.ink; c.stroke();   // palanca
+  for (const [bx, col] of [[X + 230, '#7c3aed'], [X + 280, '#2fbf71']]) { c.fillStyle = col; c.beginPath(); c.ellipse(bx, Y + 462, 14, 9, 0, 0, 6.3); c.fill(); c.stroke(); c.fillStyle = 'rgba(255,255,255,.4)'; c.beginPath(); c.ellipse(bx - 3, Y + 459, 6, 3, 0, 0, 6.3); c.fill(); }
+  c.fillStyle = '#c9ccd6'; rr(c, X + Wd - 62, Y + 500, 28, 40, 4); c.fill(); c.stroke(); c.fillStyle = P.ink; c.fillRect(X + Wd - 52, Y + 508, 8, 20); txt(c, '$', X + Wd - 48, Y + 538, { font: `700 12px ${FONT_UI}`, align: 'center', color: P.ink });         // ranura
+  c.fillStyle = '#16072c'; rr(c, X + 34, Y + 494, 118, 56, 8); c.fill(); c.lineWidth = 3; c.strokeStyle = P.ink; c.stroke(); txt(c, 'PREMIO', X + 93, Y + 546, { font: `700 11px ${FONT_UI}`, align: 'center', color: '#9aa0b8', ls: 1.5 });  // bandeja de premios
+  for (const [sx, sy, col] of [[X + 192, Y + 512, '#7bd957'], [X + 240, Y + 530, '#ffd23a']]) { c.fillStyle = col; c.beginPath(); c.arc(sx, sy, 9, 0, 6.3); c.fill(); c.strokeStyle = P.ink; c.lineWidth = 2; c.stroke(); drawMask(c, sx, sy, 5.5, MASKS.novato); }              // calcomanías
+}
+function plushPile(seed) {                                           // el montón de peluches (un cerrito): posiciones fijas para que no brinquen
+  const out = [], kinds = ['bear', 'frog', 'blob', 'luchador', 'bear', 'blob', 'frog'];
+  [[372, 7], [396, 6], [420, 5], [444, 4]].forEach(([x0, n], r) => {
+    for (let i = 0; i < n; i++) {
+      const h = Math.abs(Math.sin((i * 7 + r * 13 + seed) * .73)), x = x0 + i * 46 + (h - .5) * 9;
+      out.push({ x, y: 408 - r * 27 + (h - .5) * 6, k: kinds[Math.floor(h * 97 + i + r) % kinds.length], pal: Math.floor(h * 53 + i) % PLUSH_COLS.length, tilt: (h - .5) * .6, r, s: 1.15 + h * .25 });
+    }
+  });
+  return out;
+}
+function drawClawArm(c, x, y, open) {                                // garra: cabezal y tres dedos (se ven dos); open 0..1
+  const a = lerp(.2, 1.0, open);
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  for (const sg of [-1, 1]) {
+    c.save(); c.translate(x + sg * 9, y + 10); c.rotate(sg * a);
+    for (const [w1, col] of [[9, P.ink], [5.4, '#aab0bf']]) { c.strokeStyle = col; c.lineWidth = w1; c.beginPath(); c.moveTo(0, 0); c.lineTo(0, 22); c.stroke(); c.save(); c.translate(0, 22); c.rotate(-sg * (a * 1.25 + .15)); c.beginPath(); c.moveTo(0, 0); c.lineTo(0, 24); c.stroke(); c.restore(); }
+    c.restore();
+  }
+  c.fillStyle = '#bfc4d2'; c.strokeStyle = P.ink; c.lineWidth = 2.6; rr(c, x - 17, y - 8, 34, 24, 7); c.fill(); c.stroke();
+  c.fillStyle = '#e0364a'; c.beginPath(); c.arc(x, y + 3, 3.2, 0, 6.3); c.fill(); c.fillStyle = 'rgba(255,255,255,.55)'; c.fillRect(x - 13, y - 5, 5, 12);
+}
+function drawClawScene(c, w) {
+  const C = w.claw, T = C.t, P_ = C.prize, ph = (a, b) => smooth(clamp((T - a) / (b - a), 0, 1));
+  const zoom = ph(0, 1.3), sc = lerp(.6, 1, zoom), ox = 480, oy = lerp(250, 300, zoom);
+  // fondo: salón de videojuegos, oscuro y con neón
+  const bg = c.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#0a0524'); bg.addColorStop(.7, '#1c0e42'); bg.addColorStop(1, '#2a1250'); c.fillStyle = bg; c.fillRect(-EX, 0, CW, H);
+  c.save(); c.translate(480, 300); c.scale(lerp(1, 1.5, zoom), lerp(1, 1.5, zoom)); c.translate(-480, -300);
+  for (const [bx, col] of [[-110, '#ff3d8b'], [90, '#5fe8ff'], [820, '#ffc83d'], [1020, '#b57cff']]) {
+    const r = 130 + 20 * Math.sin(w.t + bx); const rg = c.createRadialGradient(bx, 260, 4, bx, 260, r); rg.addColorStop(0, col + '88'); rg.addColorStop(1, col + '00'); c.fillStyle = rg; c.beginPath(); c.arc(bx, 260, r, 0, 6.3); c.fill();
+    c.fillStyle = '#120a2e'; c.fillRect(bx - 56, 150, 112, 450); c.fillStyle = col; c.globalAlpha = .55 + .25 * Math.sin(w.t * 3 + bx); c.fillRect(bx - 44, 180, 88, 70); c.globalAlpha = 1;
+  }
+  c.restore();
+  c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(480, 590, 300 * sc, 22 * sc, 0, 0, 6.3); c.fill();
+  c.save(); c.translate(ox, oy); c.scale(sc, sc); c.translate(-480, -300);
+  drawClawCabinet(c, w.t, zoom);
+  // interior
+  const GL = { x: 276, y: 136, w: 408, h: 288 };
+  c.save(); rr(c, GL.x, GL.y, GL.w, GL.h, 5); c.clip();
+  const ig = c.createLinearGradient(0, GL.y, 0, GL.y + GL.h); ig.addColorStop(0, '#1d4fa8'); ig.addColorStop(1, '#0f2a66'); c.fillStyle = ig; c.fillRect(GL.x, GL.y, GL.w, GL.h);
+  c.save(); c.translate(GL.x + GL.w / 2, GL.y + 140); c.fillStyle = 'rgba(255,214,90,.18)';                       // rayos de fondo
+  for (let i = 0; i < 12; i++) { c.rotate(Math.PI / 6); c.beginPath(); c.moveTo(0, 0); c.lineTo(300, -26); c.lineTo(300, 26); c.closePath(); c.fill(); } c.restore();
+  const pile = plushPile(C.seed); let tIdx = 0, bd = 1e9; pile.forEach((p, i) => { if (p.r >= 2) { const d = Math.abs(p.x - C.tx); if (d < bd) { bd = d; tIdx = i; } } }); const tgt = pile[tIdx];
+  // camino de la garra
+  const railY = GL.y + 22, startX = 620, chuteX = 322, topY = railY + 30, hitY = tgt.y - 26;
+  let cx = startX, cy = topY, open = .75, carry = false, drop = null;
+  if (T >= 1.3) cx = lerp(startX, tgt.x, ph(1.3, 2.7));
+  if (T >= 2.8) cy = lerp(topY, hitY, ph(2.8, 4.1));
+  if (T >= 4.1) open = lerp(.75, .12, ph(4.1, 4.6));
+  const ok = !P_.fail;
+  if (T >= 4.7) cy = lerp(hitY, topY, ph(4.7, 5.9));
+  if (ok) carry = T >= 4.5 && T < 7.4;
+  else { carry = T >= 4.5 && T < 5.35; if (T >= 5.35 && T < 5.8) drop = { x: tgt.x, y: lerp(hitY + 14, tgt.y, ((T - 5.35) / .45) ** 2) }; open = T >= 5.35 && T < 5.9 ? .6 : open; }
+  if (T >= 6.0) cx = lerp(tgt.x, chuteX, ph(6.0, 7.2));
+  if (ok && T >= 7.3) { open = lerp(.12, .8, ph(7.3, 7.5)); }
+  if (!ok && T >= 7.3) open = lerp(.12, .8, ph(7.3, 7.5));
+  const fall = ok && T >= 7.3 ? { x: chuteX, y: lerp(cy + 40, GL.y + GL.h - 18, ph(7.3, 7.9) ** 1.6) } : null;
+  // peluches (el premio se saca del montón mientras la garra lo carga)
+  pile.forEach((p, i) => { if (i === tIdx && (carry || fall || (ok && T >= 4.5))) return; if (i === tIdx && drop) return; const jig = i === tIdx && T > 4.1 && T < 4.7 ? Math.sin(T * 40) * 1.2 : 0; drawPlush(c, p.k, p.x + jig, p.y, p.s, p.tilt, p.pal); });
+  if (drop) drawPlush(c, P_.plush, drop.x, drop.y, tgt.s, .4, 1);
+  else if (!carry && !fall && !ok && T >= 5.8) drawPlush(c, P_.plush, tgt.x, tgt.y, tgt.s, .1, 1);
+  // foco sobre el premio
+  if (T < 4.3) { const a = .3 + .12 * Math.sin(w.t * 6); c.fillStyle = `rgba(255,240,150,${a})`; c.beginPath(); c.ellipse(tgt.x, tgt.y + 14, 34, 11, 0, 0, 6.3); c.fill(); }
+  // el hueco de salida (izquierda, al fondo)
+  c.fillStyle = '#05030f'; c.beginPath(); c.ellipse(chuteX, GL.y + GL.h - 8, 44, 12, 0, 0, 6.3); c.fill(); c.lineWidth = 3; c.strokeStyle = '#ffd23a'; c.stroke();
+  if (carry && ok) drawPlush(c, P_.plush, cx, cy + 62, 1.2, Math.sin(T * 5) * .08, 1);
+  else if (carry && !ok) drawPlush(c, P_.plush, cx, cy + 62, 1.2, Math.sin(T * 9) * .12, 1);
+  if (fall) drawPlush(c, P_.plush, fall.x, fall.y, 1.2, T * 4, 1);
+  // riel, carro, cable y garra
+  const rg2 = c.createLinearGradient(0, railY - 7, 0, railY + 7); rg2.addColorStop(0, '#dfe3ee'); rg2.addColorStop(1, '#7c8396'); c.fillStyle = rg2; c.fillRect(GL.x, railY - 7, GL.w, 14); c.strokeStyle = P.ink; c.lineWidth = 2; c.strokeRect(GL.x, railY - 7, GL.w, 14);
+  c.fillStyle = '#4a4f60'; rr(c, cx - 22, railY - 11, 44, 22, 5); c.fill(); c.stroke();
+  c.strokeStyle = '#1b1b24'; c.lineWidth = 4; c.beginPath(); const coil = 7; for (let y = railY + 10; y < cy - 8; y += coil) { c.moveTo(cx - 5, y); c.lineTo(cx + 5, y + coil / 2); } c.stroke();
+  c.strokeStyle = '#6b7080'; c.lineWidth = 1.6; c.beginPath(); c.moveTo(cx, railY + 10); c.lineTo(cx, cy - 8); c.stroke();
+  drawClawArm(c, cx, cy, open);
+  c.restore();                                                                                            // fin del recorte de la vitrina
+  // reflejos del cristal
+  c.fillStyle = 'rgba(255,255,255,.07)'; c.beginPath(); c.moveTo(GL.x + 40, GL.y); c.lineTo(GL.x + 130, GL.y); c.lineTo(GL.x + 40, GL.y + GL.h); c.lineTo(GL.x - 10, GL.y + GL.h); c.closePath(); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.05)'; c.beginPath(); c.moveTo(GL.x + 180, GL.y); c.lineTo(GL.x + 215, GL.y); c.lineTo(GL.x + 120, GL.y + GL.h); c.lineTo(GL.x + 85, GL.y + GL.h); c.closePath(); c.fill();
+  // el premio cae a la bandeja
+  if (ok && T >= 7.9) { const k = clamp((T - 7.9) / .5, 0, 1), bounce = Math.abs(Math.sin(k * Math.PI * 1.5)) * 18 * (1 - k); drawPlush(c, P_.plush, 343, 538 - bounce - 14, .7, 0, 1); }
+  c.restore();
+  // textos de la escena
+  const msg = T < 1.4 ? '¡Una moneda y a jugar!' : T < 2.8 ? 'La garra va por un peluche…' : T < 4.2 ? 'Bajando…' : T < 4.7 ? '¡Agarró!' : T < 7.2 ? (ok ? 'Se lo lleva a la salida…' : '¡Se le está resbalando!') : (ok ? '¡Cayó el premio!' : '¡Casi!');
+  txt(c, msg, 480, 576, { font: `700 22px ${FONT_UI}`, align: 'center', color: P.cream, stroke: P.ink, sw: 5, ls: 1 });
+  if (T > .6) txt(c, 'Toca para saltar', W - 16, 24, { font: `600 13px ${FONT_UI}`, align: 'right', color: 'rgba(255,248,234,.55)', ls: 1 });
+}
+function drawClaw(c, w) {
+  const C = w.claw; if (!C) return;
+  if (C.phase === 'menu') {
+    c.fillStyle = 'rgba(8,4,24,.78)'; c.fillRect(-EX, 0, CW, H);
+    const B = CLAWBOX; drawPanel(c, B.x, B.y, B.w, B.h, '¡LA GARRA!');
+    c.save(); c.translate(B.x + 66, B.y + 24); c.scale(.25, .25); c.translate(-250, -24); drawClawCabinet(c, w.t, 1); c.restore();
+    const cost = clawCost(w), left = clawLeft(w);
+    txt(c, 'Prueba tu suerte', B.x + 250, B.y + 66, { font: `400 22px ${FONT_DISPLAY}`, align: 'center', color: P.gold, stroke: P.ink, sw: 4 });
+    txt(c, `Cada jugada cuesta ${pesos(cost)}`, B.x + 250, B.y + 98, { font: `700 20px ${FONT_UI}`, align: 'center', color: P.cream });
+    [['Peluches que se revenden por monedas', '#9af0b8'], ['Bebida energética: energía al 100 %', '#9ff0ff'], ['Gemas para decoración exclusiva', '#9ff0ff'], ['Peluche del Campeón: más fama (máscaras)', P.gold], ['¡Premio mayor: monedas y una gema!', '#ffb06a']].forEach((l, i) => txt(c, '• ' + l[0], B.x + 190, B.y + 140 + i * 24, { font: `600 16px ${FONT_UI}`, color: l[1] }));
+    txt(c, `Jugadas que quedan hoy: ${left} de ${CLAW_MAX}`, B.x + 230, B.y + 280, { font: `700 17px ${FONT_UI}`, align: 'center', color: left ? P.cream : '#ff8fa0' });
+    txt(c, 'A veces la garra se resbala: el premio es al azar', B.x + 230, B.y + 304, { font: `600 14px ${FONT_UI}`, align: 'center', color: P.muted });
+    const pb = clawBtn('play'), ok = left > 0 && w.money >= cost;
+    drawButton(c, Object.assign({ label: left <= 0 ? 'SIN JUGADAS HOY' : `JUGAR · ${pesos(cost)}` }, pb, { disabled: !ok, style: 'green' })); drawButton(c, clawBtn('close'));
+    txt(c, pesos(w.shownMoney), B.x + B.w / 2, B.y + B.h - 8, { font: `700 15px ${FONT_UI}`, align: 'center', color: P.gold });
+    return;
+  }
+  c.fillStyle = '#05030f'; c.fillRect(-EX, 0, CW, H);
+  drawClawScene(c, w);
+  if (C.phase === 'result') {
+    const k = easeOutBack(clamp(C.rt / .45, 0, 1)), p = C.prize, got = C.got;
+    c.fillStyle = `rgba(8,4,24,${.55 * Math.min(1, C.rt * 3)})`; c.fillRect(-EX, 0, CW, H);
+    c.save(); c.translate(480, 290); c.scale(k, k);
+    drawPanel(c, -230, -170, 460, 330, p.fail ? '¡CASI!' : '¡GANASTE!');
+    for (let i = 0; i < 16; i++) { const a = i / 16 * 6.283 + C.rt, r = 150 + 18 * Math.sin(C.rt * 6 + i); c.fillStyle = ['#ffd23a', '#ff3d8b', '#5fe8ff', '#7bd957'][i % 4]; c.globalAlpha = p.fail ? 0 : .8; c.beginPath(); c.arc(Math.cos(a) * r * 1.4, Math.sin(a) * r * .55 - 30, 4, 0, 6.3); c.fill(); c.globalAlpha = 1; }
+    drawPlush(c, p.plush, 0, -86, 1.7, Math.sin(C.rt * 4) * .08, 1);
+    txt(c, p.name, 0, 18, { font: `400 26px ${FONT_DISPLAY}`, align: 'center', color: P.gold, stroke: P.ink, sw: 5 });
+    txt(c, p.note, 0, 46, { font: `600 16px ${FONT_UI}`, align: 'center', color: P.cream });
+    got.lines.forEach((l, i) => txt(c, l, 0, 84 + i * 28, { font: `700 24px ${FONT_UI}`, align: 'center', color: l.includes('gema') ? '#9ff0ff' : P.gold, stroke: P.ink, sw: 4 }));
+    c.restore();
+    const ab = clawBtn('again'); drawButton(c, Object.assign({ label: clawLeft(w) > 0 ? `OTRA VEZ · ${pesos(clawCost(w))}` : 'SIN MÁS JUGADAS', size: 18 }, ab, { disabled: clawLeft(w) <= 0 || w.money < clawCost(w) })); drawButton(c, clawBtn('done'));
+  }
+}
+// La máquina como mueble del local: cabina azul con vitrina, marquesina amarilla y base roja
+function drawClawItem(c, w, it) {
+  const x0 = it.c + .1, x1 = it.c + .9, y0 = it.r + .1, y1 = it.r + .9, Hh = FURN.garra.h, t = w.t;
+  isoBox(c, x0, y0, x1, y1, 0, 46, { top: '#a01c30', left: '#e0364a', right: '#a01c30' }, 1.8);                 // base roja
+  isoBox(c, x0, y0, x1, y1, 46, Hh - 18, { top: '#7cc4ff', left: 'rgba(120,190,255,.55)', right: 'rgba(60,120,220,.6)' }, 1.8);   // vitrina
+  const fo = S(x0, y1, 50), fw = (x1 - x0) * U;                                                              // frente de la vitrina: peluches
+  c.save(); c.translate(fo.x, fo.y); c.transform(1, .5, 0, 1, 0, 0);
+  c.fillStyle = '#12357a'; c.fillRect(2, 0, fw - 4, Hh - 70);
+  [['#ff7ab8', 8], ['#7bd957', 20], ['#c98b4e', 31], ['#5fd0ff', 14], ['#ffc83d', 26]].forEach(([col, px], i) => { c.fillStyle = col; c.strokeStyle = P.ink; c.lineWidth = 1.2; c.beginPath(); c.arc(px, Hh - 70 - 7 - (i % 2) * 8, 6.2, 0, 6.3); c.fill(); c.stroke(); });
+  const gx = 18 + Math.sin(t * .9) * 8; c.strokeStyle = '#aab0bf'; c.lineWidth = 1.6; c.beginPath(); c.moveTo(gx, 0); c.lineTo(gx, 20 + 8 * Math.sin(t * 1.3)); c.stroke(); c.fillStyle = '#bfc4d2'; c.fillRect(gx - 3, 20 + 8 * Math.sin(t * 1.3), 6, 5);
+  c.restore();
+  isoBox(c, x0 - .03, y0 - .03, x1 + .03, y1 + .03, Hh - 18, Hh, { top: '#ffd23a', left: '#1b3f9c', right: '#0d2260' }, 1.8);             // marquesina
+  const ms = S(x0, y1 + .03, Hh - 9); c.save(); c.translate(ms.x, ms.y); c.transform(1, .5, 0, 1, 0, 0);
+  txt(c, '¡LA GARRA!', fw / 2, 4, { font: `400 9.5px ${FONT_DISPLAY}`, align: 'center', color: '#ffd23a' });
+  c.restore();
+  for (let k = 0; k < 4; k++) { const p = S(x0 + (x1 - x0) * (k + .5) / 4, y1 + .03, Hh - 17), on = Math.sin(t * 6 + k * 1.4) > 0; c.fillStyle = on ? '#fff3b0' : '#c9a23a'; c.beginPath(); c.arc(p.x, p.y, 1.6, 0, 6.3); c.fill(); }
+  const mk = S((x0 + x1) / 2, (y0 + y1) / 2, Hh + 6); drawMask(c, mk.x, mk.y, 8, MASKS.ring);                                              // máscara arriba
+  const cp = S(x0 + .12, y1, 30); c.fillStyle = '#e0364a'; c.beginPath(); c.arc(cp.x + 4, cp.y, 2.4, 0, 6.3); c.fill(); c.fillStyle = '#7c3aed'; c.beginPath(); c.arc(cp.x + 12, cp.y + 4, 2.4, 0, 6.3); c.fill();
 }
 
 /* ---------- De día a noche: la calle se va oscureciendo ---------- */
@@ -3768,7 +5075,7 @@ function drawNight(c, w) {
   const h = hourOf(w), k = skyTint(h), dark = clamp((h - 17.5) / 2.5, 0, 1);
   if (k[4] > .004) {                                            // tinte sobre todo lo de afuera; el piso del local queda iluminado
     c.save();
-    c.beginPath(); c.rect(0, HUD, W, H - HUD);
+    c.beginPath(); c.rect(-1500, -1000, 4000, 2800);
     polyPath(c, [S(0, 0, 0), S(COLS, 0, 0), S(COLS, ROWS, 0), S(0, ROWS, 0)]);
     polyPath(c, [S(COLS, 0, 0), S(COLS, ROWS, 0), S(COLS, ROWS, -16), S(COLS, 0, -16)]);
     polyPath(c, [S(0, ROWS, 0), S(COLS, ROWS, 0), S(COLS, ROWS, -16), S(0, ROWS, -16)]);
@@ -3786,6 +5093,13 @@ function drawNight(c, w) {
     });
     c.restore();
   }
+  const gl = nightGlow(w);                                          // el cartel de afuera brilla más de noche
+  (w.outs || []).forEach(o => {
+    const ST = SIGN_STYLES[signOf().st] || SIGN_STYLES[0], p = S(o.c + .5, o.r + .5), k = .18 + .82 * gl;
+    c.save(); c.globalCompositeOperation = 'lighter';
+    for (const [hx, hy, hr, ha] of [[0, -178, 78, .55], [0, -100, 105, .42], [0, 0, 80, .18]]) { const rg = c.createRadialGradient(p.x + hx, p.y + hy, 3, p.x + hx, p.y + hy, hr); rg.addColorStop(0, `rgba(${ST.halo},${ha * k})`); rg.addColorStop(1, `rgba(${ST.halo},0)`); c.fillStyle = rg; c.beginPath(); c.arc(p.x + hx, p.y + hy, hr, 0, 6.3); c.fill(); }
+    c.restore();
+  });
 }
 
 /* ---------- Modo edición: resaltados, mueble fantasma y panel ---------- */
@@ -3797,8 +5111,16 @@ function drawEditFloor(c, w) {
   txt(c, 'ENTRADA', S(en.c + .5, en.r + .5).x, S(en.c + .5, en.r + .5).y + 4, { font: `700 10px ${FONT_UI}`, align: 'center', color: P.ink, ls: .5 });
   if (DECO.arena) RING_CELLS().forEach(([a, b]) => { groundQuad(c, a, b, a + 1, b + 1); c.fillStyle = 'rgba(255,70,90,.22)'; c.fill(); });
   if (e.hit) { footprint(e.hit).forEach(([a, b]) => { groundQuad(c, a, b, a + 1, b + 1); c.fillStyle = 'rgba(255,200,61,.42)'; c.fill(); }); UI.cursor = true; }
+  if (e.hitOut) { groundQuad(c, e.hitOut.c, e.hitOut.r, e.hitOut.c + 1, e.hitOut.r + 1); c.fillStyle = 'rgba(255,200,61,.5)'; c.fill(); UI.cursor = true; }
   e.why = null;
-  if (held && e.hover) {
+  if (held && held.it.type === 'chairs') {                                         // sillas en la mano: se resaltan las mesas
+    w.furn.filter(it => it.type === 'table').forEach(tb => footprint(tb).forEach(([a, b]) => { groundQuad(c, a, b, a + 1, b + 1); c.fillStyle = tb === e.chairTo ? 'rgba(80,230,140,.55)' : 'rgba(255,200,61,.22)'; c.fill(); }));
+    UI.cursor = true;
+  } else if (held && isOut(held.it)) {                                              // cartel en la mano: se marca el pasto donde sí cabe
+    for (let r = -1; r <= ROWS + 4; r++) for (let cc = -3; cc <= COLS + 5; cc++) if (!outCanPlace(w, cc, r, held.it)) { groundQuad(c, cc, r, cc + 1, r + 1); c.fillStyle = 'rgba(80,230,140,.2)'; c.fill(); c.strokeStyle = 'rgba(150,255,190,.45)'; c.stroke(); }
+    if (e.hoverOut) { const why = outCanPlace(w, e.hoverOut.c, e.hoverOut.r, held.it); e.why = why; groundQuad(c, e.hoverOut.c, e.hoverOut.r, e.hoverOut.c + 1, e.hoverOut.r + 1); c.fillStyle = why ? 'rgba(255,70,90,.5)' : 'rgba(80,230,140,.6)'; c.fill(); }
+    UI.cursor = true;
+  } else if (held && e.hover) {
     const a = anchorFor(held.it, e.hover), why = canPlace(w, held.it, a.c, a.r);
     e.why = why;
     footprint({ type: held.it.type, c: a.c, r: a.r, rot: held.it.rot || 0 }).forEach(([x, y]) => {
@@ -3808,9 +5130,18 @@ function drawEditFloor(c, w) {
     UI.cursor = true;
   }
 }
+function drawEditGhost(c, w) {                                      // lo que llevas, semitransparente donde lo soltarías
+  const e = w.edit; if (!e || !e.held) return; const h = e.held;
+  if (h.it.type === 'chairs') {
+    if (e.chairTo) { const tb = e.chairTo, g = { type: 'table', c: tb.c, r: tb.r, rot: tb.rot || 0, style: tb.style, chair: h.it.style }; g.seats = tb.seats.map(s => Object.assign({}, s, { customer: null, tb: g })); placeSeats(g); c.save(); c.globalAlpha = .85; drawChair(c, g.seats[0]); drawChair(c, g.seats[1]); c.restore(); }
+    return;
+  }
+  if (isOut(h.it)) { if (e.hoverOut) { c.save(); c.globalAlpha = .78; drawCartel(c, w, e.hoverOut.c, e.hoverOut.r); c.restore(); } return; }
+  if (e.hover) { const a = anchorFor(h.it, e.hover); c.save(); c.globalAlpha = .72; drawGhost(c, w, h.it, a.c, a.r); c.restore(); }
+}
 function drawGhost(c, w, it, cc, rr_) {
   if (it.type === 'table') {
-    const g = { type: 'table', c: cc, r: rr_, rot: it.rot || 0 };
+    const g = { type: 'table', c: cc, r: rr_, rot: it.rot || 0, style: it.style, chair: it.chair };
     g.seats = it.seats.map(s => Object.assign({}, s, { customer: null, tb: g }));
     placeSeats(g);
     drawChair(c, g.seats[0]); drawTable(c, g, w); drawChair(c, g.seats[1]);
@@ -3820,12 +5151,14 @@ const ICON_COL = {
   table: ['#fff4e6', '#d9374a', '#a92a3a', 'Mesa'], comal: ['#4b4f5c', '#3a3d48', '#2a2c35', 'Comal'], fridge: ['#5d8be6', '#2a62c9', '#1f4a9c', 'Refri'],
   drinks: ['#c98b4e', '#2a62c9', '#1f4a9c', 'Bebidas'], bar: ['#c98b4e', '#b5482f', '#8f3624', 'Barra'], bench: ['#c98b4e', '#8f5a2c', '#6e4220', 'Banca'],
   plant: ['#c4492a', '#2f8f4e', '#2a7d44', 'Planta'], trompo: ['#b23d1f', '#d2602d', '#a63a1f', 'Trompo'], caja: ['#e8dcc0', '#cdbf9c', '#a99a78', 'Caja'],
-  estatua: ['#ffe27a', '#e3b53a', '#b88a1f', 'Estatua'], vitrina: ['#d7f0ff', '#6ea6d6', '#4d82b0', 'Vitrina']
+  estatua: ['#ffe27a', '#e3b53a', '#b88a1f', 'Estatua'], vitrina: ['#d7f0ff', '#6ea6d6', '#4d82b0', 'Vitrina'],
+  bar2: ['#e0b070', '#1f8f94', '#17707a', 'Antojos'], storage: ['#eef4fa', '#b9c9d8', '#8fa3b8', 'Sobrantes'], garra: ['#ffd23a', '#2f6fd0', '#c4272f', 'Garra'],
+  chairs: ['#ffc43a', '#ffb21e', '#d98f00', 'Sillas'], cartel: ['#ff7ab8', '#7c3aed', '#2a1250', 'Cartel']
 };
 function drawFurnIcon(c, type, x, y) {                           // cubito isométrico con el color de cada pieza
   const k = ICON_COL[type];
   c.save(); c.lineJoin = 'round'; c.lineWidth = 1.6; c.strokeStyle = P.ink;
-  const tall = type === 'fridge' || type === 'plant' || type === 'trompo' || type === 'estatua' || type === 'vitrina' ? 8 : 0;
+  const tall = ['fridge', 'plant', 'trompo', 'estatua', 'vitrina', 'storage', 'garra', 'cartel'].includes(type) ? 8 : 0;
   c.beginPath(); c.moveTo(x - 17, y - 4 - tall); c.lineTo(x, y - 12 - tall); c.lineTo(x + 17, y - 4 - tall); c.lineTo(x, y + 4 - tall); c.closePath(); c.fillStyle = k[0]; c.fill(); c.stroke();
   c.beginPath(); c.moveTo(x - 17, y - 4 - tall); c.lineTo(x, y + 4 - tall); c.lineTo(x, y + 16); c.lineTo(x - 17, y + 8); c.closePath(); c.fillStyle = k[1]; c.fill(); c.stroke();
   c.beginPath(); c.moveTo(x + 17, y - 4 - tall); c.lineTo(x, y + 4 - tall); c.lineTo(x, y + 16); c.lineTo(x + 17, y + 8); c.closePath(); c.fillStyle = k[2]; c.fill(); c.stroke();
@@ -3859,15 +5192,19 @@ function drawEditPanel(c, w) {
   txt(c, UI.touch ? 'Toca un mueble, GIRAR, toca la loseta dos veces' : 'R o GIRAR: gira · SOLTAR o Esc: devolver', Q.x + Q.w / 2, B.done.y + B.done.h + 18, { font: `600 12px ${FONT_UI}`, align: 'center', color: P.muted });
   c.restore();
   if (e.held) {                                                   // lo que llevas y por qué no se puede soltar ahí
-    const lines = [`Llevas: ${FURN[e.held.it.type].name}`];
-    if (e.why) lines.push(e.why); else if (e.hover) lines.push(UI.touch ? (e.armed ? 'Toca otra vez para soltarlo aquí' : 'Toca la loseta para ver dónde queda') : 'Toca para soltarlo aquí');
+    const ht = e.held.it, lines = [`Llevas: ${ht.type === 'chairs' ? CHAIRS[ht.style].name : FURN[ht.type].name}`], target = ht.type === 'chairs' ? e.chairTo : isOut(ht) ? e.hoverOut : e.hover;
+    if (e.why) lines.push(e.why);
+    else if (ht.type === 'chairs' && !e.chairTo) lines.push('Toca la mesa que las recibe');
+    else if (target) lines.push(UI.touch ? (e.armed ? 'Toca otra vez para soltarlo aquí' : 'Toca para ver dónde queda') : 'Toca para soltarlo aquí');
     drawTip(c, clamp(UI.mx + 18, 8, Q.x - 220), UI.my + 8, lines);
   } else if (tip) drawTip(c, UI.mx - 230, UI.my + 6, tip);
   else if (e.hit) drawTip(c, UI.mx + 18, UI.my + 8, [FURN[e.hit.type].name, 'Toca para levantarlo']);
+  else if (e.hitOut) drawTip(c, UI.mx + 18, UI.my + 8, [FURN[e.hitOut.type].name, 'Toca para levantarlo']);
 }
 
 /* ---------- Escena completa ---------- */
 function drawWorld(c, w) {
+  c.save(); camApply(c);                                          // zoom y desplazamiento: solo el escenario (la interfaz queda fija)
   c.save();                                                       // el temblor de la quebradora sacude el escenario (no la interfaz)
   if (w.shake > 0) { const m = w.shake / .5 * 5; c.translate(rand(-m, m), rand(-m, m)); }
   drawGround(c);
@@ -3887,7 +5224,9 @@ function drawWorld(c, w) {
     } else inside.push({ d: furnDepth(it), draw: () => drawFurn(c, w, it) });
   });
   inside.push({ d: DOOR.ix + .3, draw: () => drawDoorLeaves(c, w.doorA) });
+  (w.outs || []).forEach(o => inside.push({ d: o.c + o.r + 1.2, draw: () => drawCartel(c, w, o.c, o.r) }));
   w.customers.forEach(cu => {
+    if (cu.held) return;                                            // su mesa está en la mano del jugador
     let d = cu.x + cu.y;
     if (cu.seated) { const s = cu.seat, tm = tableMid(s.tb), td = tm[0] + tm[1]; d = s.outer < 0 ? td + .1 : s.gx + s.gy + .05; }
     if (cu.state === 'slam') d = w.novato.x + w.novato.y + .3;
@@ -3902,13 +5241,10 @@ function drawWorld(c, w) {
   drawNight(c, w);                                                 // la calle se oscurece con la hora (el local sigue iluminado)
   drawWalls(c, w);
   inside.sort((a, b) => a.d - b.d).forEach(i => i.draw());
-  if (w.edit && w.edit.held && w.edit.hover) {                     // mueble que llevas: se ve semitransparente donde lo soltarías
-    const h = w.edit.held, a = anchorFor(h.it, w.edit.hover);
-    c.save(); c.globalAlpha = .72; drawGhost(c, w, h.it, a.c, a.r); c.restore();
-  }
+  drawEditGhost(c, w);
 
   // globos de pedido, estamina y carteles
-  w.customers.forEach(cu => { if (cu.state === 'wait') drawBubble(c, cu, w.t); });
+  w.customers.forEach(cu => { if (cu.state === 'wait' && !cu.held) drawBubble(c, cu, w.t); });
   drawStaminaBar(c, w);
   w.staff.forEach(wt => { if (!wt.entering || wt.y > -.3) drawStaminaBar(c, w, wt); });
   drawFx(c, w);
@@ -3935,20 +5271,25 @@ function drawWorld(c, w) {
     else if (p.type === 'crumb') { c.fillStyle = p.col; c.globalAlpha = Math.min(1, a * 2.5); c.fillRect(p.x - 1.2, p.y - 1.2, 2.4, 2.4); c.globalAlpha = 1; }
     else if (p.type === 'spark') { c.fillStyle = `rgba(255,226,122,${a})`; star(c, p.x, p.y, 4, 1.6); c.fill(); }
     else if (p.type === 'text') txt(c, p.text, p.x, p.y, { font: `700 20px ${FONT_UI}`, align: 'center', color: p.color, stroke: P.ink, sw: 5, alpha: Math.min(1, a * 2) });
-    else if (p.type === 'fly') drawCoin(c, p.cx, p.cy, 9, w.t * 3);
   }
+  c.restore();                                                    // fin de la cámara
+  for (const p of w.parts) if (p.type === 'fly') drawCoin(c, p.cx, p.cy, 9, w.t * 3);          // la moneda que vuela al HUD va en coordenadas de pantalla
+  drawDong(c, w);
 
   drawHud(c, w);
+  if (w.phase === 'play' && !w.shop && !w.modal && !(w.tut && (TUT[w.tut.s] === 'intro' || TUT[w.tut.s] === 'outro'))) zoomBtns().forEach(b => drawButton(c, b));
   if (w.phase === 'play') {
     if (!w.shop && !w.edit) drawTooltips(c, w);
     if (w.panel && !w.shop && !w.edit) drawCookPanel(c, w);
     if (w.shop) drawShop(c, w);
     if (w.edit) drawEditPanel(c, w);
+    if (w.modal === 'sign') drawSignEditor(c, w); else if (w.modal === 'claw') drawClaw(c, w);
   }
 
   // pistas y avisos (con el tutorial en curso, la guía es el cuadro del tutorial)
   if (w.tut && w.phase === 'play') drawTutorial(c, w);
-  const hint = w.tut ? null : getHint(w);
+  const clawScene = w.modal === 'claw' && w.claw && w.claw.phase !== 'menu';
+  const hint = w.tut || clawScene ? null : getHint(w);
   // los textos largos se encogen para caber en el lienzo; el aviso sube sobre la pista para que nunca se tapen
   const fitSize = (s, weight, size) => { c.font = `${weight} ${size}px ${FONT_UI}`; const mw = c.measureText(s).width; return mw > W - 56 ? Math.max(11, Math.floor(size * (W - 56) / mw * 10) / 10) : size; };
   if (hint) {
@@ -3958,7 +5299,7 @@ function drawWorld(c, w) {
     c.strokeStyle = 'rgba(255,200,61,.6)'; c.lineWidth = 1.5; c.stroke();
     txt(c, hint, 28, 577, { font: `600 ${fs}px ${FONT_UI}`, color: P.cream });
   }
-  if (w.toasts.length) {
+  if (w.toasts.length && !clawScene) {
     const t = w.toasts[0], fs = fitSize(t.msg, 700, 18), ty = hint ? 524 : 558;
     c.font = `700 ${fs}px ${FONT_UI}`;
     const tw = c.measureText(t.msg).width + 28;
@@ -3970,7 +5311,7 @@ function drawWorld(c, w) {
   if (w.banner > 0 && w.phase === 'play') {
     const a = clamp(w.banner, 0, 1);
     c.save(); c.globalAlpha = a;
-    c.fillStyle = 'rgba(13,7,32,.7)'; c.fillRect(0, 250, W, 100);
+    c.fillStyle = 'rgba(13,7,32,.7)'; c.fillRect(-EX, 250, CW, 100);
     txt(c, `DÍA ${w.day}`, 480, 306, { font: `400 54px ${FONT_DISPLAY}`, align: 'center', color: P.gold, stroke: P.ink, sw: 8 });
     txt(c, '8:00 AM · ¡Abre la taquería!', 480, 335, { font: `700 24px ${FONT_UI}`, align: 'center', color: P.cream, ls: 3 });
     c.restore();
@@ -3983,8 +5324,8 @@ function drawWorld(c, w) {
 function drawHud(c, w) {
   let g = c.createLinearGradient(0, 0, 0, HUD);
   g.addColorStop(0, '#34195e'); g.addColorStop(1, '#170a33');
-  c.fillStyle = g; c.fillRect(0, 0, W, HUD);
-  c.fillStyle = P.gold; c.fillRect(0, HUD - 3, W, 3);
+  c.fillStyle = g; c.fillRect(-EX, 0, CW, HUD);
+  c.fillStyle = P.gold; c.fillRect(-EX, HUD - 3, CW, 3);
   txt(c, 'DÍA ' + w.day, 18, 29, { font: `400 22px ${FONT_DISPLAY}`, color: P.gold, stroke: P.ink, sw: 4 });
   // nivel y experiencia
   const need = xpNeed(w.level), xr = clamp(w.xp / need, 0, 1), lf = w.levelFlash > 0;
@@ -4045,6 +5386,7 @@ function getHint(w) {
     : (UI.touch ? 'Modo edición: toca un mueble para levantarlo, o saca uno del inventario' : 'Modo edición: toca un mueble para levantarlo (R lo gira), o saca uno del inventario');
   if (!LAYOUT.comals.length) return 'Abre la TIENDA y compra un comal para empezar a cocinar';
   if (!SEATS.length) return 'Compra una mesa en la TIENDA para que lleguen clientes';
+  if (!SEATS.some(s => s.tb.chair)) return 'Tus mesas no tienen sillas: compra un juego en la TIENDA (pestaña SILLAS) y ponlo en EDITAR';
   if (n.busy) return '¡QUEBRADORA!';
   if (n.furia) return '¡Rabioso! Tócalo para que vaya al vestidor antes de que azote a un cliente';
   if (n.resting) return 'Tomando suero: recupera energía poco a poco (tócalo para volver al trabajo)';
@@ -4102,8 +5444,8 @@ function tutTarget(w) {                                              // qué se�
     if (w.edit) return null;
     if (!w.shop) return { rect: btn('TIENDA') };
     if (w.shopView !== 'main') return null;
-    const tabs = shopTabs(w);
-    if (w.shopTab !== 'furn') return { rect: shopTabBtn(w, tabs.findIndex(x => x[0] === 'furn')) };
+    const tabs = shopTabs(w), tab = type === 'table' ? 'tables' : 'furn';
+    if (w.shopTab !== tab) return { rect: shopTabBtn(w, tabs.findIndex(x => x[0] === tab)) };
     const idx = shopRows(w).findIndex(r => r.id === type);
     return idx >= 0 ? { rect: shopBtn(idx) } : null;
   }
@@ -4140,7 +5482,8 @@ function tutText(w) {                                                // [título
     }
     case 'collect': return [`Paso 6 de 6 · ¡Cobra!`, 'Cuando termina de comer deja una moneda en la mesa: tócala para cobrar y ganar experiencia.'];
     default: return ['¡Ya tienes tu taquería!', 'Cada peso que cobras te da experiencia. Al subir de nivel se abren mejoras en la TIENDA (más comales y mesas, meseros) y la pestaña DECORAR: pisos, paredes, banderas y pósters.',
-      'Algunos visitantes especiales regalan GEMAS para decoración exclusiva. Si el Novato se cansa, tócalo para que descanse en la banca.'];
+      'Algunos visitantes especiales regalan GEMAS para decoración exclusiva (con más máscaras de reputación llegan más seguido). Si el Novato se cansa, tócalo para que descanse en la banca.',
+      'Para ver mejor el local: rueda del ratón, botones + − o pellizca con dos dedos; arrastra para moverlo.'];
   }
 }
 const TUT_MODAL = { x: 190, y: 150, w: 580, h: 300 };
@@ -4167,7 +5510,7 @@ function wrapLines(c, s, maxW, font) {
 function drawTutorial(c, w) {
   const name = TUT[w.tut.s], tx = tutText(w), t = w.t;
   if (name === 'intro' || name === 'outro') {
-    c.fillStyle = 'rgba(8,4,24,.7)'; c.fillRect(0, HUD, W, H - HUD);
+    c.fillStyle = 'rgba(8,4,24,.7)'; c.fillRect(-EX, HUD, CW, H - HUD);
     const paras = tx.slice(1).map(s => wrapLines(c, s, TUT_MODAL.w - 80, `600 19px ${FONT_UI}`)), nRows = paras.reduce((a, p) => a + p.length, 0);
     const mh = 150 + nRows * 25 + (paras.length - 1) * 12 + 36;     // un párrafo por cada frase larga, con un respiro entre ellos
     const M = { x: TUT_MODAL.x, y: Math.round(320 - mh / 2), w: TUT_MODAL.w, h: mh };
@@ -4184,8 +5527,8 @@ function drawTutorial(c, w) {
     const k = .5 + .5 * Math.sin(t * 7);
     c.save(); c.lineWidth = 4; c.strokeStyle = `rgba(255,214,90,${.55 + .4 * k})`; c.shadowColor = '#ffc83d'; c.shadowBlur = 10 + 8 * k;
     if (g.rect) { const b = g.rect, p = 4 + 3 * k; rr(c, b.x - p, b.y - p, b.w + p * 2, b.h + p * 2, 12); c.stroke(); }
-    else if (g.circle) { c.beginPath(); c.arc(g.circle.x, g.circle.y, g.circle.r + 4 * k, 0, 6.3); c.stroke(); }
-    else if (g.tiles) g.tiles.forEach(([a, b]) => { groundQuad(c, a, b, a + 1, b + 1); c.fillStyle = `rgba(255,214,90,${.25 + .3 * k})`; c.fill(); c.stroke(); });
+    else if (g.circle) { camApply(c); c.beginPath(); c.arc(g.circle.x, g.circle.y, g.circle.r + 4 * k, 0, 6.3); c.stroke(); }          // (círculos y losetas son del mundo: siguen al zoom)
+    else if (g.tiles) { camApply(c); g.tiles.forEach(([a, b]) => { groundQuad(c, a, b, a + 1, b + 1); c.fillStyle = `rgba(255,214,90,${.25 + .3 * k})`; c.fill(); c.stroke(); }); }
     c.restore();
   }
   const PW = 520, lines = tx.slice(1).flatMap(s => wrapLines(c, s, PW - 36, `600 16px ${FONT_UI}`)), PH = 40 + lines.length * 19, px = 14, py = 70;
@@ -4198,28 +5541,36 @@ function drawTutorial(c, w) {
 }
 
 function drawSummary(c, w) {
-  c.fillStyle = 'rgba(10,5,30,.75)'; c.fillRect(0, 60, W, H - 60);
-  drawPanel(c, 240, 120, 480, 340, `DÍA ${w.day} COMPLETADO`);
+  c.fillStyle = 'rgba(10,5,30,.75)'; c.fillRect(-EX, 60, CW, H - 60);
+  drawPanel(c, 240, 106, 480, 384, `DÍA ${w.day} COMPLETADO`);
   const rows = [['Clientes servidos', String(w.dayServed), P.gold], ['Ventas del día', pesos(w.dayEarned), P.gold], ['Gastos en ingredientes', '-' + pesos(w.dayCost), '#ff8fa0'], ['Caja total', pesos(w.money), P.gold]];
   rows.forEach((r, i) => {
-    const y = 184 + i * 33;
+    const y = 168 + i * 32;
     txt(c, r[0], 282, y, { font: `600 22px ${FONT_UI}`, color: P.cream });
     txt(c, r[1], 678, y, { font: `700 26px ${FONT_UI}`, align: 'right', color: r[2], stroke: P.ink, sw: 4 });
     c.strokeStyle = 'rgba(255,255,255,.14)'; c.lineWidth = 1; c.beginPath(); c.moveTo(282, y + 9); c.lineTo(678, y + 9); c.stroke();
   });
-  txt(c, 'Reputación', 282, 322, { font: `600 22px ${FONT_UI}`, color: P.cream });
+  txt(c, 'Reputación', 282, 306, { font: `600 22px ${FONT_UI}`, color: P.cream });
   for (let i = 0; i < 5; i++) {
     const x = 604 + i * 15 - 30, steps = Math.ceil(clamp(w.rep - i, 0, 1) * 3 - 1e-6);
-    c.save(); c.globalAlpha = .3; drawMask(c, x, 314, 7, MASKS.gray); c.restore();
-    if (steps > 0) { c.save(); c.globalAlpha = [0, .38, .68, 1][steps]; drawMask(c, x, 314, 7, MASKS.ring); c.restore(); }
+    c.save(); c.globalAlpha = .3; drawMask(c, x, 298, 7, MASKS.gray); c.restore();
+    if (steps > 0) { c.save(); c.globalAlpha = [0, .38, .68, 1][steps]; drawMask(c, x, 298, 7, MASKS.ring); c.restore(); }
   }
   txt(c, w.perfect ? '¡Día perfecto! Sin clientes enojados: +1 máscara' : (w.dayAngry ? `${w.dayAngry} cliente(s) se fueron enojados` : 'Todos los clientes quedaron contentos'),
-    480, 354, { font: `600 18px ${FONT_UI}`, align: 'center', color: w.perfect ? '#9af0b8' : P.muted });
-  txt(c, 'Partida guardada', 480, 378, { font: `600 14px ${FONT_UI}`, align: 'center', color: P.muted, ls: 2 });
+    480, 332, { font: `600 18px ${FONT_UI}`, align: 'center', color: w.perfect ? '#9af0b8' : P.muted });
+  const sp = w.spoil;
+  if (sp && sp.active) {                                                                                   // sobrantes: guardados en el refri o echados a perder
+    if (sp.kept + sp.lost === 0) txt(c, 'No sobró comida: ¡todo se vendió!', 480, 362, { font: `600 17px ${FONT_UI}`, align: 'center', color: '#9af0b8' });
+    else {
+      if (sp.kept) txt(c, `Guardado en el refri de sobrantes: ${sp.kept} porciones`, 480, 358, { font: `600 17px ${FONT_UI}`, align: 'center', color: '#9ff0ff' });
+      if (sp.lost) txt(c, sp.fridge ? `No cupo: ${sp.lost} porciones echadas a perder (-${pesos(sp.loss)})` : `Sin refri de sobrantes: ${sp.lost} porciones echadas a perder (-${pesos(sp.loss)})`, 480, sp.kept ? 380 : 362, { font: `600 17px ${FONT_UI}`, align: 'center', color: '#ff8fa0' });
+    }
+  }
+  txt(c, 'Partida guardada', 480, 408, { font: `600 14px ${FONT_UI}`, align: 'center', color: P.muted, ls: 2 });
   w.overlay.forEach(b => drawButton(c, b));
 }
 function drawOver(c, w) {
-  c.fillStyle = 'rgba(10,5,30,.8)'; c.fillRect(0, 60, W, H - 60);
+  c.fillStyle = 'rgba(10,5,30,.8)'; c.fillRect(-EX, 60, CW, H - 60);
   drawPanel(c, 240, 120, 480, 340, '¡CLAUSURADO!');
   drawMask(c, 480, 232, 50, MASKS.gray);
   txt(c, 'La reputación llegó a cero.', 480, 318, { font: `700 26px ${FONT_UI}`, align: 'center', color: P.cream });
@@ -4231,29 +5582,63 @@ function drawOver(c, w) {
 /* =========================================================
    MÁQUINA DE ESTADOS Y BUCLE PRINCIPAL
    ========================================================= */
-const scenes = { MENU: Menu, JUGANDO: Game, AJUSTES: SettingsScene, PARTIDAS: PartidasScene, SALIR: ByeScene };
-let state = 'MENU', clock = 0;
+const scenes = { INTRO: IntroScene, MENU: Menu, JUGANDO: Game, AJUSTES: SettingsScene, PARTIDAS: PartidasScene, SALIR: ByeScene };
+let state = 'INTRO', clock = 0;
 function setState(name, arg) {
   state = name;
+  Music.want = name === 'INTRO' ? null : name === 'JUGANDO' || (name === 'AJUSTES' && arg && arg.from === 'JUGANDO') ? 'juego' : 'menu';     // cada escena tiene su canción
   const s = scenes[name];
   if (s.enter) s.enter(arg);
 }
 
-function toLocal(e) {
+function toLocal(e) {                                                 // de la pantalla al diseño de 960 x 600 (el lienzo ensanchado se centra: se resta EX)
   const r = canvas.getBoundingClientRect();
-  UI.mx = (e.clientX - r.left) * W / r.width;
+  UI.mx = (e.clientX - r.left) * CW / r.width - EX;
   UI.my = (e.clientY - r.top) * H / r.height;
+}
+// Pellizco con dos dedos: zoom y desplazamiento del local (solo mientras se juega)
+const Ptr = new Map(), Pinch = { active: false, d0: 1, z0: 1, wp: null };
+function pinchStart() {
+  const a = [...Ptr.values()];
+  Pinch.active = true; Pinch.d0 = Math.max(20, Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y)); Pinch.z0 = Cam.z;
+  Pinch.wp = camWorld((a[0].x + a[1].x) / 2, (a[0].y + a[1].y) / 2);
+  Game.pend = null;
+}
+function pinchMove() {
+  const a = [...Ptr.values()]; if (a.length < 2) return;
+  const d = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y), mx = (a[0].x + a[1].x) / 2, my = (a[0].y + a[1].y) / 2;
+  Cam.z = clamp(Pinch.z0 * d / Pinch.d0, Cam.MIN, Cam.MAX);
+  Cam.px = mx - CAMC.x - (Pinch.wp.x - CAMC.x) * Cam.z; Cam.py = my - CAMC.y - (Pinch.wp.y - CAMC.y) * Cam.z; camClamp();
 }
 canvas.addEventListener('pointerdown', e => {
   UI.touch = e.pointerType === 'touch' || e.pointerType === 'pen';
   try { canvas.focus({ preventScroll: true }); } catch (err) {}      // para que el teclado (R, Esc) llegue siempre al juego
   toLocal(e); UI.down = true; Sfx.unlock();
-  scenes[state].pointerDown(UI.mx, UI.my);
+  Ptr.set(e.pointerId, { x: UI.mx, y: UI.my });
   try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
   e.preventDefault();
+  if (Ptr.size === 2 && state === 'JUGANDO') { pinchStart(); return; }
+  if (Ptr.size > 1) return;
+  scenes[state].pointerDown(UI.mx, UI.my);
 });
-canvas.addEventListener('pointermove', e => { toLocal(e); scenes[state].pointerMove(UI.mx, UI.my); });
-const release = e => { toLocal(e); UI.down = false; scenes[state].pointerUp(UI.mx, UI.my); };
+canvas.addEventListener('pointermove', e => {
+  toLocal(e);
+  if (Ptr.has(e.pointerId)) Ptr.set(e.pointerId, { x: UI.mx, y: UI.my });
+  if (Pinch.active) { pinchMove(); return; }
+  scenes[state].pointerMove(UI.mx, UI.my);
+});
+canvas.addEventListener('wheel', e => {                              // rueda del ratón (o pellizco del trackpad): zoom hacia el cursor
+  if (state !== 'JUGANDO') return;
+  const w = Game.w; if (!w || w.phase !== 'play' || w.shop || w.modal) return;
+  e.preventDefault(); toLocal(e);
+  camZoomAt(Math.exp(-clamp(e.deltaY, -120, 120) * (e.ctrlKey ? .012 : .0016)), UI.mx, UI.my);
+}, { passive: false });
+const release = e => {
+  toLocal(e); Ptr.delete(e.pointerId);
+  if (Ptr.size < 2) Pinch.active = false;
+  if (Ptr.size > 0) return;                                          // todavía queda otro dedo apoyado
+  UI.down = false; scenes[state].pointerUp(UI.mx, UI.my);
+};
 canvas.addEventListener('pointerup', release);
 canvas.addEventListener('pointercancel', release);
 canvas.addEventListener('contextmenu', e => { e.preventDefault(); const s = scenes[state]; if (s.rightClick) s.rightClick(); });
@@ -4272,6 +5657,7 @@ window.addEventListener('touchmove', e => { if (e.cancelable && (e.touches.lengt
 ['touchend', 'pointerup', 'click'].forEach(n => window.addEventListener(n, () => { if (!Sfx.ctx || Sfx.ctx.state !== 'running') Sfx.unlock(); }, { passive: true }));
 // Guardado al salir: cerrar la pestaña, cambiar de pestaña o esconder la página guarda la partida en curso
 const flushSave = () => { try { if (state === 'JUGANDO' || state === 'AJUSTES') Game.save(); } catch (e) {} };
+window.addEventListener('blur', () => { Ptr.clear(); Pinch.active = false; });
 window.addEventListener('pagehide', flushSave);
 window.addEventListener('beforeunload', flushSave);
 try { if (document.addEventListener) document.addEventListener('visibilitychange', () => { if (document.hidden) flushSave(); }); } catch (e) {}
@@ -4284,16 +5670,18 @@ function frame(now) {
   UI.cursor = false;
   const s = scenes[state];
   let away = false; try { away = !!(window.matchMedia && window.matchMedia('(orientation: portrait) and (max-width: 600px)').matches); } catch (e) {}
+  Music.update();
   if (!away) s.update(dt);                                          // celular en vertical (se pide girarlo): el juego se queda en pausa
   ctx.setTransform(K, 0, 0, K, 0, 0);
-  ctx.clearRect(0, 0, W, H);
+  ctx.clearRect(0, 0, CW, H);
+  ctx.translate(EX, 0);                                             // zona central de 960 de ancho; los fondos se extienden hasta los bordes
   s.draw(ctx);
   canvas.style.cursor = UI.cursor ? 'pointer' : 'default';
   requestAnimationFrame(frame);
 }
 
 Game.newGame(null);                // mundo base listo (se reemplaza al elegir Nuevo Juego o Cargar)
-setState('MENU');
+setState('INTRO');
 requestAnimationFrame(frame);
 
 })();

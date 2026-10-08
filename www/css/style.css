@@ -36,11 +36,15 @@
   @keyframes giro { 0%, 20% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
   /* Celulares y tabletas: el juego ocupa toda la pantalla (sin la guía de abajo) y se toca con el dedo */
   @media (pointer: coarse), (max-height: 700px) and (orientation: landscape) {
-    body { padding-block: 8px; overscroll-behavior: none; }
-    .stage { max-width: none; min-height: calc(100dvh - 16px); align-content: center; justify-items: center; gap: 0; }
-    canvas { width: min(100%, calc((100dvh - 16px) * 1.6)); border-width: 2px; border-radius: 8px; box-shadow: none; }
-    .how, .keys { display: none; }
+    html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
+    body { padding: 0; position: fixed; inset: 0; }
+    .stage { position: fixed; inset: 0; max-width: none; margin: 0; gap: 0; box-sizing: border-box; display: grid; place-items: center;
+      padding: max(env(safe-area-inset-top, 0px), 2px) max(env(safe-area-inset-right, 0px), 2px) max(env(safe-area-inset-bottom, 0px), 2px) max(env(safe-area-inset-left, 0px), 2px); }
+    /* el lienzo llena toda la pantalla: el juego calcula su ancho lógico según la forma de la pantalla (--cw / --ch los pone el script) */
+    canvas { width: var(--cw, 100%); height: var(--ch, auto); aspect-ratio: auto; border: 0; border-radius: 0; box-shadow: none; }
+    .how, .keys, .legal { display: none; }
   }
+  .legal { margin: 0; color: var(--muted); font-size: 13px; letter-spacing: .03em; }
   /* El celular en vertical es demasiado angosto: se pide girarlo (las tabletas sí juegan en vertical) */
   @media (orientation: portrait) and (max-width: 600px) {
     .rotate { display: flex; position: fixed; inset: 0; z-index: 20; background: var(--bg); flex-direction: column; align-items: center; justify-content: center; gap: 18px; text-align: center; padding: 24px 32px; }
@@ -72,10 +76,9 @@ body { position: fixed; inset: 0; padding: 0; background: var(--bg); }
   padding-bottom: max(env(safe-area-inset-bottom, 0px), 4px);
   padding-left: max(env(safe-area-inset-left, 0px), 4px);
 }
-.how, .keys { display: none; }
+.how, .keys, .legal { display: none; }
 canvas {
-  width: min(100%, calc((100vh - max(env(safe-area-inset-top, 0px), 4px) - max(env(safe-area-inset-bottom, 0px), 4px)) * 1.6));
-  width: min(100%, calc((100dvh - max(env(safe-area-inset-top, 0px), 4px) - max(env(safe-area-inset-bottom, 0px), 4px)) * 1.6));
-  max-height: 100%; border: 0; border-radius: 0; box-shadow: none;
+  /* el juego calcula su ancho lógico según la pantalla (--cw / --ch): llena todo el espacio dentro de la zona segura */
+  width: var(--cw, 100%); height: var(--ch, auto); aspect-ratio: auto; max-height: 100%; border: 0; border-radius: 0; box-shadow: none;
   touch-action: none;
 }

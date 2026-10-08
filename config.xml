@@ -1,11 +1,11 @@
 <?xml version='1.0' encoding='utf-8'?>
-<widget id="com.tucafe.luchacafe" version="1.0.0" ios-CFBundleVersion="1"
+<widget id="com.tucafe.luchacafe" version="1.1.0" ios-CFBundleVersion="2"
         xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
 
   <!-- Nombre que aparece bajo el ícono en el iPhone -->
   <name>Lucha Café</name>
   <description>Taquería de lucha libre: cocina, atiende y decora tu changarro.</description>
-  <author email="tucorreo@example.com" href="https://example.com">Tu Nombre</author>
+  <author email="tucorreo@example.com" href="https://example.com">ACP PRODUCCION</author>
 
   <!-- El juego vive en la carpeta www/ -->
   <content src="index.html" />
