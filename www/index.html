@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Lucha Café">
+<meta name="format-detection" content="telephone=no">
+<meta name="theme-color" content="#0d0720">
+<title>Lucha Café</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<main class="stage">
+  <canvas id="game" width="960" height="600" tabindex="0" aria-label="ENMASCARADOS, juego de gestión de una taquería de lucha libre. Se juega con el ratón o con toques en pantalla."></canvas>
+  <ol class="how" aria-label="Cómo se juega">
+    <li><b>1</b><span>Pulsa el <em>comal</em> para cocinar o el <em>refrigerador</em> para las micheladas: cada tanda cuesta dinero</span></li>
+    <li><b>2</b><span>Las porciones quedan en la <em>barra de comida lista</em>; los tarros, en el mostrador de bebidas</span></li>
+    <li><b>3</b><span>Pulsa al <em>cliente</em>: el Novato lleva su pedido desde la barra</span></li>
+    <li><b>4</b><span>Pulsa las <em>monedas</em> de la mesa para cobrar: ganas dinero y experiencia</span></li>
+    <li><b>5</b><span>Vigila la <em>energía</em> del Novato: si se cansa, tócalo para que tome suero en el vestidor; sin energía se pone rabioso</span></li>
+    <li><b>6</b><span>Empiezas con el local pelón: compra tu comal, tu mesa y tu refri en la <em>tienda</em>. Con tus ganancias subes de nivel y se abren más mesas y comales, inventario más grande, meseros (nivel 10) y <em>DECORAR</em> (nivel 2): pisos, paredes, banderas y pósters. Ciertos visitantes especiales regalan <em>gemas</em> para piezas exclusivas</span></li>
+    <li><b>7</b><span>Pulsa <em>EDITAR</em> para mover cualquier mueble, <em>girarlo</em> (tecla <kbd>R</kbd>) o guardarlo en la cajita. Abres a las 8:00 AM y cierras a las 8:00 PM, cuando la calle ya está oscura</span></li>
+    <li><b>8</b><span>Tu fama son las <em>máscaras</em> de arriba: empiezas con una, un cliente enojado la desvanece un poco y atender bien la recupera. Sin máscaras el juego sigue. En el nivel 15 puedes <em>remodelar</em> y decorar para ganar máscaras; con el local ampliado y 2 máscaras puede llegar un VIP muy exigente</span></li>
+    <li><b>9</b><span>Más adelante: segundo mesero (nivel 25), nuevas recetas (28 y 35), <em>leyendas</em> que se contratan desde el nivel 30 y, en el nivel 40, la <em>Arena</em> con cuadrilátero, hasta 6 mesas y 3 comales. El juego se guarda solo cada 15 segundos en la ranura que elegiste</span></li>
+  </ol>
+  <p class="keys">Pulsa en el suelo para mover al Novato. <kbd>Esc</kbd> abre los ajustes. En el menú también puedes usar <kbd>↑</kbd> <kbd>↓</kbd> y <kbd>Enter</kbd>.</p>
+  <noscript>Este juego necesita JavaScript.</noscript>
+</main>
+<div class="rotate" role="alert"><div class="ph"></div><b>Gira tu teléfono</b><span>ENMASCARADOS se juega en horizontal. Tu partida se guarda sola.</span></div>
+<script src="js/game.js"></script>
+</body>
+</html>

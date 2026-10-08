@@ -1,0 +1,53 @@
+# Compila Lucha Café en un Mac de GitHub (gratis) y deja un .ipa SIN FIRMAR para Sideloadly.
+# Sideloadly lo firma después con tu Apple ID gratuito. No necesitas Mac ni cuenta de pago.
+name: Compilar IPA (sin firmar)
+
+on:
+  workflow_dispatch: {}      # botón "Run workflow" en la pestaña Actions
+  push:
+    branches: [main]
+
+jobs:
+  ipa:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar Capacitor y crear el proyecto de iOS
+        run: |
+          npm install
+          npx cap add ios
+
+      - name: Ícono, orientación horizontal y pantalla completa
+        run: |
+          cp res/ios/icon-1024.png "ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png"
+          P=ios/App/App/Info.plist
+          PB=/usr/libexec/PlistBuddy
+          for KEY in UISupportedInterfaceOrientations "UISupportedInterfaceOrientations~ipad"; do
+            $PB -c "Delete :$KEY" "$P" || true
+            $PB -c "Add :$KEY array" "$P"
+            $PB -c "Add :$KEY:0 string UIInterfaceOrientationLandscapeLeft" "$P"
+            $PB -c "Add :$KEY:1 string UIInterfaceOrientationLandscapeRight" "$P"
+          done
+          $PB -c "Add :UIStatusBarHidden bool true" "$P" || $PB -c "Set :UIStatusBarHidden true" "$P"
+          $PB -c "Add :UIViewControllerBasedStatusBarAppearance bool false" "$P" || $PB -c "Set :UIViewControllerBasedStatusBarAppearance false" "$P"
+          $PB -c "Add :UIRequiresFullScreen bool true" "$P" || $PB -c "Set :UIRequiresFullScreen true" "$P"
+          npx cap sync ios
+
+      - name: Compilar sin firmar y armar el .ipa
+        run: |
+          xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Release \
+            -sdk iphoneos -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/App.app Payload/
+          zip -qry LuchaCafe.ipa Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LuchaCafe-ipa
+          path: LuchaCafe.ipa

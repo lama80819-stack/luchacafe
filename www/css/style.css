@@ -1,0 +1,81 @@
+/* ENMASCARADOS / Lucha Café - estilos del juego */
+/* Layout: a single centered game stage (960x600 canvas, scaled to fit) with a one-line how-to under it. Single dark look by choice. */
+  :root {
+    --bg: #0d0720;
+    --panel: #1b0f38;
+    --line: #3a1d5c;
+    --fg: #f6e7c1;
+    --muted: #a99bc7;
+    --gold: #ffc83d;
+    --red: #e0364a;
+    --font-display: 'Alfa Slab One', 'Rockwell Extra Bold', Impact, serif;
+    --font-ui: 'Barlow Condensed', 'Arial Narrow', Impact, sans-serif;
+    color-scheme: dark;
+  }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-ui);
+    font-size: 17px;
+    padding-inline: 16px;
+    padding-block: 16px;
+  }
+  .stage { max-width: 1120px; margin: 0 auto; display: grid; gap: 14px; }
+  canvas {
+    display: block; width: 100%; height: auto; aspect-ratio: 960 / 600;
+    border-radius: 10px; border: 3px solid var(--line);
+    box-shadow: 0 18px 50px rgba(0,0,0,.55);
+    background: #12082a; touch-action: manipulation; outline: none;
+  }
+  canvas:focus-visible { border-color: var(--gold); }
+  canvas { touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+  .rotate { display: none; }
+  .rotate .ph { width: 62px; height: 104px; border: 5px solid var(--gold); border-radius: 14px; animation: giro 2.6s ease-in-out infinite; }
+  .rotate b { font-family: var(--font-display); font-weight: 400; color: var(--gold); font-size: 26px; text-wrap: balance; }
+  .rotate span { color: var(--muted); font-size: 18px; }
+  @keyframes giro { 0%, 20% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
+  /* Celulares y tabletas: el juego ocupa toda la pantalla (sin la guía de abajo) y se toca con el dedo */
+  @media (pointer: coarse), (max-height: 700px) and (orientation: landscape) {
+    body { padding-block: 8px; overscroll-behavior: none; }
+    .stage { max-width: none; min-height: calc(100dvh - 16px); align-content: center; justify-items: center; gap: 0; }
+    canvas { width: min(100%, calc((100dvh - 16px) * 1.6)); border-width: 2px; border-radius: 8px; box-shadow: none; }
+    .how, .keys { display: none; }
+  }
+  /* El celular en vertical es demasiado angosto: se pide girarlo (las tabletas sí juegan en vertical) */
+  @media (orientation: portrait) and (max-width: 600px) {
+    .rotate { display: flex; position: fixed; inset: 0; z-index: 20; background: var(--bg); flex-direction: column; align-items: center; justify-content: center; gap: 18px; text-align: center; padding: 24px 32px; }
+    .stage { visibility: hidden; }
+  }
+  .how { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 8px 22px; color: var(--muted); letter-spacing: .02em; }
+  .how li { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+  .how b { font-family: var(--font-display); font-weight: 400; color: var(--gold); font-size: 15px; }
+  .how em { color: var(--fg); font-style: normal; font-weight: 600; }
+  .keys { margin: 0; color: var(--muted); font-size: 15px; }
+  .keys kbd { font: inherit; font-weight: 700; color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; }
+
+/* =========================================================
+   MODO APP NATIVA (iPhone con Cordova / Capacitor)
+   Pantalla fija, sin rebote, sin zoom ni selección, y el lienzo siempre dentro de la zona segura
+   (así el notch o la Dynamic Island nunca tapan el HUD, los botones ni las monedas).
+   ========================================================= */
+html, body {
+  margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%; touch-action: none;
+  -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+}
+body { position: fixed; inset: 0; padding: 0; background: var(--bg); }
+.stage {
+  position: fixed; inset: 0; max-width: none; min-height: 0; margin: 0; gap: 0; box-sizing: border-box;
+  display: grid; place-items: center;
+  padding-top: max(env(safe-area-inset-top, 0px), 4px);
+  padding-right: max(env(safe-area-inset-right, 0px), 4px);
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 4px);
+  padding-left: max(env(safe-area-inset-left, 0px), 4px);
+}
+.how, .keys { display: none; }
+canvas {
+  width: min(100%, calc((100vh - max(env(safe-area-inset-top, 0px), 4px) - max(env(safe-area-inset-bottom, 0px), 4px)) * 1.6));
+  width: min(100%, calc((100dvh - max(env(safe-area-inset-top, 0px), 4px) - max(env(safe-area-inset-bottom, 0px), 4px)) * 1.6));
+  max-height: 100%; border: 0; border-radius: 0; box-shadow: none;
+  touch-action: none;
+}

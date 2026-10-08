@@ -1,0 +1,64 @@
+<?xml version='1.0' encoding='utf-8'?>
+<widget id="com.tucafe.luchacafe" version="1.0.0" ios-CFBundleVersion="1"
+        xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
+
+  <!-- Nombre que aparece bajo el ícono en el iPhone -->
+  <name>Lucha Café</name>
+  <description>Taquería de lucha libre: cocina, atiende y decora tu changarro.</description>
+  <author email="tucorreo@example.com" href="https://example.com">Tu Nombre</author>
+
+  <!-- El juego vive en la carpeta www/ -->
+  <content src="index.html" />
+
+  <!-- Todo el juego es local; solo se pide la tipografía de Google si hay internet (si no, usa tipos de respaldo) -->
+  <access origin="*" />
+  <allow-navigation href="https://fonts.googleapis.com/*" />
+  <allow-navigation href="https://fonts.gstatic.com/*" />
+
+  <!-- Orientación fija horizontal, pantalla completa (sin barra de estado) y sin rebote -->
+  <preference name="Orientation" value="landscape" />
+  <preference name="Fullscreen" value="true" />
+  <preference name="DisallowOverscroll" value="true" />
+  <preference name="BackgroundColor" value="0xff0d0720" />
+  <preference name="SuppressesLongPressGesture" value="true" />
+  <preference name="Suppresses3DTouchGesture" value="true" />
+
+  <platform name="ios">
+    <preference name="deployment-target" value="13.0" />
+    <preference name="WKWebViewOnly" value="true" />
+
+    <!-- Info.plist: solo horizontal (iPhone y iPad), barra de estado oculta y app en pantalla completa -->
+    <config-file target="*-Info.plist" parent="UISupportedInterfaceOrientations">
+      <array>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+      </array>
+    </config-file>
+    <config-file target="*-Info.plist" parent="UISupportedInterfaceOrientations~ipad">
+      <array>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+      </array>
+    </config-file>
+    <config-file target="*-Info.plist" parent="UIStatusBarHidden"><true/></config-file>
+    <config-file target="*-Info.plist" parent="UIViewControllerBasedStatusBarAppearance"><false/></config-file>
+    <config-file target="*-Info.plist" parent="UIRequiresFullScreen"><true/></config-file>
+
+    <!-- Íconos (se generan desde res/ios/icon-1024.png) -->
+    <icon src="res/ios/icon-20.png"      width="20"   height="20"   />
+    <icon src="res/ios/icon-20@2x.png"   width="40"   height="40"   />
+    <icon src="res/ios/icon-20@3x.png"   width="60"   height="60"   />
+    <icon src="res/ios/icon-29.png"      width="29"   height="29"   />
+    <icon src="res/ios/icon-29@2x.png"   width="58"   height="58"   />
+    <icon src="res/ios/icon-29@3x.png"   width="87"   height="87"   />
+    <icon src="res/ios/icon-40.png"      width="40"   height="40"   />
+    <icon src="res/ios/icon-40@2x.png"   width="80"   height="80"   />
+    <icon src="res/ios/icon-40@3x.png"   width="120"  height="120"  />
+    <icon src="res/ios/icon-60@2x.png"   width="120"  height="120"  />
+    <icon src="res/ios/icon-60@3x.png"   width="180"  height="180"  />
+    <icon src="res/ios/icon-76.png"      width="76"   height="76"   />
+    <icon src="res/ios/icon-76@2x.png"   width="152"  height="152"  />
+    <icon src="res/ios/icon-83.5@2x.png" width="167"  height="167"  />
+    <icon src="res/ios/icon-1024.png"    width="1024" height="1024" />
+  </platform>
+</widget>
