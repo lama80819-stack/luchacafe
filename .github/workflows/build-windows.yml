@@ -1,0 +1,52 @@
+# Compila Lucha Café para Windows (Electron) en un servidor Windows de GitHub (gratis):
+#   - LuchaCafe-Setup-<versión>.exe     instalador
+#   - LuchaCafe-Portable-<versión>.exe  versión portátil (no requiere instalar)
+# No están firmados digitalmente: Windows SmartScreen avisará "editor desconocido" (Más información > Ejecutar de todas formas).
+# Para publicar en Steam / itch.io se sube la carpeta desktop/dist/win-unpacked (también incluida en el artefacto "LuchaCafe-windows-carpeta").
+name: Compilar Windows (instalador + portátil)
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Copiar el juego y proteger la página (CSP)
+        shell: bash
+        run: |
+          mkdir -p desktop/www
+          cp -R www/. desktop/www/
+          CSP="<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'\">"
+          sed -i "s#<meta charset=\"utf-8\">#<meta charset=\"utf-8\">${CSP}#" desktop/www/index.html
+          grep -c "Content-Security-Policy" desktop/www/index.html
+
+      - name: Instalar y empaquetar
+        working-directory: desktop
+        run: |
+          npm install
+          npm run dist
+
+      - name: Revisar el resultado
+        shell: bash
+        run: ls -la desktop/dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LuchaCafe-windows
+          path: |
+            desktop/dist/LuchaCafe-Setup-*.exe
+            desktop/dist/LuchaCafe-Portable-*.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LuchaCafe-windows-carpeta
+          path: desktop/dist/win-unpacked

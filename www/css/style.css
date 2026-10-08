@@ -34,16 +34,16 @@
   .rotate b { font-family: var(--font-display); font-weight: 400; color: var(--gold); font-size: 26px; text-wrap: balance; }
   .rotate span { color: var(--muted); font-size: 18px; }
   @keyframes giro { 0%, 20% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
-  /* Celulares y tabletas: el juego ocupa toda la pantalla (sin la guía de abajo) y se toca con el dedo */
-  @media (pointer: coarse), (max-height: 700px) and (orientation: landscape) {
-    html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
-    body { padding: 0; position: fixed; inset: 0; }
-    .stage { position: fixed; inset: 0; max-width: none; margin: 0; padding: 0; gap: 0; box-sizing: border-box; display: block; }
-    /* pantalla completa "full bleed": el fondo llega a los cuatro bordes (también bajo el notch y la Dynamic Island); el juego coloca la interfaz dentro del área segura
-       (--cw / --ch los pone el script con el tamaño real de la ventana) */
-    canvas { position: fixed; left: 0; top: 0; width: var(--cw, 100%); height: var(--ch, 100%); aspect-ratio: auto; border: 0; border-radius: 0; box-shadow: none; }
-    .how, .keys, .legal { display: none; }
-  }
+  /* Modo pantalla completa (celulares, tabletas, plegables, pantalla completa del navegador o app instalada en PC): el juego ocupa toda la ventana, sin la guía de abajo.
+     Lo activa el script (clase "full" en <html>, ver fit()). */
+  html.full, html.full body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
+  html.full body { padding: 0; position: fixed; inset: 0; }
+  html.full .stage { position: fixed; inset: 0; max-width: none; margin: 0; padding: 0; gap: 0; box-sizing: border-box; display: block; }
+  /* "full bleed": el fondo llega a los cuatro bordes (también bajo el notch, la cámara perforada o la Dynamic Island); el juego coloca la interfaz dentro del área segura
+     (--cw / --ch los pone el script con el tamaño real de la ventana) */
+  html.full canvas { position: fixed; left: 0; top: 0; width: var(--cw, 100%); height: var(--ch, 100%); aspect-ratio: auto; border: 0; border-radius: 0; box-shadow: none; }
+  html.full .how, html.full .keys, html.full .legal { display: none; }
+  html.full.nocursor canvas { cursor: none; }
   .legal { margin: 0; color: var(--muted); font-size: 13px; letter-spacing: .03em; }
   /* El celular en vertical es demasiado angosto: se pide girarlo (las tabletas sí juegan en vertical) */
   @media (orientation: portrait) and (max-width: 600px) {
@@ -58,7 +58,7 @@
   .keys kbd { font: inherit; font-weight: 700; color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; }
 
 /* =========================================================
-   MODO APP NATIVA (iPhone con Cordova / Capacitor)
+   MODO APP NATIVA (iPhone y Android con Capacitor; Windows con Electron)
    Pantalla fija, sin rebote, sin zoom ni selección, y el lienzo siempre dentro de la zona segura
    (así el notch o la Dynamic Island nunca tapan el HUD, los botones ni las monedas).
    ========================================================= */

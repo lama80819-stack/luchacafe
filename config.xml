@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<widget id="com.tucafe.luchacafe" version="1.1.0" ios-CFBundleVersion="2"
+<widget id="com.tucafe.luchacafe" version="1.2.0" ios-CFBundleVersion="3"
         xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
 
   <!-- Nombre que aparece bajo el ícono en el iPhone -->
@@ -10,7 +10,7 @@
   <!-- El juego vive en la carpeta www/ -->
   <content src="index.html" />
 
-  <!-- Todo el juego es local; solo se pide la tipografía de Google si hay internet (si no, usa tipos de respaldo) -->
+  <!-- Todo el juego es local (incluidas las tipografías): no necesita internet -->
   <access origin="*" />
   <allow-navigation href="https://fonts.googleapis.com/*" />
   <allow-navigation href="https://fonts.gstatic.com/*" />

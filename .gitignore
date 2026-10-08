@@ -1,2 +1,9 @@
 *.zip
-
+node_modules/
+android/
+ios/
+desktop/node_modules/
+desktop/dist/
+desktop/www/
+*.jks
+*.keystore

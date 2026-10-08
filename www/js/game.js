@@ -203,45 +203,90 @@ const easeOutBack = t => { const c1 = 1.7, c3 = c1 + 1; return 1 + c3 * Math.pow
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 let K = 1;
-/* PANTALLA COMPLETA (iPhone 11 … 18 Pro Max, iPad y cualquier modelo futuro; no se usa ninguna lista de dispositivos):
-   1. El lienzo ocupa toda la ventana, borde a borde (full bleed).
-   2. Se miden en vivo los márgenes seguros que da el sistema (notch, Dynamic Island, barra de inicio) con env(safe-area-inset-*).
+/* PANTALLA COMPLETA Y CÁMARA ADAPTABLE (iPhone, Android, plegables, tabletas, ventanas de PC, pantallas 16:10, 3:2, 16:9, 21:9 y 32:9; no se usa ninguna lista de modelos):
+   1. En modo "completo" el lienzo ocupa toda la ventana, borde a borde (full bleed). Es completo en celulares y tabletas, en una app nativa (Capacitor / Electron),
+      con la pantalla completa del navegador (tecla F o F11) y en una app instalada.
+   2. Se miden en vivo los márgenes seguros del sistema (notch, cámara perforada, Dynamic Island, barra de gestos) con env(safe-area-inset-*).
+      En Android la app nativa también los deja en las variables --safe-area-inset-* (Capacitor SystemBars).
    3. El diseño de 960 x 600 se escala para caber dentro del área segura y se centra en ella (EX/EY = su esquina dentro del lienzo, SL = margen seguro izquierdo).
-   4. Los fondos se extienden hasta los bordes (-EX, -EY … CW, CH) y el escenario se ve más ancho en pantallas alargadas (19.5:9, 20:9…); nunca se deforma.
-   Todo es relativo: los HUD, botones y paneles quedan siempre dentro del área segura. */
+      Cámara: el escenario nunca se estira; en pantallas muy anchas se ve más decorado a los lados (FOV horizontal adaptable) y en pantallas altas, arriba y abajo.
+   4. El HUD se ancla a los bordes seguros, pero nunca más allá de una proporción 2.4:1 (así en 32:9 los botones no quedan a medio metro del escenario).
+   5. Resolución interna: la calidad (AUTO / ALTA / MEDIA / BAJA) limita los píxeles del lienzo y AUTO baja sola si el equipo no mantiene los cuadros por segundo. */
 let CW = W, CH = H, EX = 0, EY = 0, EB = 0, SL = 0, GL = 0, GR = 0;      // GL / GR = espacio sobrante (dentro del área segura) a la izquierda y a la derecha del diseño: el HUD se ancla a esos bordes
 const MOB_Q = '(pointer: coarse), (max-height: 700px) and (orientation: landscape)';
+const HUD_MAX_ASPECT = 2.4;
+const IS_NATIVE = (() => { try { return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()); } catch (e) { return false; } })();
+const IS_ELECTRON = /Electron\//.test(navigator.userAgent || '');
+const mq = q => { try { return !!(window.matchMedia && window.matchMedia(q).matches); } catch (e) { return false; } };
+const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement || null;
+function isFull() { return IS_NATIVE || IS_ELECTRON || !!fsElement() || mq(MOB_Q) || mq('(display-mode: fullscreen)') || mq('(display-mode: standalone)'); }
+function canFullscreen() { return IS_ELECTRON ? true : !IS_NATIVE && !!(document.fullscreenEnabled || document.webkitFullscreenEnabled); }
+function screenFull() { try { return !!fsElement() || (window.innerWidth >= screen.width - 1 && window.innerHeight >= screen.height - 1); } catch (e) { return false; } }
+function toggleFullscreen() {                                      // PC: pantalla completa sin bordes (borderless); en el navegador también sirve F11
+  try {
+    if (window.desktop && window.desktop.toggleFullscreen) { window.desktop.toggleFullscreen(); return; }      // app de Windows (Electron): ventana nativa
+    const el = document.documentElement;
+    if (fsElement()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    else (el.requestFullscreen || el.webkitRequestFullscreen).call(el, { navigationUI: 'hide' });
+  } catch (e) {}
+}
 let probeEl = null;
 function safeInsets() {                                            // márgenes seguros actuales (px de CSS)
   try {
     if (window.__insets) return window.__insets;                   // (solo para pruebas)
     if (!probeEl) {
       probeEl = document.createElement('div');
-      probeEl.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)';
+      probeEl.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top,var(--safe-area-inset-top,0px)) env(safe-area-inset-right,var(--safe-area-inset-right,0px)) env(safe-area-inset-bottom,var(--safe-area-inset-bottom,0px)) env(safe-area-inset-left,var(--safe-area-inset-left,0px))';
       document.body.appendChild(probeEl);
     }
     const cs = window.getComputedStyle(probeEl), p = k => parseFloat(cs[k]) || 0;
     return { t: p('paddingTop'), r: p('paddingRight'), b: p('paddingBottom'), l: p('paddingLeft') };
   } catch (e) { return { t: 0, r: 0, b: 0, l: 0 }; }
 }
+// Calidad gráfica: tope de píxeles internos por unidad de diseño (1 = nítido en pantallas normales, 2 = nítido en pantallas retina)
+const Gfx = {
+  cap: null, slow: 0, n: 0, acc: 0,
+  limit() {                                                        // tope actual de la resolución interna
+    const q = Settings.quality;
+    if (q === 'alta') return 2; if (q === 'media') return 1.5; if (q === 'baja') return 1;
+    if (this.cap == null) {                                        // AUTO: equipos modestos empiezan en 1.5
+      let weak = false; try { weak = (navigator.deviceMemory && navigator.deviceMemory <= 3) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4); } catch (e) {}
+      this.cap = weak ? 1.5 : 2;
+    }
+    return this.cap;
+  },
+  tick(dt) {                                                       // AUTO baja la resolución si pasa mucho tiempo por debajo de ~40 cuadros por segundo
+    if (Settings.quality !== 'auto' || document.hidden) return;
+    this.acc += dt; this.n++;
+    if (this.n < 120) return;
+    const avg = this.acc / this.n; this.acc = 0; this.n = 0;
+    if (avg > 1 / 36 && this.limit() > 1) { if (++this.slow >= 2) { this.cap = this.limit() > 1.5 ? 1.5 : 1; this.slow = 0; } } else this.slow = 0;
+  }
+};
 function fit() {
-  let mob = false; try { mob = !!(window.matchMedia && window.matchMedia(MOB_Q).matches); } catch (e) {}
-  if (mob && window.getComputedStyle) {
+  const full = isFull();
+  try { document.documentElement.classList.toggle('full', full); } catch (e) {}
+  if (full && window.getComputedStyle) {
     const vw = Math.max(200, window.innerWidth || 0), vh = Math.max(150, window.innerHeight || 0), ins = safeInsets();
     const sw = Math.max(120, vw - ins.l - ins.r), sh = Math.max(100, vh - ins.t - ins.b);
     const sc = Math.min(sw / W, sh / H);                           // px de CSS por unidad del diseño
     CW = vw / sc; CH = vh / sc;
-    EX = (ins.l + (sw - W * sc) / 2) / sc; EY = (ins.t + (sh - H * sc) / 2) / sc; EB = CH - EY - H; SL = ins.l / sc; GL = Math.max(0, EX - SL); GR = Math.max(0, CW - EX - W - ins.r / sc);
+    EX = (ins.l + (sw - W * sc) / 2) / sc; EY = (ins.t + (sh - H * sc) / 2) / sc; EB = CH - EY - H; SL = ins.l / sc;
+    const side = Math.max(0, (H * HUD_MAX_ASPECT - W) / 2);
+    GL = Math.min(side, Math.max(0, EX - SL)); GR = Math.min(side, Math.max(0, CW - EX - W - ins.r / sc));
     canvas.style.setProperty('--cw', vw + 'px'); canvas.style.setProperty('--ch', vh + 'px');
     UI.small = H * sc < 470; Cam.def = UI.small ? 1.14 : 1;        // pantallas chicas (iPhone SE): el local se ve un poco más grande y los botones tienen más margen al tocar
   } else { CW = W; CH = H; EX = EY = EB = SL = GL = GR = 0; canvas.style.removeProperty('--cw'); canvas.style.removeProperty('--ch'); UI.small = false; Cam.def = 1; }
   const r = canvas.getBoundingClientRect();
-  const k = clamp(Math.ceil(r.width * (window.devicePixelRatio || 1) / CW), 1, 2);
-  if (canvas.width !== Math.round(CW * k) || canvas.height !== Math.round(CH * k)) { canvas.width = Math.round(CW * k); canvas.height = Math.round(CH * k); }
-  K = k;
+  const k = clamp(Math.min(r.width * (window.devicePixelRatio || 1) / CW, Gfx.limit()), 1, 2);
+  const kk = Math.round(k * 4) / 4;                                // pasos de 0.25: no se redimensiona el lienzo por cambios mínimos
+  if (canvas.width !== Math.round(CW * kk) || canvas.height !== Math.round(CH * kk)) { canvas.width = Math.round(CW * kk); canvas.height = Math.round(CH * kk); }
+  K = kk;
 }
 window.addEventListener('resize', fit);
 window.addEventListener('orientationchange', () => setTimeout(fit, 60));
+['fullscreenchange', 'webkitfullscreenchange'].forEach(n => document.addEventListener(n, () => setTimeout(fit, 30)));
+try { if (window.visualViewport) window.visualViewport.addEventListener('resize', fit); } catch (e) {}      // plegables y ventanas redimensionables
 
 function rr(c, x, y, w, h, r) {
   r = Math.min(r, w / 2, h / 2);
@@ -609,8 +654,10 @@ const Store = {
   }
 };
 Store.migrate();
-const Settings = Object.assign({ sound: true, music: true, volume: 0.6 }, Store.read(Store.CFG) || {});
-const saveSettings = () => Store.write(Store.CFG, { sound: Settings.sound, music: Settings.music, volume: Settings.volume });
+const Settings = Object.assign({ sound: true, music: true, volume: 0.6, quality: 'auto', fps: 'auto' }, Store.read(Store.CFG) || {});
+if (!['auto', 'alta', 'media', 'baja'].includes(Settings.quality)) Settings.quality = 'auto';
+if (!['auto', '60', '30'].includes(Settings.fps)) Settings.fps = 'auto';
+const saveSettings = () => Store.write(Store.CFG, { sound: Settings.sound, music: Settings.music, volume: Settings.volume, quality: Settings.quality, fps: Settings.fps });
 
 /* =========================================================
    AUDIO (síntesis con WebAudio, sin archivos)
@@ -1330,49 +1377,64 @@ const Menu = {
    ========================================================= */
 const SettingsScene = {
   from: 'MENU', drag: false, confirmT: 0, buttons: {},
-  slider: { x: 410, y: 301, w: 210 },
+  slider: { x: 410, y: 232, w: 210 },
   enter(arg) {
     this.from = (arg && arg.from) || 'MENU'; this.drag = false; this.confirmT = 0;
     const back = () => { sfx('back'); setState(this.from); };
+    const cyc = (key, list) => () => { Settings[key] = list[(list.indexOf(Settings[key]) + 1) % list.length]; if (key === 'quality') Gfx.slow = 0; saveSettings(); Sfx.unlock(); sfx('click'); };
     this.buttons = {
-      sound: { x: 540, y: 150, w: 170, h: 44, size: 22, fn: () => { Settings.sound = !Settings.sound; saveSettings(); Sfx.unlock(); sfx('click'); } },
-      music: { x: 540, y: 206, w: 170, h: 44, size: 22, fn: () => { Settings.music = !Settings.music; saveSettings(); Sfx.unlock(); sfx('click'); } },
-      reset: { x: 540, y: 354, w: 170, h: 42, size: 20, style: 'red', fn: () => {
+      sound: { x: 540, y: 124, w: 170, h: 40, size: 21, fn: () => { Settings.sound = !Settings.sound; saveSettings(); Sfx.unlock(); sfx('click'); } },
+      music: { x: 540, y: 170, w: 170, h: 40, size: 21, fn: () => { Settings.music = !Settings.music; saveSettings(); Sfx.unlock(); sfx('click'); } },
+      screen: { x: 540, y: 262, w: 170, h: 40, size: 20, fn: () => { Sfx.unlock(); sfx('click'); toggleFullscreen(); } },
+      quality: { x: 540, y: 308, w: 170, h: 40, size: 20, fn: cyc('quality', ['auto', 'alta', 'media', 'baja']) },
+      fps: { x: 540, y: 354, w: 170, h: 40, size: 20, fn: cyc('fps', ['auto', '60', '30']) },
+      reset: { x: 540, y: 410, w: 170, h: 38, size: 18, style: 'red', fn: () => {
         if (this.confirmT > 0) { for (let n = 1; n <= Store.SLOTS; n++) Store.clearSlot(n); this.confirmT = 0; sfx('back'); } else { this.confirmT = 3; sfx('nope'); }
       } },
-      back:  { x: 370, y: 424, w: 220, h: 54, style: 'gold', label: 'Volver', fn: back },
-      saveExit: { x: 480, y: 424, w: 240, h: 54, style: 'green', label: 'Guardar y salir', size: 22, fn: () => { Game.save(); sfx('back'); setState('MENU'); } }
+      back:  { x: 370, y: 466, w: 220, h: 50, style: 'gold', label: 'Volver', fn: back },
+      saveExit: { x: 480, y: 466, w: 240, h: 50, style: 'green', label: 'Guardar y salir', size: 22, fn: () => { Game.save(); sfx('back'); setState('MENU'); } }
     };
-    if (this.from === 'JUGANDO') Object.assign(this.buttons.back, { x: 240, w: 220 });          // en partida: Volver + Guardar y volver al menú principal
+    if (this.from === 'JUGANDO') Object.assign(this.buttons.back, { x: 240, w: 220 });
+    this.buttons.back.y = this.buttons.saveExit.y = 468;          // en partida: Volver + Guardar y volver al menú principal
   },
   update(dt) { if (this.confirmT > 0) this.confirmT -= dt; },
   draw(c) {
     scenes[this.from].draw(c);
     c.fillStyle = 'rgba(10,5,30,.74)'; c.fillRect(-EX, -EY, CW, CH);
-    drawPanel(c, 220, 100, 520, 400, 'AJUSTES');
-    const B = this.buttons, lab = { font: `700 26px ${FONT_UI}`, color: P.cream, ls: 1 };
+    drawPanel(c, 220, 76, 520, 460, 'AJUSTES');
+    const B = this.buttons, lab = { font: `700 24px ${FONT_UI}`, color: P.cream, ls: 1 };
     // sonido
-    txt(c, 'Sonido', 260, 180, lab);
+    txt(c, 'Sonido', 260, 150, lab);
     B.sound.label = Settings.sound ? 'ACTIVADO' : 'SILENCIO'; B.sound.style = Settings.sound ? 'green' : 'dark';
     drawButton(c, B.sound);
     // música
-    txt(c, 'Música', 260, 236, lab);
+    txt(c, 'Música', 260, 196, lab);
     B.music.label = Settings.music ? 'ACTIVADA' : 'APAGADA'; B.music.style = Settings.music && Settings.sound ? 'green' : 'dark'; B.music.disabled = !Settings.sound;
     drawButton(c, B.music);
     // volumen
-    txt(c, 'Volumen', 260, 316, lab);
+    txt(c, 'Volumen', 260, 247, lab);
     const s = this.slider;
     rr(c, s.x, s.y, s.w, 14, 7); c.fillStyle = '#120a2a'; c.fill(); c.lineWidth = 2; c.strokeStyle = P.violet; c.stroke();
     rr(c, s.x, s.y, Math.max(14, s.w * Settings.volume), 14, 7); c.fillStyle = Settings.sound ? P.gold : '#6b6580'; c.fill();
     const kx = s.x + s.w * Settings.volume;
     c.beginPath(); c.arc(kx, s.y + 7, 14, 0, 6.3); c.fillStyle = P.cream; c.fill(); c.lineWidth = 3; c.strokeStyle = P.ink; c.stroke();
-    txt(c, Math.round(Settings.volume * 100) + '%', 710, 317, { font: `700 22px ${FONT_UI}`, align: 'right', color: P.gold });      // alineado con el borde derecho del botón de sonido
+    txt(c, Math.round(Settings.volume * 100) + '%', 710, 248, { font: `700 22px ${FONT_UI}`, align: 'right', color: P.gold });      // alineado con el borde derecho del botón de sonido
     if (UI.mx > s.x - 20 && UI.mx < s.x + s.w + 20 && UI.my > s.y - 16 && UI.my < s.y + 32) UI.cursor = true;
+    // pantalla / calidad / FPS (para PC; en celular la pantalla ya es completa)
+    txt(c, 'Pantalla', 260, 288, lab);
+    const sf = screenFull() || IS_NATIVE || mq(MOB_Q); B.screen.label = sf ? 'COMPLETA' : 'VENTANA'; B.screen.style = sf ? 'green' : 'dark'; B.screen.disabled = IS_NATIVE || !canFullscreen();
+    drawButton(c, B.screen);
+    txt(c, 'Calidad', 260, 334, lab);
+    B.quality.label = Settings.quality.toUpperCase(); B.quality.style = Settings.quality === 'auto' ? 'teal' : 'dark';
+    drawButton(c, B.quality);
+    txt(c, 'Cuadros / seg', 260, 380, lab);
+    B.fps.label = Settings.fps === 'auto' ? 'AUTO' : Settings.fps; B.fps.style = Settings.fps === 'auto' ? 'teal' : 'dark';
+    drawButton(c, B.fps);
     // progreso
-    txt(c, 'Progreso', 260, 378, lab);
+    txt(c, 'Progreso', 260, 432, lab);
     const nSaved = Store.slots().filter(s => s).length, inGame = this.from === 'JUGANDO';
-    txt(c, inGame ? (Game.slot ? `Se guarda sola cada 15 s (ranura ${Game.slot})` : 'Esta partida no tiene ranura de guardado') : nSaved ? `${nSaved} de ${Store.SLOTS} partidas guardadas` : 'Sin partidas guardadas', 260, 402, { font: `600 18px ${FONT_UI}`, color: P.muted });
-    B.reset.label = this.confirmT > 0 ? '¿SEGURO?' : 'BORRAR TODO'; B.reset.size = this.confirmT > 0 ? 22 : 17;
+    txt(c, inGame ? (Game.slot ? `Se guarda sola cada 15 s (ranura ${Game.slot})` : 'Sin ranura de guardado') : nSaved ? `${nSaved} de ${Store.SLOTS} partidas guardadas` : 'Sin partidas guardadas', 260, 456, { font: `600 17px ${FONT_UI}`, color: P.muted });
+    B.reset.label = this.confirmT > 0 ? '¿SEGURO?' : 'BORRAR TODO'; B.reset.size = this.confirmT > 0 ? 21 : 16;
     B.reset.disabled = inGame || (!nSaved && this.confirmT <= 0);
     if (!inGame) drawButton(c, B.reset);
     drawButton(c, B.back);
@@ -1384,7 +1446,7 @@ const SettingsScene = {
     const s = this.slider;
     if (x > s.x - 20 && x < s.x + s.w + 20 && y > s.y - 16 && y < s.y + 32) { this.drag = true; this.setVol(x); return; }
     const inGame = this.from === 'JUGANDO';
-    for (const k of ['sound', 'music', 'reset', 'back', 'saveExit']) {
+    for (const k of ['sound', 'music', 'screen', 'quality', 'fps', 'reset', 'back', 'saveExit']) {
       const b = this.buttons[k]; if (k === 'reset' && inGame) continue; if (k === 'saveExit' && (!inGame || !Game.slot)) continue;
       if (!b.disabled && UI.hit(b)) { b.fn(); return; }
     }
@@ -2883,7 +2945,7 @@ function decorPointer(w, x, y, hit) {
 /* ---------- Modo edición: levantar, guardar y colocar muebles ---------- */
 const EDIT = { x: W - 14 - 256, y: 72, w: 256, top: 54, cell: 52, cols: 4 };
 // Botones de zoom: pegados al borde izquierdo de la pantalla (con el lienzo ensanchado quedan fuera de la zona central)
-const zoomBtns = () => [
+const zoomBtns = () => UI.pad ? [] : [
   { x: 12 - EX + SL, y: 392, w: 38, h: 36, label: '+', size: 26, style: 'dark', fn: () => camZoomAt(1.3, CAMC.x, CAMC.y) },
   { x: 12 - EX + SL, y: 434, w: 38, h: 36, label: '−', size: 28, style: 'dark', fn: () => camZoomAt(1 / 1.3, CAMC.x, CAMC.y) },
   { x: 12 - EX + SL, y: 476, w: 38, h: 30, label: '1:1', size: 14, style: 'dark', fn: () => camReset() }
@@ -5613,6 +5675,99 @@ function toLocal(e) {                                                 // de la p
   UI.mx = (e.clientX - r.left) * CW / r.width - EX;
   UI.my = (e.clientY - r.top) * CH / r.height - EY;
 }
+/* =========================================================
+   ENTRADAS UNIFICADAS: táctil, teclado + ratón y mando (Xbox / PlayStation / genéricos con mapeo estándar)
+   El esquema activo (Input.mode) cambia solo en cuanto se usa otro dispositivo:
+     'touch' = dedo o lápiz (botones con margen extra, edición con dos toques, botones de zoom en pantalla)
+     'mouse' = teclado y ratón (rueda = zoom, arrastrar = mover la cámara, R = girar, F = pantalla completa, Esc = ajustes)
+     'pad'   = mando: stick izquierdo = cursor, A = tocar, B / Start = atrás, X = girar, LB / RB (o gatillos) = zoom, stick derecho = mover la cámara,
+               cruceta = moverse por los menús, R3 = zoom 1:1. El cursor se dibuja en pantalla y los botones táctiles de zoom se ocultan.
+   Todo se traduce a las mismas funciones que ya usa el puntero (pointerDown / pointerMove / pointerUp / key): la lógica del juego no sabe qué aparato se usa.
+   ========================================================= */
+const Input = {
+  mode: 'mouse', pad: false, hint: 0, prev: [], cx: W / 2, cy: H / 2, hold: false, rep: 0, repKey: '',
+  setMode(m) {
+    if (this.mode === m) return;
+    this.mode = m; UI.touch = m === 'touch'; UI.pad = m === 'pad';
+    if (m === 'pad') { UI.kb = false; this.cx = clamp(UI.mx > -90 ? UI.mx : W / 2, -EX + 6, CW - EX - 6); this.cy = clamp(UI.my > -90 ? UI.my : H / 2, -EY + 6, CH - EY - 6); }
+    else if (this.hold) { this.hold = false; UI.down = false; }
+    try { document.documentElement.classList.toggle('nocursor', m === 'pad'); } catch (e) {}
+  },
+  key(k, repeat) {                                                 // una tecla "virtual" para la escena activa
+    const sc = scenes[state];
+    return sc.key ? sc.key({ key: k, code: k, repeat: !!repeat, altKey: false, ctrlKey: false, shiftKey: false, preventDefault() {} }) : false;
+  },
+  canPlay() { const w = Game.w; return state === 'JUGANDO' && w && w.phase === 'play' && !w.shop && !w.modal && !(w.tut && (TUT[w.tut.s] === 'intro' || TUT[w.tut.s] === 'outro')); },
+  poll(dt) {
+    if (this.hint > 0) this.hint -= dt;
+    let gp = null;
+    try { const l = navigator.getGamepads ? navigator.getGamepads() : []; for (let i = 0; i < l.length; i++) if (l[i] && l[i].connected) { gp = l[i]; break; } } catch (e) {}
+    if (!gp) { if (this.pad) { this.pad = false; this.prev = []; if (this.mode === 'pad') this.setMode('mouse'); } return; }
+    if (!this.pad) { this.pad = true; this.hint = 8; }
+    const cur = [], dz = v => Math.abs(v || 0) < .2 ? 0 : v;
+    for (let i = 0; i < 17; i++) cur[i] = !!(gp.buttons[i] && (gp.buttons[i].pressed || gp.buttons[i].value > .6));
+    const down = i => cur[i] && !this.prev[i], up = i => !cur[i] && this.prev[i];
+    const lx = dz(gp.axes[0]), ly = dz(gp.axes[1]), rx = dz(gp.axes[2]), ry = dz(gp.axes[3]);
+    const act = cur.some((v, i) => v && !this.prev[i]) || Math.hypot(lx, ly) > .45 || Math.hypot(rx, ry) > .45;     // el "drift" leve de un stick no cuenta como uso
+    if (act) this.setMode('pad');
+    if (this.mode !== 'pad') { this.prev = cur; return; }
+    const sc = scenes[state], playing = this.canPlay();
+    // cursor con el stick izquierdo (más rápido cuanto más se inclina)
+    const m = Math.hypot(lx, ly);
+    let moved = false;
+    if (m > 0) {
+      const sp = (UI.small ? 420 : 560) * Math.pow(Math.min(1, m), 1.7);
+      this.cx = clamp(this.cx + lx / m * sp * dt, -EX + 4, CW - EX - 4); this.cy = clamp(this.cy + ly / m * sp * dt, -EY + 4, CH - EY - 4); moved = true;
+    }
+    // cámara: stick derecho = mover, LB / RB / gatillos = zoom, R3 = 1:1
+    if (playing) {
+      const rm = Math.hypot(rx, ry);
+      if (rm > 0) { Cam.px -= rx * 420 * dt; Cam.py -= ry * 420 * dt; camClamp(); moved = true; }
+      const z = ((cur[5] || cur[7]) ? 1 : 0) - ((cur[4] || cur[6]) ? 1 : 0);
+      if (z) { camZoomAt(Math.exp(z * 1.15 * dt), CAMC.x, CAMC.y); moved = true; }
+      if (down(11)) camReset();
+    }
+    if (moved) { UI.mx = this.cx; UI.my = this.cy; if (m > 0) UI.kb = false; sc.pointerMove(this.cx, this.cy); }
+    else if (UI.mx !== this.cx || UI.my !== this.cy) { UI.mx = this.cx; UI.my = this.cy; }
+    // A = tocar (si la última acción fue con la cruceta, A equivale a Enter)
+    if (down(0)) {
+      Sfx.unlock();
+      if (UI.kb) this.key('Enter'); else { this.hold = true; UI.down = true; UI.mx = this.cx; UI.my = this.cy; sc.pointerDown(this.cx, this.cy); }
+    }
+    if (up(0) && this.hold) { this.hold = false; UI.down = false; sc.pointerUp(this.cx, this.cy); }
+    if (down(1) || down(9)) this.key('Escape');                     // B o Start
+    if (down(2)) this.key('r');                                     // X = girar el mueble
+    if (down(8)) { if (playing) camReset(); }                       // Select = 1:1
+    // cruceta = flechas (con repetición al mantener)
+    const dir = cur[12] ? 'ArrowUp' : cur[13] ? 'ArrowDown' : cur[14] ? 'ArrowLeft' : cur[15] ? 'ArrowRight' : '';
+    if (dir) {
+      if (dir !== this.repKey) { this.repKey = dir; this.rep = .38; this.key(dir); }
+      else if ((this.rep -= dt) <= 0) { this.rep = .12; this.key(dir, true); }
+    } else this.repKey = '';
+    this.prev = cur;
+  },
+  draw(c) {                                                         // cursor del mando y chuleta de botones
+    if (this.hint > 0 && (this.pad || this.mode === 'pad')) {
+      const a = Math.min(1, this.hint), msg = 'MANDO · Stick izq.: cursor · A: tocar · B: atrás · X: girar · LB / RB: zoom · Stick der.: mover cámara';
+      c.save(); c.globalAlpha = a; c.font = `600 15px ${FONT_UI}`;
+      const w = Math.min(CW - 24, c.measureText(msg).width + 34), x = W / 2 - w / 2, y = HUD + 10;
+      c.fillStyle = 'rgba(10,5,30,.88)'; rr(c, x, y, w, 28, 14); c.fill(); c.lineWidth = 2; c.strokeStyle = P.gold; c.stroke();
+      txt(c, msg, W / 2, y + 7, { font: `600 15px ${FONT_UI}`, align: 'center', color: P.cream });
+      c.restore();
+    }
+    if (this.mode !== 'pad') return;
+    c.save(); c.translate(this.cx, this.cy);
+    c.lineWidth = 5; c.strokeStyle = P.ink; c.beginPath(); c.arc(0, 0, UI.down ? 8 : 11, 0, 6.3); c.stroke();
+    c.lineWidth = 2.5; c.strokeStyle = UI.down ? P.gold : P.cream; c.beginPath(); c.arc(0, 0, UI.down ? 8 : 11, 0, 6.3); c.stroke();
+    c.fillStyle = P.ink; c.beginPath(); c.arc(0, 0, 4.5, 0, 6.3); c.fill(); c.fillStyle = P.gold; c.beginPath(); c.arc(0, 0, 2.6, 0, 6.3); c.fill();
+    c.restore();
+  }
+};
+window.addEventListener('gamepadconnected', () => { Input.hint = 8; });
+window.addEventListener('gamepaddisconnected', () => { Input.hint = 0; });
+// Botón / gesto "atrás" de Android (lo llama la parte nativa): Esc en el juego. Devuelve false en el menú principal para que la app se cierre.
+window.__onBack = () => { try { return !!Input.key('Escape'); } catch (e) { return false; } };
+
 // Pellizco con dos dedos: zoom y desplazamiento del local (solo mientras se juega)
 const Ptr = new Map(), Pinch = { active: false, d0: 1, z0: 1, wp: null };
 function pinchStart() {
@@ -5628,7 +5783,7 @@ function pinchMove() {
   Cam.px = mx - CAMC.x - (Pinch.wp.x - CAMC.x) * Cam.z; Cam.py = my - CAMC.y - (Pinch.wp.y - CAMC.y) * Cam.z; camClamp();
 }
 canvas.addEventListener('pointerdown', e => {
-  UI.touch = e.pointerType === 'touch' || e.pointerType === 'pen';
+  Input.setMode(e.pointerType === 'touch' || e.pointerType === 'pen' ? 'touch' : 'mouse');
   try { canvas.focus({ preventScroll: true }); } catch (err) {}      // para que el teclado (R, Esc) llegue siempre al juego
   toLocal(e); UI.down = true; Sfx.unlock();
   Ptr.set(e.pointerId, { x: UI.mx, y: UI.my });
@@ -5639,6 +5794,8 @@ canvas.addEventListener('pointerdown', e => {
   scenes[state].pointerDown(UI.mx, UI.my);
 });
 canvas.addEventListener('pointermove', e => {
+  if (Input.mode === 'pad') { if (e.pointerType !== 'mouse' || Math.abs(e.movementX) + Math.abs(e.movementY) < 2) return; Input.setMode('mouse'); }
+  else if (e.pointerType === 'mouse' && Input.mode !== 'mouse') Input.setMode('mouse');
   toLocal(e);
   if (Ptr.has(e.pointerId)) Ptr.set(e.pointerId, { x: UI.mx, y: UI.my });
   if (Pinch.active) { pinchMove(); return; }
@@ -5662,8 +5819,11 @@ canvas.addEventListener('contextmenu', e => { e.preventDefault(); const s = scen
 canvas.addEventListener('pointerleave', () => { UI.mx = UI.my = -99; });
 window.addEventListener('keydown', e => {
   Sfx.unlock();
+  if (Input.mode !== 'mouse') Input.setMode('mouse');                // se tocó el teclado: esquema teclado + ratón
+  if (e.altKey && e.key === 'Enter') { e.preventDefault(); toggleFullscreen(); return; }
   const s = scenes[state];
-  if (s.key && s.key(e)) e.preventDefault();
+  if (s.key && s.key(e)) { e.preventDefault(); return; }
+  if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey && !e.altKey && canFullscreen() && !IS_NATIVE) { e.preventDefault(); toggleFullscreen(); }      // F = pantalla completa
 });
 
 // iOS: sin zoom por pellizco, sin rebote de pantalla ni selección. (Los toques ya llegan al instante como "pointer events": con touch-action: none no hay retraso de 300 ms.)
@@ -5679,24 +5839,35 @@ window.addEventListener('pagehide', flushSave);
 window.addEventListener('beforeunload', flushSave);
 try { if (document.addEventListener) document.addEventListener('visibilitychange', () => { if (document.hidden) flushSave(); }); } catch (e) {}
 
-let last = performance.now();
+let last = performance.now(), due = 0;
 function frame(now) {
+  const cap = Settings.fps === '30' ? 30 : Settings.fps === '60' ? 60 : 0;      // AUTO = al ritmo de la pantalla (60 / 90 / 120 / 144 Hz…)
+  if (cap) {
+    const step = 1000 / cap;
+    if (now + 1.5 < due) { requestAnimationFrame(frame); return; }
+    due = now - due > step ? now + step : due + step;
+  }
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now; clock += dt;
   fit();
+  Gfx.tick(Math.min(dt * (Settings.fps === '30' ? .66 : 1), .1));
   UI.cursor = false;
   const s = scenes[state];
   let away = false; try { away = !!(window.matchMedia && window.matchMedia('(orientation: portrait) and (max-width: 600px)').matches); } catch (e) {}
   Music.update();
+  Input.poll(dt);
   if (!away) s.update(dt);                                          // celular en vertical (se pide girarlo): el juego se queda en pausa
   ctx.setTransform(K, 0, 0, K, 0, 0);
   ctx.clearRect(0, 0, CW, CH);
   ctx.translate(EX, EY);                                             // zona central de 960 de ancho; los fondos se extienden hasta los bordes
   s.draw(ctx);
+  Input.draw(ctx);
   canvas.style.cursor = UI.cursor ? 'pointer' : 'default';
   requestAnimationFrame(frame);
 }
 
+try { ['400 24px "Alfa Slab One"', '500 18px "Barlow Condensed"', '600 18px "Barlow Condensed"', '700 18px "Barlow Condensed"', '300 20px "Outfit"', '500 20px "Outfit"', '800 20px "Outfit"', '400 20px "Syncopate"', '700 20px "Syncopate"'].forEach(f => document.fonts.load(f)); } catch (e) {}      // tipografías listas desde el primer cuadro
+fit();
 Game.newGame(null);                // mundo base listo (se reemplaza al elegir Nuevo Juego o Cargar)
 setState('INTRO');
 requestAnimationFrame(frame);

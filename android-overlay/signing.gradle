@@ -1,0 +1,20 @@
+// Firma de la versión "release" (la que se sube a Google Play).
+// Si la compilación recibe la llave de subida en variables de entorno, el .aab sale firmado; si no, sale sin firmar.
+android {
+    def ksPath = System.getenv('ANDROID_KEYSTORE_PATH')
+    if (ksPath) {
+        signingConfigs {
+            upload {
+                storeFile file(ksPath)
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD')
+            }
+        }
+        buildTypes {
+            release {
+                signingConfig signingConfigs.upload
+            }
+        }
+    }
+}

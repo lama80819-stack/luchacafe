@@ -1,0 +1,74 @@
+# Compila Lucha Café para Android en un servidor Linux de GitHub (gratis):
+#   - app-debug.apk  -> para instalar y probar en tu celular o tableta (se activa "instalar apps de origen desconocido")
+#   - app-release.aab -> el paquete para subir a Google Play (Android App Bundle). Sale FIRMADO si el repositorio tiene los 4 secretos de la llave
+#                        de subida (ANDROID_KEYSTORE_B64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD); si no, sale sin firmar.
+# Capacitor 8: compileSdk y targetSdk 36 (Android 16), el nivel que Google Play exige para apps nuevas y actualizaciones desde el 31 de agosto de 2026.
+name: Compilar Android (APK de prueba + AAB para Google Play)
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Preparar el SDK de Android 36
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" > /dev/null
+
+      - name: Instalar Capacitor 8 y crear el proyecto de Android
+        run: |
+          # El proyecto de iPhone usa Capacitor 6; Android usa la versión 8 (Android 16). Solo cambia el package.json de esta compilación.
+          node -e "const p=require('./package.json'); p.dependencies={'@capacitor/cli':'^8.0.0','@capacitor/core':'^8.0.0','@capacitor/android':'^8.0.0'}; require('fs').writeFileSync('package.json', JSON.stringify(p,null,2))"
+          npm install
+          npx cap add android
+
+      - name: Personalizar (pantalla completa, ícono, manifiesto, firma)
+        run: |
+          VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER)) VERSION_NAME=1.2.0 bash android-overlay/apply.sh
+          npx cap sync android
+
+      - name: Preparar la llave de subida (si existe)
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_B64" ]; then
+            echo "$ANDROID_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/upload.jks" >> "$GITHUB_ENV"
+            echo "Se firmará el .aab con la llave de subida."
+          else
+            echo "Sin llave de subida: el .aab saldrá sin firmar (sirve para revisar; Google Play pide uno firmado)."
+          fi
+
+      - name: Compilar APK de prueba y AAB de Google Play
+        working-directory: android
+        run: ./gradlew assembleDebug bundleRelease --no-daemon --stacktrace
+
+      - name: Revisar el resultado
+        run: |
+          ls -la android/app/build/outputs/apk/debug/ android/app/build/outputs/bundle/release/
+          "$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging android/app/build/outputs/apk/debug/app-debug.apk | grep -E "package:|sdkVersion|targetSdkVersion|uses-feature|launchable" || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LuchaCafe-android
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/bundle/release/app-release.aab

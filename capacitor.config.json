@@ -7,5 +7,18 @@
     "contentInset": "never",
     "scrollEnabled": false,
     "backgroundColor": "#0d0720"
+  },
+  "android": {
+    "backgroundColor": "#0d0720",
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false
+  },
+  "plugins": {
+    "SystemBars": {
+      "hidden": true,
+      "style": "DARK",
+      "insetsHandling": "css",
+      "initialViewportFitValueHint": "cover"
+    }
   }
 }
