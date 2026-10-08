@@ -203,30 +203,45 @@ const easeOutBack = t => { const c1 = 1.7, c3 = c1 + 1; return 1 + c3 * Math.pow
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 let K = 1;
-// El diseño es de 960 x 600, pero el lienzo se ensancha para llenar pantallas más alargadas (iPhone): EX = px extra de cada lado.
-// Todo se dibuja con la zona central de 960 de ancho (translate EX) y los fondos se extienden hasta los bordes.
-let CW = W, EX = 0;
+/* PANTALLA COMPLETA (iPhone 11 … 18 Pro Max, iPad y cualquier modelo futuro; no se usa ninguna lista de dispositivos):
+   1. El lienzo ocupa toda la ventana, borde a borde (full bleed).
+   2. Se miden en vivo los márgenes seguros que da el sistema (notch, Dynamic Island, barra de inicio) con env(safe-area-inset-*).
+   3. El diseño de 960 x 600 se escala para caber dentro del área segura y se centra en ella (EX/EY = su esquina dentro del lienzo, SL = margen seguro izquierdo).
+   4. Los fondos se extienden hasta los bordes (-EX, -EY … CW, CH) y el escenario se ve más ancho en pantallas alargadas (19.5:9, 20:9…); nunca se deforma.
+   Todo es relativo: los HUD, botones y paneles quedan siempre dentro del área segura. */
+let CW = W, CH = H, EX = 0, EY = 0, EB = 0, SL = 0, GL = 0, GR = 0;      // GL / GR = espacio sobrante (dentro del área segura) a la izquierda y a la derecha del diseño: el HUD se ancla a esos bordes
 const MOB_Q = '(pointer: coarse), (max-height: 700px) and (orientation: landscape)';
-const stageEl = canvas.parentElement;
+let probeEl = null;
+function safeInsets() {                                            // márgenes seguros actuales (px de CSS)
+  try {
+    if (window.__insets) return window.__insets;                   // (solo para pruebas)
+    if (!probeEl) {
+      probeEl = document.createElement('div');
+      probeEl.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)';
+      document.body.appendChild(probeEl);
+    }
+    const cs = window.getComputedStyle(probeEl), p = k => parseFloat(cs[k]) || 0;
+    return { t: p('paddingTop'), r: p('paddingRight'), b: p('paddingBottom'), l: p('paddingLeft') };
+  } catch (e) { return { t: 0, r: 0, b: 0, l: 0 }; }
+}
 function fit() {
   let mob = false; try { mob = !!(window.matchMedia && window.matchMedia(MOB_Q).matches); } catch (e) {}
-  if (mob && stageEl && window.getComputedStyle) {
-    const cs = window.getComputedStyle(stageEl), pad = s => parseFloat(cs[s]) || 0;
-    const aw = Math.max(50, stageEl.clientWidth - pad('paddingLeft') - pad('paddingRight')), ah = Math.max(50, stageEl.clientHeight - pad('paddingTop') - pad('paddingBottom'));
-    const ratio = aw / ah;
-    let cssW, cssH;
-    if (ratio >= W / H) { CW = clamp(Math.round(H * ratio), W, 1480); cssH = ah; cssW = Math.min(aw, ah * CW / H); }       // pantalla alargada: se ve más del local a los lados
-    else { CW = W; cssW = aw; cssH = aw * H / W; }                                                                          // pantalla cuadrada o vertical: franjas arriba y abajo
-    canvas.style.setProperty('--cw', cssW.toFixed(1) + 'px'); canvas.style.setProperty('--ch', cssH.toFixed(1) + 'px');
-    UI.small = cssH < 470; Cam.def = UI.small ? 1.14 : 1;                                                                  // pantallas chicas (iPhone SE): el local se ve un poco más grande y los botones tienen más margen al tocar
-  } else { CW = W; canvas.style.removeProperty('--cw'); canvas.style.removeProperty('--ch'); UI.small = false; Cam.def = 1; }
-  EX = (CW - W) / 2;
+  if (mob && window.getComputedStyle) {
+    const vw = Math.max(200, window.innerWidth || 0), vh = Math.max(150, window.innerHeight || 0), ins = safeInsets();
+    const sw = Math.max(120, vw - ins.l - ins.r), sh = Math.max(100, vh - ins.t - ins.b);
+    const sc = Math.min(sw / W, sh / H);                           // px de CSS por unidad del diseño
+    CW = vw / sc; CH = vh / sc;
+    EX = (ins.l + (sw - W * sc) / 2) / sc; EY = (ins.t + (sh - H * sc) / 2) / sc; EB = CH - EY - H; SL = ins.l / sc; GL = Math.max(0, EX - SL); GR = Math.max(0, CW - EX - W - ins.r / sc);
+    canvas.style.setProperty('--cw', vw + 'px'); canvas.style.setProperty('--ch', vh + 'px');
+    UI.small = H * sc < 470; Cam.def = UI.small ? 1.14 : 1;        // pantallas chicas (iPhone SE): el local se ve un poco más grande y los botones tienen más margen al tocar
+  } else { CW = W; CH = H; EX = EY = EB = SL = GL = GR = 0; canvas.style.removeProperty('--cw'); canvas.style.removeProperty('--ch'); UI.small = false; Cam.def = 1; }
   const r = canvas.getBoundingClientRect();
   const k = clamp(Math.ceil(r.width * (window.devicePixelRatio || 1) / CW), 1, 2);
-  if (canvas.width !== CW * k || canvas.height !== H * k) { canvas.width = CW * k; canvas.height = H * k; }
+  if (canvas.width !== Math.round(CW * k) || canvas.height !== Math.round(CH * k)) { canvas.width = Math.round(CW * k); canvas.height = Math.round(CH * k); }
   K = k;
 }
 window.addEventListener('resize', fit);
+window.addEventListener('orientationchange', () => setTimeout(fit, 60));
 
 function rr(c, x, y, w, h, r) {
   r = Math.min(r, w / 2, h / 2);
@@ -1165,7 +1180,7 @@ function drawPanel(c, x, y, w, h, title) {
 function drawRingBg(c, t) {
   let g = c.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, '#0a0618'); g.addColorStop(.55, '#2a1050'); g.addColorStop(1, '#4a1a3a');
-  c.fillStyle = g; c.fillRect(-EX, 0, CW, H);
+  c.fillStyle = g; c.fillRect(-EX, -EY, CW, CH);
 
   // reflectores
   for (let i = 0; i < 4; i++) {
@@ -1180,7 +1195,7 @@ function drawRingBg(c, t) {
   const crowd = ['#1a0c33', '#240f45', '#301558'];
   for (let k = 0; k < 3; k++) {
     const yb = 262 + k * 30;
-    for (let x = -EX - 10 + (k % 2) * 17; x < W + EX + 20; x += 34) {
+    for (let x = -EX - 10 + (k % 2) * 17; x < CW - EX + 20; x += 34) {
       const bob = Math.sin(t * 3 + x * .3 + k) * 3, up = ((x / 34 | 0) + k) % 7 === 0;
       c.fillStyle = crowd[k];
       c.beginPath(); c.ellipse(x, yb + 22 + bob, 17, 20, 0, 0, 6.3); c.fill();
@@ -1333,7 +1348,7 @@ const SettingsScene = {
   update(dt) { if (this.confirmT > 0) this.confirmT -= dt; },
   draw(c) {
     scenes[this.from].draw(c);
-    c.fillStyle = 'rgba(10,5,30,.74)'; c.fillRect(-EX, 0, CW, H);
+    c.fillStyle = 'rgba(10,5,30,.74)'; c.fillRect(-EX, -EY, CW, CH);
     drawPanel(c, 220, 100, 520, 400, 'AJUSTES');
     const B = this.buttons, lab = { font: `700 26px ${FONT_UI}`, color: P.cream, ls: 1 };
     // sonido
@@ -1456,7 +1471,7 @@ const ByeScene = {
   update(dt) { this.t += dt; },
   draw(c) {
     drawRingBg(c, clock);
-    c.fillStyle = 'rgba(10,5,30,.55)'; c.fillRect(-EX, 0, CW, H);
+    c.fillStyle = 'rgba(10,5,30,.55)'; c.fillRect(-EX, -EY, CW, CH);
     drawPanel(c, 180, 70, 600, 420, '¡HASTA LUEGO!');
     drawLuchador(c, 480, 268, Object.assign({}, LUCHADORES.novato, { state: 'idle', t: this.t, dir: 1, scale: 2.1 }));
     const fade = clamp(this.t * 1.5, 0, 1);
@@ -1509,13 +1524,13 @@ const IntroScene = {
     const t = this.t, out = clamp((t - (this.DUR - .7)) / .7, 0, 1), cx = 480, cy = 292;
     // fondo: casi negro con un cono de luz y reflejos que se mueven despacio
     let g = c.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#04020b'); g.addColorStop(.6, '#0b0620'); g.addColorStop(1, '#140a2e');
-    c.fillStyle = g; c.fillRect(-EX, 0, CW, H);
+    c.fillStyle = g; c.fillRect(-EX, -EY, CW, CH);
     const glow = clamp(t / 1.2, 0, 1);
     const rg = c.createRadialGradient(cx, cy, 10, cx, cy, 420); rg.addColorStop(0, `rgba(124,58,237,${.38 * glow})`); rg.addColorStop(.5, `rgba(255,61,139,${.12 * glow})`); rg.addColorStop(1, 'rgba(0,0,0,0)');
-    c.fillStyle = rg; c.fillRect(-EX, 0, CW, H);
+    c.fillStyle = rg; c.fillRect(-EX, -EY, CW, CH);
     c.save(); c.globalCompositeOperation = 'lighter';                         // partículas doradas que suben
     for (let i = 0; i < 46; i++) {
-      const sp = .12 + hash(i + 3) * .26, ph = (t * sp + hash(i)) % 1, x = hash(i + 80) * (W + EX * 2) - EX, y = H + 10 - ph * (H + 40);
+      const sp = .12 + hash(i + 3) * .26, ph = (t * sp + hash(i)) % 1, x = hash(i + 80) * CW - EX, y = H + 10 - ph * (H + 40);
       c.fillStyle = `rgba(255,${190 + hash(i + 9) * 60 | 0},90,${Math.sin(ph * Math.PI) * .5 * glow})`; c.beginPath(); c.arc(x, y, .8 + hash(i + 17) * 1.8, 0, 6.3); c.fill();
     }
     c.restore();
@@ -1561,7 +1576,7 @@ const IntroScene = {
     txt(c, COPY, cx, H - 24, { font: `500 13px ${FONT_BRAND}`, align: 'center', color: `rgba(190,170,230,${.65 * ck})`, ls: .5 });
     c.restore();
     if (t > .8 && t < this.DUR - .9) txt(c, 'Toca para saltar', W - 16, H - 24, { font: `600 12px ${FONT_UI}`, align: 'right', color: `rgba(190,170,230,${.5 + .2 * Math.sin(t * 4)})`, ls: 1 });
-    if (t > this.DUR - .7) { c.fillStyle = `rgba(0,0,0,${out * .6})`; c.fillRect(-EX, 0, CW, H); }
+    if (t > this.DUR - .7) { c.fillStyle = `rgba(0,0,0,${out * .6})`; c.fillRect(-EX, -EY, CW, CH); }
   },
   pointerDown() { Sfx.unlock(); if (this.t > .5) this.done(); },
   pointerMove() {}, pointerUp() {},
@@ -2869,9 +2884,9 @@ function decorPointer(w, x, y, hit) {
 const EDIT = { x: W - 14 - 256, y: 72, w: 256, top: 54, cell: 52, cols: 4 };
 // Botones de zoom: pegados al borde izquierdo de la pantalla (con el lienzo ensanchado quedan fuera de la zona central)
 const zoomBtns = () => [
-  { x: 12 - EX, y: 392, w: 38, h: 36, label: '+', size: 26, style: 'dark', fn: () => camZoomAt(1.3, CAMC.x, CAMC.y) },
-  { x: 12 - EX, y: 434, w: 38, h: 36, label: '−', size: 28, style: 'dark', fn: () => camZoomAt(1 / 1.3, CAMC.x, CAMC.y) },
-  { x: 12 - EX, y: 476, w: 38, h: 30, label: '1:1', size: 14, style: 'dark', fn: () => camReset() }
+  { x: 12 - EX + SL, y: 392, w: 38, h: 36, label: '+', size: 26, style: 'dark', fn: () => camZoomAt(1.3, CAMC.x, CAMC.y) },
+  { x: 12 - EX + SL, y: 434, w: 38, h: 36, label: '−', size: 28, style: 'dark', fn: () => camZoomAt(1 / 1.3, CAMC.x, CAMC.y) },
+  { x: 12 - EX + SL, y: 476, w: 38, h: 30, label: '1:1', size: 14, style: 'dark', fn: () => camReset() }
 ];
 const editSlot = i => ({ x: EDIT.x + 14 + (i % EDIT.cols) * (EDIT.cell + 4), y: EDIT.y + EDIT.top + Math.floor(i / EDIT.cols) * (EDIT.cell + 4), w: EDIT.cell, h: EDIT.cell });
 const editRows = w => Math.ceil(w.invCap / EDIT.cols);
@@ -4411,7 +4426,7 @@ function drawDecorPreview(c, it, x, y, w, h, t) {
 function drawDecor(c, w) {
   const B = DECBOX, list = decorList(w.decCat), pages = Math.max(1, Math.ceil(list.length / 8));
   w.decPage = Math.min(w.decPage, pages - 1);
-  c.fillStyle = 'rgba(8,4,24,.74)'; c.fillRect(-EX, HUD, CW, H - HUD);
+  c.fillStyle = 'rgba(8,4,24,.74)'; c.fillRect(-EX, HUD, CW, CH - EY - HUD);
   drawPanel(c, B.x, B.y, B.w, B.h, 'DECORAR');
   const cl = decClose, ch = UI.hit(cl); if (ch) UI.cursor = true;
   rr(c, cl.x, cl.y, cl.w, cl.h, 8); c.fillStyle = ch ? '#5a3a8a' : '#2a1a52'; c.fill(); c.lineWidth = 1.6; c.strokeStyle = 'rgba(255,255,255,.35)'; c.stroke();
@@ -4466,7 +4481,7 @@ function fitFont(c, s, maxW, size, weight = 600, minSize = 10) {
 }
 function drawShopChrome(c, w) {                                  // fondo, título, cerrar, pestañas, dinero y gemas
   const B = SHOPBOX, cur = shopCur(w);
-  c.fillStyle = 'rgba(8,4,24,.74)'; c.fillRect(-EX, HUD, CW, H - HUD);
+  c.fillStyle = 'rgba(8,4,24,.74)'; c.fillRect(-EX, HUD, CW, CH - EY - HUD);
   drawPanel(c, B.x, B.y, B.w, B.h, 'TIENDA');
   const cl = shopClose, ch = UI.hit(cl); if (ch) UI.cursor = true;
   rr(c, cl.x, cl.y, cl.w, cl.h, 8); c.fillStyle = ch ? '#5a3a8a' : '#2a1a52'; c.fill(); c.lineWidth = 1.6; c.strokeStyle = 'rgba(255,255,255,.35)'; c.stroke();
@@ -4756,7 +4771,7 @@ function signPointer(w, x, y) {
 const signDoneBtn = () => ({ x: SIGNBOX.x + 40, y: SIGNBOX.y + SIGNBOX.h - 62, w: 250, h: 46, label: 'LISTO', size: 24, style: 'green' });
 function drawSignEditor(c, w) {
   const B = SIGNBOX, D = DECO.sign, t = w.t;
-  c.fillStyle = 'rgba(8,4,24,.8)'; c.fillRect(-EX, 0, CW, H);
+  c.fillStyle = 'rgba(8,4,24,.8)'; c.fillRect(-EX, -EY, CW, CH);
   drawPanel(c, B.x, B.y, B.w, B.h, 'TU LETRERO');
   // vista previa: de noche, para que se vea cómo brilla
   c.save(); rr(c, B.x + 24, B.y + 28, 322, 364, 14); c.clip();
@@ -4948,7 +4963,7 @@ function drawClawScene(c, w) {
   const C = w.claw, T = C.t, P_ = C.prize, ph = (a, b) => smooth(clamp((T - a) / (b - a), 0, 1));
   const zoom = ph(0, 1.3), sc = lerp(.6, 1, zoom), ox = 480, oy = lerp(250, 300, zoom);
   // fondo: salón de videojuegos, oscuro y con neón
-  const bg = c.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#0a0524'); bg.addColorStop(.7, '#1c0e42'); bg.addColorStop(1, '#2a1250'); c.fillStyle = bg; c.fillRect(-EX, 0, CW, H);
+  const bg = c.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#0a0524'); bg.addColorStop(.7, '#1c0e42'); bg.addColorStop(1, '#2a1250'); c.fillStyle = bg; c.fillRect(-EX, -EY, CW, CH);
   c.save(); c.translate(480, 300); c.scale(lerp(1, 1.5, zoom), lerp(1, 1.5, zoom)); c.translate(-480, -300);
   for (const [bx, col] of [[-110, '#ff3d8b'], [90, '#5fe8ff'], [820, '#ffc83d'], [1020, '#b57cff']]) {
     const r = 130 + 20 * Math.sin(w.t + bx); const rg = c.createRadialGradient(bx, 260, 4, bx, 260, r); rg.addColorStop(0, col + '88'); rg.addColorStop(1, col + '00'); c.fillStyle = rg; c.beginPath(); c.arc(bx, 260, r, 0, 6.3); c.fill();
@@ -5011,7 +5026,7 @@ function drawClawScene(c, w) {
 function drawClaw(c, w) {
   const C = w.claw; if (!C) return;
   if (C.phase === 'menu') {
-    c.fillStyle = 'rgba(8,4,24,.78)'; c.fillRect(-EX, 0, CW, H);
+    c.fillStyle = 'rgba(8,4,24,.78)'; c.fillRect(-EX, -EY, CW, CH);
     const B = CLAWBOX; drawPanel(c, B.x, B.y, B.w, B.h, '¡LA GARRA!');
     c.save(); c.translate(B.x + 66, B.y + 24); c.scale(.25, .25); c.translate(-250, -24); drawClawCabinet(c, w.t, 1); c.restore();
     const cost = clawCost(w), left = clawLeft(w);
@@ -5025,11 +5040,11 @@ function drawClaw(c, w) {
     txt(c, pesos(w.shownMoney), B.x + B.w / 2, B.y + B.h - 8, { font: `700 15px ${FONT_UI}`, align: 'center', color: P.gold });
     return;
   }
-  c.fillStyle = '#05030f'; c.fillRect(-EX, 0, CW, H);
+  c.fillStyle = '#05030f'; c.fillRect(-EX, -EY, CW, CH);
   drawClawScene(c, w);
   if (C.phase === 'result') {
     const k = easeOutBack(clamp(C.rt / .45, 0, 1)), p = C.prize, got = C.got;
-    c.fillStyle = `rgba(8,4,24,${.55 * Math.min(1, C.rt * 3)})`; c.fillRect(-EX, 0, CW, H);
+    c.fillStyle = `rgba(8,4,24,${.55 * Math.min(1, C.rt * 3)})`; c.fillRect(-EX, -EY, CW, CH);
     c.save(); c.translate(480, 290); c.scale(k, k);
     drawPanel(c, -230, -170, 460, 330, p.fail ? '¡CASI!' : '¡GANASTE!');
     for (let i = 0; i < 16; i++) { const a = i / 16 * 6.283 + C.rt, r = 150 + 18 * Math.sin(C.rt * 6 + i); c.fillStyle = ['#ffd23a', '#ff3d8b', '#5fe8ff', '#7bd957'][i % 4]; c.globalAlpha = p.fail ? 0 : .8; c.beginPath(); c.arc(Math.cos(a) * r * 1.4, Math.sin(a) * r * .55 - 30, 4, 0, 6.3); c.fill(); c.globalAlpha = 1; }
@@ -5324,8 +5339,9 @@ function drawWorld(c, w) {
 function drawHud(c, w) {
   let g = c.createLinearGradient(0, 0, 0, HUD);
   g.addColorStop(0, '#34195e'); g.addColorStop(1, '#170a33');
-  c.fillStyle = g; c.fillRect(-EX, 0, CW, HUD);
+  c.fillStyle = g; c.fillRect(-EX, -EY, CW, HUD + EY);
   c.fillStyle = P.gold; c.fillRect(-EX, HUD - 3, CW, 3);
+  c.save(); c.translate(-GL, 0);                                                       // grupo izquierdo del HUD: pegado al borde seguro izquierdo
   txt(c, 'DÍA ' + w.day, 18, 29, { font: `400 22px ${FONT_DISPLAY}`, color: P.gold, stroke: P.ink, sw: 4 });
   // nivel y experiencia
   const need = xpNeed(w.level), xr = clamp(w.xp / need, 0, 1), lf = w.levelFlash > 0;
@@ -5342,6 +5358,7 @@ function drawHud(c, w) {
   txt(c, 'CAJA', 232, 15, { font: `700 11px ${FONT_UI}`, color: P.muted, ls: 2.5 });
   if (w.gemsSeen || w.gems > 0) { drawGem(c, 282, 11, 6); txt(c, String(w.gems), 291, 16, { font: `700 14px ${FONT_UI}`, color: '#9ff0ff', stroke: P.ink, sw: 3 }); }   // gemas
   txt(c, pesos(w.shownMoney), 232 + shake, 45, { font: `700 32px ${FONT_UI}`, color: flash ? '#ff7a8c' : P.white, stroke: P.ink, sw: 4 });
+  c.restore();
   // reputación
   txt(c, 'REPUTACIÓN', 440, 20, { font: `700 12px ${FONT_UI}`, color: P.muted, ls: 2.5 });
   const er = effRep(w);
@@ -5374,7 +5391,7 @@ function drawHud(c, w) {
   txt(c, fmtHour(hr), 612, 40, { font: `700 20px ${FONT_UI}`, color: closed ? '#ff8fa0' : P.white, stroke: P.ink, sw: 4 });
   rr(c, 612, 46, 68, 6, 3); c.fillStyle = '#120a2a'; c.fill();
   rr(c, 612, 46, Math.max(5, 68 * prog), 6, 3); c.fillStyle = night ? '#7b6cff' : '#ffc83d'; c.fill();
-  w.btns.forEach(b => drawButton(c, b));
+  w.btns.forEach(b => { if (b.x0 === undefined) b.x0 = b.x; b.x = b.x0 + GR; drawButton(c, b); });       // botones: pegados al borde seguro derecho
 }
 
 function getHint(w) {
@@ -5510,7 +5527,7 @@ function wrapLines(c, s, maxW, font) {
 function drawTutorial(c, w) {
   const name = TUT[w.tut.s], tx = tutText(w), t = w.t;
   if (name === 'intro' || name === 'outro') {
-    c.fillStyle = 'rgba(8,4,24,.7)'; c.fillRect(-EX, HUD, CW, H - HUD);
+    c.fillStyle = 'rgba(8,4,24,.7)'; c.fillRect(-EX, HUD, CW, CH - EY - HUD);
     const paras = tx.slice(1).map(s => wrapLines(c, s, TUT_MODAL.w - 80, `600 19px ${FONT_UI}`)), nRows = paras.reduce((a, p) => a + p.length, 0);
     const mh = 150 + nRows * 25 + (paras.length - 1) * 12 + 36;     // un párrafo por cada frase larga, con un respiro entre ellos
     const M = { x: TUT_MODAL.x, y: Math.round(320 - mh / 2), w: TUT_MODAL.w, h: mh };
@@ -5541,7 +5558,7 @@ function drawTutorial(c, w) {
 }
 
 function drawSummary(c, w) {
-  c.fillStyle = 'rgba(10,5,30,.75)'; c.fillRect(-EX, 60, CW, H - 60);
+  c.fillStyle = 'rgba(10,5,30,.75)'; c.fillRect(-EX, 60, CW, CH - EY - 60);
   drawPanel(c, 240, 106, 480, 384, `DÍA ${w.day} COMPLETADO`);
   const rows = [['Clientes servidos', String(w.dayServed), P.gold], ['Ventas del día', pesos(w.dayEarned), P.gold], ['Gastos en ingredientes', '-' + pesos(w.dayCost), '#ff8fa0'], ['Caja total', pesos(w.money), P.gold]];
   rows.forEach((r, i) => {
@@ -5570,7 +5587,7 @@ function drawSummary(c, w) {
   w.overlay.forEach(b => drawButton(c, b));
 }
 function drawOver(c, w) {
-  c.fillStyle = 'rgba(10,5,30,.8)'; c.fillRect(-EX, 60, CW, H - 60);
+  c.fillStyle = 'rgba(10,5,30,.8)'; c.fillRect(-EX, 60, CW, CH - EY - 60);
   drawPanel(c, 240, 120, 480, 340, '¡CLAUSURADO!');
   drawMask(c, 480, 232, 50, MASKS.gray);
   txt(c, 'La reputación llegó a cero.', 480, 318, { font: `700 26px ${FONT_UI}`, align: 'center', color: P.cream });
@@ -5594,7 +5611,7 @@ function setState(name, arg) {
 function toLocal(e) {                                                 // de la pantalla al diseño de 960 x 600 (el lienzo ensanchado se centra: se resta EX)
   const r = canvas.getBoundingClientRect();
   UI.mx = (e.clientX - r.left) * CW / r.width - EX;
-  UI.my = (e.clientY - r.top) * H / r.height;
+  UI.my = (e.clientY - r.top) * CH / r.height - EY;
 }
 // Pellizco con dos dedos: zoom y desplazamiento del local (solo mientras se juega)
 const Ptr = new Map(), Pinch = { active: false, d0: 1, z0: 1, wp: null };
@@ -5673,8 +5690,8 @@ function frame(now) {
   Music.update();
   if (!away) s.update(dt);                                          // celular en vertical (se pide girarlo): el juego se queda en pausa
   ctx.setTransform(K, 0, 0, K, 0, 0);
-  ctx.clearRect(0, 0, CW, H);
-  ctx.translate(EX, 0);                                             // zona central de 960 de ancho; los fondos se extienden hasta los bordes
+  ctx.clearRect(0, 0, CW, CH);
+  ctx.translate(EX, EY);                                             // zona central de 960 de ancho; los fondos se extienden hasta los bordes
   s.draw(ctx);
   canvas.style.cursor = UI.cursor ? 'pointer' : 'default';
   requestAnimationFrame(frame);

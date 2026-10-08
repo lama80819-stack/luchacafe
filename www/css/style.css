@@ -38,10 +38,10 @@
   @media (pointer: coarse), (max-height: 700px) and (orientation: landscape) {
     html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
     body { padding: 0; position: fixed; inset: 0; }
-    .stage { position: fixed; inset: 0; max-width: none; margin: 0; gap: 0; box-sizing: border-box; display: grid; place-items: center;
-      padding: max(env(safe-area-inset-top, 0px), 2px) max(env(safe-area-inset-right, 0px), 2px) max(env(safe-area-inset-bottom, 0px), 2px) max(env(safe-area-inset-left, 0px), 2px); }
-    /* el lienzo llena toda la pantalla: el juego calcula su ancho lógico según la forma de la pantalla (--cw / --ch los pone el script) */
-    canvas { width: var(--cw, 100%); height: var(--ch, auto); aspect-ratio: auto; border: 0; border-radius: 0; box-shadow: none; }
+    .stage { position: fixed; inset: 0; max-width: none; margin: 0; padding: 0; gap: 0; box-sizing: border-box; display: block; }
+    /* pantalla completa "full bleed": el fondo llega a los cuatro bordes (también bajo el notch y la Dynamic Island); el juego coloca la interfaz dentro del área segura
+       (--cw / --ch los pone el script con el tamaño real de la ventana) */
+    canvas { position: fixed; left: 0; top: 0; width: var(--cw, 100%); height: var(--ch, 100%); aspect-ratio: auto; border: 0; border-radius: 0; box-shadow: none; }
     .how, .keys, .legal { display: none; }
   }
   .legal { margin: 0; color: var(--muted); font-size: 13px; letter-spacing: .03em; }
@@ -68,17 +68,11 @@ html, body {
   -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
 }
 body { position: fixed; inset: 0; padding: 0; background: var(--bg); }
-.stage {
-  position: fixed; inset: 0; max-width: none; min-height: 0; margin: 0; gap: 0; box-sizing: border-box;
-  display: grid; place-items: center;
-  padding-top: max(env(safe-area-inset-top, 0px), 4px);
-  padding-right: max(env(safe-area-inset-right, 0px), 4px);
-  padding-bottom: max(env(safe-area-inset-bottom, 0px), 4px);
-  padding-left: max(env(safe-area-inset-left, 0px), 4px);
-}
+.stage { position: fixed; inset: 0; max-width: none; min-height: 0; margin: 0; padding: 0; gap: 0; box-sizing: border-box; display: block; }
 .how, .keys, .legal { display: none; }
+/* Pantalla completa "full bleed": el lienzo cubre toda la pantalla (también bajo el notch y la Dynamic Island) y el juego mide los márgenes seguros
+   (env(safe-area-inset-*)) para colocar la interfaz dentro de ellos. --cw / --ch los pone el script. */
 canvas {
-  /* el juego calcula su ancho lógico según la pantalla (--cw / --ch): llena todo el espacio dentro de la zona segura */
-  width: var(--cw, 100%); height: var(--ch, auto); aspect-ratio: auto; max-height: 100%; border: 0; border-radius: 0; box-shadow: none;
+  position: fixed; left: 0; top: 0; width: var(--cw, 100%); height: var(--ch, 100%); aspect-ratio: auto; border: 0; border-radius: 0; box-shadow: none;
   touch-action: none;
 }

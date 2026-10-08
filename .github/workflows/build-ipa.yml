@@ -36,6 +36,25 @@ jobs:
           $PB -c "Add :UIStatusBarHidden bool true" "$P" || $PB -c "Set :UIStatusBarHidden true" "$P"
           $PB -c "Add :UIViewControllerBasedStatusBarAppearance bool false" "$P" || $PB -c "Set :UIViewControllerBasedStatusBarAppearance false" "$P"
           $PB -c "Add :UIRequiresFullScreen bool true" "$P" || $PB -c "Set :UIRequiresFullScreen true" "$P"
+          # Pantallas ProMotion (120 Hz): permite a la app pedir más de 60 fps
+          $PB -c "Add :CADisableMinimumFrameDurationOnPhone bool true" "$P" || $PB -c "Set :CADisableMinimumFrameDurationOnPhone true" "$P"
+          # Barra de inicio (Home Indicator) oculta y gesto del borde diferido: el primer deslizón desde abajo solo la muestra, no cierra el juego
+          cat >> ios/App/App/AppDelegate.swift <<'SWIFT'
+
+          @objc(HomeBarViewController)
+          class HomeBarViewController: CAPBridgeViewController {
+              override var prefersHomeIndicatorAutoHidden: Bool { true }
+              override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge { .all }
+              override var prefersStatusBarHidden: Bool { true }
+              override func viewDidLoad() {
+                  super.viewDidLoad()
+                  setNeedsUpdateOfHomeIndicatorAutoHidden()
+                  setNeedsUpdateOfScreenEdgesDeferringSystemGestures()
+              }
+          }
+          SWIFT
+          sed -i '' 's/customClass="CAPBridgeViewController" customModule="Capacitor"/customClass="HomeBarViewController" customModule="App"/' ios/App/App/Base.lproj/Main.storyboard
+          grep -n "HomeBarViewController" ios/App/App/Base.lproj/Main.storyboard || echo "AVISO: no se encontró el storyboard"
           npx cap sync ios
 
       - name: Compilar sin firmar y armar el .ipa
