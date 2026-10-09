@@ -1,4 +1,4 @@
-# Compila Lucha Café para Android en un servidor Linux de GitHub (gratis):
+# Compila Tacos Enmascarados para Android en un servidor Linux de GitHub (gratis):
 #   - app-debug.apk  -> para instalar y probar en tu celular o tableta (se activa "instalar apps de origen desconocido")
 #   - app-release.aab -> el paquete para subir a Google Play (Android App Bundle). Sale FIRMADO si el repositorio tiene los 4 secretos de la llave
 #                        de subida (ANDROID_KEYSTORE_B64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD); si no, sale sin firmar.
@@ -44,7 +44,7 @@ jobs:
 
       - name: Personalizar (pantalla completa, ícono, manifiesto, firma)
         run: |
-          VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER)) VERSION_NAME=1.3.2 bash android-overlay/apply.sh
+          VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER)) VERSION_NAME=1.4.0 bash android-overlay/apply.sh
           npx cap sync android
 
       - name: Preparar la llave de subida (si existe)
@@ -68,7 +68,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: LuchaCafe-android
+          name: TacosEnmascarados-android
           path: |
             android/app/build/outputs/apk/debug/app-debug.apk
             android/app/build/outputs/bundle/release/app-release.aab

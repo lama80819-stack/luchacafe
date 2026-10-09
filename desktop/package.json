@@ -1,8 +1,8 @@
 {
-  "name": "lucha-cafe",
-  "productName": "Lucha Café",
-  "version": "1.3.2",
-  "description": "Lucha Café: taquería de lucha libre. Cocina, atiende y decora tu changarro.",
+  "name": "tacos-enmascarados",
+  "productName": "Tacos Enmascarados",
+  "version": "1.4.0",
+  "description": "Tacos Enmascarados: taquería de lucha libre. Cocina, atiende y decora tu changarro.",
   "author": "ACP PRODUCCION",
   "license": "UNLICENSED",
   "private": true,
@@ -17,7 +17,7 @@
   },
   "build": {
     "appId": "com.tucafe.luchacafe",
-    "productName": "Lucha Café",
+    "productName": "Tacos Enmascarados",
     "copyright": "© ACP PRODUCCION. Todos los derechos reservados.",
     "directories": { "output": "dist", "buildResources": "build" },
     "files": ["main.js", "preload.js", "package.json", "www/**/*"],
@@ -28,10 +28,10 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "LuchaCafe-Setup-${version}.${ext}"
+      "artifactName": "TacosEnmascarados-Setup-${version}.${ext}"
     },
     "portable": {
-      "artifactName": "LuchaCafe-Portable-${version}.${ext}"
+      "artifactName": "TacosEnmascarados-Portable-${version}.${ext}"
     }
   }
 }

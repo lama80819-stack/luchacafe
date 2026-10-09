@@ -1,4 +1,4 @@
-# Lucha Café en Android y PC
+# Tacos Enmascarados en Android y PC
 
 Esta guía explica cómo el juego se adapta a cualquier pantalla (celulares Android de cualquier marca, plegables, tabletas, laptops, monitores ultra-anchos), cómo se controla con dedo, teclado + ratón o mando, cómo se compila y qué revisar antes de subirlo a Google Play.
 
@@ -110,7 +110,7 @@ Todo se traduce a las mismas funciones del puntero (`pointerDown/Move/Up`, `key`
 
 ### Windows (Electron 44 + electron-builder)
 
-- Genera `LuchaCafe-Setup-<versión>.exe` (instalador) y `LuchaCafe-Portable-<versión>.exe`, más la carpeta `win-unpacked` para Steam / itch.io.
+- Genera `TacosEnmascarados-Setup-<versión>.exe` (instalador) y `TacosEnmascarados-Portable-<versión>.exe`, más la carpeta `win-unpacked` para Steam / itch.io.
 - Seguridad: sin Node en la página, `contextIsolation`, `sandbox`, sin navegación ni ventanas nuevas, y política CSP (`default-src 'self'`).
 - Sin firma digital: Windows SmartScreen avisará "editor desconocido". Para quitarlo hace falta un certificado de firma de código (de pago).
 
@@ -124,7 +124,7 @@ Todo se traduce a las mismas funciones del puntero (`pointerDown/Move/Up`, `key`
    ```
    (`keytool` viene con Java / Android Studio.) Después, en PowerShell: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("upload.jks")) | Set-Clipboard`
 4. En GitHub: *Settings → Secrets and variables → Actions → New repository secret* y crea `ANDROID_KEYSTORE_B64` (lo copiado), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` (`upload`) y `ANDROID_KEY_PASSWORD`.
-5. Ejecuta el flujo **Compilar Android** (pestaña *Actions → Run workflow*) y descarga `app-release.aab` del artefacto `LuchaCafe-android`. Ya sale firmado.
+5. Ejecuta el flujo **Compilar Android** (pestaña *Actions → Run workflow*) y descarga `app-release.aab` del artefacto `TacosEnmascarados-android`. Ya sale firmado.
 6. En Play Console crea la app, activa **Play App Signing** (Google guarda la llave final; tú solo la de subida) y sube el `.aab` a *Prueba cerrada* primero.
 7. Completa las secciones de abajo.
 

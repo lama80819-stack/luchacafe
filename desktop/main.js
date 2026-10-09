@@ -1,5 +1,5 @@
 'use strict';
-/* Lucha Café para Windows (Electron).
+/* Tacos Enmascarados para Windows (Electron).
    - Ventana redimensionable (mínimo 640x400) que recuerda tamaño, posición y si estaba en pantalla completa.
    - Pantalla completa sin bordes con F11 o Alt+Enter (también desde Ajustes del juego, o la tecla F).
    - El juego se adapta solo a cualquier proporción: 16:9, 16:10, 3:2, 21:9, 32:9 (ver fit() en game.js).
@@ -37,7 +37,7 @@ function createWindow() {
   const st = loadState();
   const wa = screen.getPrimaryDisplay().workAreaSize;
   const w = Math.min(1280, wa.width), h = Math.min(800, wa.height);
-  const opts = { width: w, height: h, minWidth: 640, minHeight: 400, show: false, backgroundColor: '#0d0720', title: 'Lucha Café', autoHideMenuBar: true,
+  const opts = { width: w, height: h, minWidth: 640, minHeight: 400, show: false, backgroundColor: '#07060b', title: 'Tacos Enmascarados', autoHideMenuBar: true,
     icon: path.join(__dirname, 'build', 'icon.png'),
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false, backgroundThrottling: true } };
   if (st.bounds && onScreen(st.bounds)) Object.assign(opts, st.bounds);

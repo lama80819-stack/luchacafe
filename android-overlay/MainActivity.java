@@ -11,7 +11,7 @@ import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.BridgeActivity;
 
 /**
- * Actividad principal de Lucha Café (Android).
+ * Actividad principal de Tacos Enmascarados (Android).
  * - Pantalla completa "edge to edge": el juego dibuja bajo la cámara perforada / muesca y las barras del sistema.
  *   Los márgenes seguros los publica Capacitor (SystemBars) como env(safe-area-inset-*) y --safe-area-inset-*; el juego los lee en fit().
  * - Modo inmersivo: barras ocultas; un deslizón desde el borde las muestra un momento (no cierra el juego).

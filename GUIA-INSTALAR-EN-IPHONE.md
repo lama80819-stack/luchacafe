@@ -1,4 +1,4 @@
-# Lucha Café en tu iPhone (desde Windows)
+# Tacos Enmascarados en tu iPhone (desde Windows)
 
 ## Qué hay en esta carpeta
 
@@ -11,7 +11,7 @@
 | `res/ios/` | Todos los tamaños de ícono ya generados |
 | `package.json`, `capacitor.config.json`, `.github/workflows/build-ipa.yml` | Ruta B: compilar gratis en un Mac de GitHub |
 
-- Nombre de la app: **Lucha Café**
+- Nombre de la app: **Tacos Enmascarados**
 - Bundle ID: **com.tucafe.luchacafe** (los IDs no admiten acentos: por eso no es `com.tucafé…`; cámbialo por uno tuyo, p. ej. `com.tunombre.luchacafe`, en `config.xml` y `capacitor.config.json`)
 - Orientación: solo horizontal · Pantalla completa: sí (barra de estado oculta)
 
@@ -48,7 +48,7 @@ Un iPhone solo instala apps **firmadas**. Sideloadly firma por ti con tu Apple I
 1. Crea una cuenta en github.com y un repositorio nuevo **público** (los Mac son gratis en repos públicos).
 2. Sube **todo el contenido** de esta carpeta (incluida `.github`; si arrastras en la web, activa "archivos ocultos" o usa GitHub Desktop).
 3. Pestaña **Actions** → *Compilar IPA (sin firmar)* → **Run workflow**. Tarda unos 10–15 min.
-4. Al terminar, abre la ejecución → **Artifacts** → descarga `LuchaCafe-ipa` (zip con `LuchaCafe.ipa`) y descomprímelo.
+4. Al terminar, abre la ejecución → **Artifacts** → descarga `TacosEnmascarados-ipa` (zip con `TacosEnmascarados.ipa`) y descomprímelo.
    Si falla, copia el error del paso que se puso rojo y dímelo para ajustarlo.
 
 ## Sideloadly en Windows
@@ -56,9 +56,9 @@ Un iPhone solo instala apps **firmadas**. Sideloadly firma por ti con tu Apple I
 1. Instala **iTunes** y **iCloud** desde apple.com (no las versiones de Microsoft Store) y **Sideloadly** desde sideloadly.io.
 2. En el iPhone (iOS 16 o más): *Ajustes → Privacidad y seguridad → Modo de desarrollador* → activar y reiniciar.
 3. Conecta el iPhone con el cable, desbloquéalo y toca **Confiar**.
-4. Abre Sideloadly → arrastra `LuchaCafe.ipa` → escribe tu **Apple ID** → *Start* (puede pedir contraseña o contraseña de app).
+4. Abre Sideloadly → arrastra `TacosEnmascarados.ipa` → escribe tu **Apple ID** → *Start* (puede pedir contraseña o contraseña de app).
 5. En el iPhone: *Ajustes → General → VPN y administración de dispositivos* → tu Apple ID → **Confiar**.
-6. Abre **Lucha Café**. Con Apple ID gratuito la app caduca a los **7 días**: vuelve a instalar con Sideloadly (tu partida se conserva si no desinstalas la app) y hay un máximo de 3 apps.
+6. Abre **Tacos Enmascarados**. Con Apple ID gratuito la app caduca a los **7 días**: vuelve a instalar con Sideloadly (tu partida se conserva si no desinstalas la app) y hay un máximo de 3 apps.
 
 ## Notas del código
 

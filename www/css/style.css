@@ -1,14 +1,14 @@
-/* ENMASCARADOS / Lucha Café - estilos del juego */
+/* Tacos Enmascarados - estilos del juego */
 /* Layout: a single centered game stage (960x600 canvas, scaled to fit) with a one-line how-to under it. Single dark look by choice. */
   :root {
-    --bg: #0d0720;
-    --panel: #1b0f38;
-    --line: #3a1d5c;
+    --bg: #080708;
+    --panel: #151416;
+    --line: #3a3648;
     --fg: #f6e7c1;
-    --muted: #a99bc7;
+    --muted: #b4afc4;
     --gold: #ffc83d;
     --red: #e0364a;
-    --font-display: 'Alfa Slab One', 'Rockwell Extra Bold', Impact, serif;
+    --font-display: 'Luckiest Guy', 'Bangers', Impact, 'Arial Black', sans-serif;
     --font-ui: 'Barlow Condensed', 'Arial Narrow', Impact, sans-serif;
     color-scheme: dark;
   }
@@ -25,7 +25,7 @@
     display: block; width: 100%; height: auto; aspect-ratio: 960 / 600;
     border-radius: 10px; border: 3px solid var(--line);
     box-shadow: 0 18px 50px rgba(0,0,0,.55);
-    background: #12082a; touch-action: manipulation; outline: none;
+    background: #16141a; touch-action: manipulation; outline: none;
   }
   canvas:focus-visible { border-color: var(--gold); }
   canvas { touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }

@@ -1,4 +1,4 @@
-# Política de privacidad de Lucha Café (ENMASCARADOS)
+# Política de privacidad de Tacos Enmascarados
 
 **Última actualización:** 8 de octubre de 2026
 **Responsable:** ACP PRODUCCION — contacto: *(escribe aquí tu correo)*
@@ -7,7 +7,7 @@
 
 ## Qué datos recopilamos
 
-**Ninguno.** Lucha Café no pide ni guarda datos personales: no hay cuentas, registro, anuncios, compras dentro de la app, ni análisis o rastreo de ningún tipo.
+**Ninguno.** Tacos Enmascarados no pide ni guarda datos personales: no hay cuentas, registro, anuncios, compras dentro de la app, ni análisis o rastreo de ningún tipo.
 
 ## Qué se guarda en tu dispositivo
 

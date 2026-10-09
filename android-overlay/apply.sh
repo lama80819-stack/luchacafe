@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Aplica la personalización de Lucha Café al proyecto de Android que genera "npx cap add android".
+# Aplica la personalización de Tacos Enmascarados al proyecto de Android que genera "npx cap add android".
 # Uso (desde la raíz del repositorio): VERSION_CODE=12 VERSION_NAME=1.2.0 bash android-overlay/apply.sh
 set -euo pipefail
 

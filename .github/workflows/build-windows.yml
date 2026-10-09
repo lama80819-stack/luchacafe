@@ -1,8 +1,8 @@
-# Compila Lucha Café para Windows (Electron) en un servidor Windows de GitHub (gratis):
-#   - LuchaCafe-Setup-<versión>.exe     instalador
-#   - LuchaCafe-Portable-<versión>.exe  versión portátil (no requiere instalar)
+# Compila Tacos Enmascarados para Windows (Electron) en un servidor Windows de GitHub (gratis):
+#   - TacosEnmascarados-Setup-<versión>.exe     instalador
+#   - TacosEnmascarados-Portable-<versión>.exe  versión portátil (no requiere instalar)
 # No están firmados digitalmente: Windows SmartScreen avisará "editor desconocido" (Más información > Ejecutar de todas formas).
-# Para publicar en Steam / itch.io se sube la carpeta desktop/dist/win-unpacked (también incluida en el artefacto "LuchaCafe-windows-carpeta").
+# Para publicar en Steam / itch.io se sube la carpeta desktop/dist/win-unpacked (también incluida en el artefacto "TacosEnmascarados-windows-carpeta").
 name: Compilar Windows (instalador + portátil)
 
 on:
@@ -41,12 +41,12 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: LuchaCafe-windows
+          name: TacosEnmascarados-windows
           path: |
-            desktop/dist/LuchaCafe-Setup-*.exe
-            desktop/dist/LuchaCafe-Portable-*.exe
+            desktop/dist/TacosEnmascarados-Setup-*.exe
+            desktop/dist/TacosEnmascarados-Portable-*.exe
 
       - uses: actions/upload-artifact@v4
         with:
-          name: LuchaCafe-windows-carpeta
+          name: TacosEnmascarados-windows-carpeta
           path: desktop/dist/win-unpacked

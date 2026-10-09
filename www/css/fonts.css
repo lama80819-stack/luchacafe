@@ -1,8 +1,8 @@
-/* Tipografías del juego (SIL Open Font License): Alfa Slab One, Barlow Condensed, Outfit y Syncopate. Incluidas dentro de la app para jugar sin internet. */
-@font-face { font-family: 'Alfa Slab One'; font-style: normal; font-weight: 400; font-display: swap; src: url('../fonts/alfa-slab-one-400.woff2') format('woff2'); }
+/* Tipografías del juego (SIL Open Font License): Luckiest Guy, Barlow Condensed, Outfit y Syncopate. Incluidas dentro de la app para jugar sin internet. */
 @font-face { font-family: 'Barlow Condensed'; font-style: normal; font-weight: 500; font-display: swap; src: url('../fonts/barlow-condensed-500.woff2') format('woff2'); }
 @font-face { font-family: 'Barlow Condensed'; font-style: normal; font-weight: 600; font-display: swap; src: url('../fonts/barlow-condensed-600.woff2') format('woff2'); }
 @font-face { font-family: 'Barlow Condensed'; font-style: normal; font-weight: 700; font-display: swap; src: url('../fonts/barlow-condensed-700.woff2') format('woff2'); }
+@font-face { font-family: 'Luckiest Guy'; font-style: normal; font-weight: 400; font-display: swap; src: url('../fonts/luckiest-guy-400.woff2') format('woff2'); }
 @font-face { font-family: 'Outfit'; font-style: normal; font-weight: 300; font-display: swap; src: url('../fonts/outfit-300.woff2') format('woff2'); }
 @font-face { font-family: 'Outfit'; font-style: normal; font-weight: 500; font-display: swap; src: url('../fonts/outfit-500.woff2') format('woff2'); }
 @font-face { font-family: 'Outfit'; font-style: normal; font-weight: 800; font-display: swap; src: url('../fonts/outfit-800.woff2') format('woff2'); }
