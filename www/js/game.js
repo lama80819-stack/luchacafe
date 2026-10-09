@@ -31,16 +31,17 @@ const STAFF = {
   mistico: { name: 'El Místico-Volador',     tag: 'MÍSTICO',   price: 25000, level: 30, look: 'mistico', speed: 6.0, drain: 1,   tab: 'legend', desc: 'Leyenda aérea: se mueve al doble de velocidad' },
   anil:    { name: 'Demonio Añil',           tag: 'DEMONIO',   price: 30000, level: 30, look: 'anil',    speed: 3.0, drain: .15, tab: 'legend', desc: 'Estamina blindada: casi no necesita banca' },
   // v1.4 · barato pero se cansa el doble de rápido; cobra cada semana (wage)
-  payaso:  { name: 'Mesero Payasito',        tag: 'PAYASITO',  price: 1000,  level: 15, look: 'payasito', speed: 3.0, drain: 2.2, wage: 100, tab: 'staff', desc: 'Barato, pero se cansa el doble de rápido · $100 por semana' },
+  payaso:  { name: 'Mesero Payasito',        tag: 'PAYASITO',  price: 1000,  level: 15, look: 'payasito', speed: 3.0, drain: 2.2, tab: 'staff', desc: 'Barato y sin sueldo, pero se cansa el doble de rápido' },
   // v1.4 · meseros que se roban a los restaurantes rivales al vencer a su jefe (no se compran)
-  vaquero: { name: 'Vaquero Veloz',          tag: 'VAQUERO',   price: 0, level: 14, look: 'vaquero',  speed: 4.6, drain: .9, wage: 150, steal: 'coyote',   desc: 'Rápido como el viento · $150 por semana' },
-  mariachi: { name: 'Mariachi Serenata',     tag: 'MARIACHI',  price: 0, level: 20, look: 'mariachi', speed: 3.2, drain: .8, wage: 220, steal: 'gallos',   perk: 'tip',  desc: 'Canta en las mesas: +8 % de propina · $220 por semana' },
-  cholo:   { name: 'Cholo Lowrider',         tag: 'LOWRIDER',  price: 0, level: 26, look: 'cholo',    speed: 3.6, drain: .45, wage: 180, steal: 'lowrider', desc: 'Aguanta todo el día sin cansarse · $180 por semana' },
-  itamae:  { name: 'Itamae Kenji',           tag: 'ITAMAE',    price: 0, level: 32, look: 'itamae',   speed: 3.4, drain: .8, wage: 320, steal: 'sakura',   perk: 'cook', desc: 'Cuchillo veloz: todo se cocina 10 % más rápido · $320 por semana' }
+  vaquero: { name: 'Vaquero Veloz',          tag: 'VAQUERO',   price: 0, level: 14, look: 'vaquero',  speed: 4.6, drain: .9, wage: 10, steal: 'coyote',   desc: 'Rápido como el viento · $10 por semana' },
+  mariachi: { name: 'Mariachi Serenata',     tag: 'MARIACHI',  price: 0, level: 20, look: 'mariachi', speed: 3.2, drain: .8, wage: 10, steal: 'gallos',   perk: 'tip',  desc: 'Canta en las mesas: +8 % de propina · $10 por semana' },
+  cholo:   { name: 'Cholo Lowrider',         tag: 'LOWRIDER',  price: 0, level: 26, look: 'cholo',    speed: 3.6, drain: .45, wage: 10, steal: 'lowrider', desc: 'Aguanta todo el día sin cansarse · $10 por semana' },
+  itamae:  { name: 'Itamae Kenji',           tag: 'ITAMAE',    price: 0, level: 32, look: 'itamae',   speed: 3.4, drain: .8, wage: 10, steal: 'sakura',   perk: 'cook', desc: 'Cuchillo veloz: todo se cocina 10 % más rápido · $10 por semana' }
 };
 const STAFF_IDS = Object.keys(STAFF);
 const HIRE_IDS = STAFF_IDS.filter(id => STAFF[id].tab);          // los que se compran en la tienda (los meseros robados a los rivales no)
 /* =========================================================
+   VERSIÓN 1.7: llegada de clientes por mesas y fiestas, más paciencia, sueldos de $10, abrir y cerrar el local, comales de 2/4 lugares, parrilla de 8, vitrina de máscaras y 2 ampliaciones del local
    VERSIÓN 1.6: cocineros, 10 ampliaciones de inventario, estacionamiento grande con coches reales y faroles con luz de verdad
    VERSIÓN 1.5: manos (cuadros de carga abajo, desbloqueables por nivel) y OBRAS con inventario y estacionamiento
    VERSIÓN 1.4: sueldos semanales, cadeneros, Estrellas de Sabor, técnicas de lucha y restaurantes rivales
@@ -48,18 +49,18 @@ const HIRE_IDS = STAFF_IDS.filter(id => STAFF[id].tab);          // los que se c
 // Cadeneros: se paran afuera, junto a la puerta, con su bate. Alargan la espera de la fila (drain = qué tan rápido se les acaba la paciencia) y la mantienen en orden:
 // al que está por perder la paciencia le llaman la atención (warns veces como máximo por cliente) y le devuelven la calma (warn = fracción de paciencia que recupera)
 const GUARDS = {
-  cadenero1: { name: 'Cadenero Matón', tag: 'CADENERO', price: 2000, level: 12, wage: 200, drain: .42, warns: 1, warn: .4, look: 'ladron', bat: 'madera', spot: 0,
-    desc: 'Máscara negra y bate: la fila espera más del doble y se mantiene en orden · $200 por semana' },
-  cadenero2: { name: 'El Oso, Jefe de Puerta', tag: 'JEFE', price: 7500, level: 24, wage: 450, drain: .25, warns: 2, warn: .6, look: 'oso', bat: 'acero', spot: 1,
-    desc: 'Enorme y de pocas pulgas: la fila espera 4 veces más y casi no hay pleitos · $450 por semana' }
+  cadenero1: { name: 'Cadenero Matón', tag: 'CADENERO', price: 2000, level: 12, wage: 10, drain: .42, warns: 1, warn: .4, look: 'ladron', bat: 'madera', spot: 0,
+    desc: 'Máscara negra y bate: la fila espera más del doble y se mantiene en orden · $10 por semana' },
+  cadenero2: { name: 'El Oso, Jefe de Puerta', tag: 'JEFE', price: 7500, level: 24, wage: 10, drain: .25, warns: 2, warn: .6, look: 'oso', bat: 'acero', spot: 1,
+    desc: 'Enorme y de pocas pulgas: la fila espera 4 veces más y casi no hay pleitos · $10 por semana' }
 };
 const GUARD_IDS = Object.keys(GUARDS);
 // Cocineros (v1.5): cocinan solos. Se paran junto al comal, ven qué piden los clientes y qué falta en la barra, y arrancan una tanda cuando hay lugar libre.
 // maxCost = tanda más cara que se atreven a cocinar · timeMul / costMul = lo que tardan y gastan en comparación con cocinar tú (1 = igual) · react = cada cuántos segundos deciden algo
 // wage = sueldo por semana (0 = solo pagas una vez al contratarlo). El comienzo es barato pero cobra; los mejores se pagan una sola vez
 const CHEFS = {
-  chef1: { name: 'Doña Chuy, la Cocinera', tag: 'COCINERA', price: 1500, level: 8, wage: 100, look: 'cocinera', speed: 2.6, react: 2.6, maxCost: 60, drinks: false, timeMul: 1, costMul: 1,
-    desc: 'Cocina sola lo sencillo del comal (tandas de hasta $60) · $100 por semana' },
+  chef1: { name: 'Doña Chuy, la Cocinera', tag: 'COCINERA', price: 1500, level: 8, wage: 10, look: 'cocinera', speed: 2.6, react: 2.6, maxCost: 60, drinks: false, timeMul: 1, costMul: 1,
+    desc: 'Cocina sola lo sencillo del comal (tandas de hasta $60) · $10 por semana' },
   chef2: { name: 'Chef Ramiro', tag: 'CHEF', price: 9000, level: 20, wage: 0, look: 'chefmedio', speed: 3.0, react: 1.5, maxCost: 150, drinks: true, timeMul: .85, costMul: .92,
     desc: 'Comal, antojitos y bebidas: 15 % más rápido y gasta 8 % menos · pago único' },
   chef3: { name: 'Gran Chef Ibarra', tag: 'GRAN CHEF', price: 28000, level: 35, wage: 0, look: 'chefgran', speed: 3.4, react: .8, maxCost: 999, drinks: true, timeMul: .7, costMul: .8,
@@ -92,15 +93,15 @@ function chefPick(w, ch) {                                          // qué coci
   for (const key of MENU) {
     const r = RECIPES[key];
     if (r.level > w.level || r.cost > D.maxCost || (r.drink && !D.drinks) || busy.has(key) || !shelfItem(key)) continue;
-    const idx = r.station === 'fridge' ? (LAYOUT.fridge ? w.dslots.findIndex(s => s.state === 'empty') : -1) : w.slots.findIndex(s => s.state === 'empty');
+    const idx = r.station === 'fridge' ? (LAYOUT.fridge ? w.dslots.findIndex(s => s.state === 'empty') : -1) : w.slots.findIndex((q, j) => q.state === 'empty' && (!r.needs || LAYOUT.slotItem[j].type === r.needs));
     if (idx < 0) continue;
     const cost = chefCost(D, r);
     if (w.money < cost + 25 || w.dayTime < r.time * D.timeMul + 20) continue;
     const short = (want[key] || 0) - w.stock[key];
     let score = 0;
     if (short > 0) score = 100 + short * 5 + r.price;                // hay clientes esperando eso
-    else if (w.stock[key] < 2 && (w.chefSeen[key] || FOODS.indexOf(key) < 2)) score = (2 - w.stock[key]) * 10 + r.price / 10;   // se está acabando algo que sí se vende
-    if (score > bs) { bs = score; best = { key, idx, station: r.station, item: r.station === 'fridge' ? LAYOUT.fridge : LAYOUT.comals[idx], slot: r.station === 'fridge' ? w.dslots[idx] : w.slots[idx] }; }
+    else if (w.open && w.stock[key] < 2 && (w.chefSeen[key] || FOODS.indexOf(key) < 2)) score = (2 - w.stock[key]) * 10 + r.price / 10;   // se está acabando algo que sí se vende
+    if (score > bs) { bs = score; best = { key, idx, station: r.station, item: r.station === 'fridge' ? LAYOUT.fridge : LAYOUT.slotItem[idx], slot: r.station === 'fridge' ? w.dslots[idx] : w.slots[idx] }; }
   }
   return best;
 }
@@ -109,7 +110,7 @@ function chefStart(w, ch) {                                         // llegó y 
   if (job.slot.state !== 'empty' || w.money < cost || r.level > w.level) return false;
   Object.assign(job.slot, { state: 'cook', dish: job.key, t: 0, n: r.yield, dur: chefTime(w, D, r), snd: .5 });
   w.money -= cost; w.dayCost += cost;
-  const p = r.station === 'fridge' ? fridgeRingPos(0) : comalPos(job.idx);
+  const p = r.station === 'fridge' ? fridgeRingPos(0) : slotPos(job.idx);
   addPart(w, { type: 'text', text: '-' + pesos(cost), x: p.x, y: p.y - 30, vy: -34, life: 1.2, color: '#ff8fa0' });
   sfx(r.drink ? 'drinkStart' : 'cookStart');
   return true;
@@ -306,8 +307,13 @@ const GEMMERS = {
                    look: { hoodie: '#c4272f', mask: 'rosa', shoes: 'amarillo', skin: '#c68642', label: ['LA', 'REINA'] } }
 };
 const VIP_MIN_MASKS = 2;
+// v1.7: 0 = local original (9), 1 = remodelado (11), 2 = Ampliación II (13), 3 = Ampliación III (15)
+const EXT_COLS = [9, 11, 13, 15];
+const EXPANDS = { 2: { level: 26, price: 22000, bonus: .25 }, 3: { level: 46, price: 60000, bonus: .25 } };
+const extOf = d => d.ext != null ? d.ext : d.remodeled ? 1 : 0;
 function applyRemodel(on) {                                   // ensancha (o devuelve a su tamaño original) el local en el lienzo
-  COLS = on ? REMODEL.cols : 9; OY = on ? REMODEL.oy : 200; OX = on ? REMODEL.ox : 444;
+  const n = typeof on === 'number' ? on : on ? 1 : 0;
+  COLS = EXT_COLS[n] || 9; OX = 444 - 13.5 * (COLS - 9); OY = 200 - 6 * (COLS - 9);
   Grid.blocked = new Uint8Array(COLS * ROWS);
 }
 
@@ -335,10 +341,12 @@ Object.assign(RECIPES, {
   jamaica:     { key: 'jamaica',     name: 'Agua de Jamaica',         short: 'Jamaica',     cost: 22,  time: 5,  yield: 4, price: 12, unit: 'vasos',   drink: true, level: 6 },
   cerveza:     { key: 'cerveza',     name: 'Cerveza Clara Bien Fría', short: 'Cerveza',     cost: 44,  time: 6,  yield: 4, price: 24, unit: 'botellas', drink: true, level: 8, keep: true },
   limonada:    { key: 'limonada',    name: 'Limonada con Chía',       short: 'Limonada',    cost: 24,  time: 5,  yield: 4, price: 13, unit: 'vasos',   drink: true, level: 10 },
-  oscura:      { key: 'oscura',      name: 'Cerveza Oscura de Barril', short: 'Oscura',     cost: 60,  time: 7,  yield: 4, price: 32, unit: 'tarros',  drink: true, level: 16, keep: true }
+  oscura:      { key: 'oscura',      name: 'Cerveza Oscura de Barril', short: 'Oscura',     cost: 60,  time: 7,  yield: 4, price: 32, unit: 'tarros',  drink: true, level: 16, keep: true },
+  asada:       { key: 'asada',       name: 'Tacos de Carne Asada',    short: 'Asada',       cost: 105, time: 14, yield: 8, price: 23, unit: 'porciones', level: 18, shelf: 'bar2', needs: 'parrilla' },
+  arrachera:   { key: 'arrachera',   name: 'Arrachera con Cebollitas', short: 'Arrachera',  cost: 190, time: 19, yield: 8, price: 42, unit: 'porciones', level: 28, shelf: 'bar2', needs: 'parrilla' }
 });
 // Orden del menú: por nivel. Las bebidas van a su mostrador; la comida original a la barra y los antojitos a la barra de antojitos
-const MENU = ['pastor', 'suadero', 'gordita', 'tripa', 'elote', 'tostada', 'quesadilla', 'pambazo', 'sope', 'chilaquiles', 'tlacoyo', 'cochinita', 'cecina', 'pozole',
+const MENU = ['pastor', 'suadero', 'gordita', 'tripa', 'elote', 'tostada', 'quesadilla', 'pambazo', 'asada', 'sope', 'chilaquiles', 'tlacoyo', 'arrachera', 'cochinita', 'cecina', 'pozole',
   'michelada', 'horchata', 'jamaica', 'cerveza', 'limonada', 'oscura'];
 Object.values(RECIPES).forEach(r => { r.level = r.level || 1; });          // nivel necesario para desbloquear el platillo
 const FOODS = MENU.filter(k => !RECIPES[k].drink);
@@ -688,6 +696,15 @@ function drawTaco(c, x, y, r, kind = 'pastor') {
     blob(-1.8, -9.2, 1.9, '#7bbf3f'); blob(2.2, -9.4, 1.6, '#5aa72f');                                            // aguacate
     c.fillStyle = '#c04aa6'; c.fillRect(-5.6, -9, 2, 1.3); c.fillRect(4.4, -8.8, 2, 1.3);                         // cebolla morada
     star(c, 0, -12.2, 2.8, 1.2); c.fillStyle = '#ffd24a'; c.fill(); c.lineWidth = .8; c.strokeStyle = P.ink; c.stroke();
+  } else if (kind === 'asada') {                                                                                // carne asada: cubitos dorados con marcas de parrilla, cebollitas y limón
+    blob(-3.8, -5, 2.7, '#7a3a22'); blob(.6, -6.2, 3, '#8f4a2a'); blob(4, -4.8, 2.5, '#6a3019');
+    c.strokeStyle = 'rgba(20,8,4,.7)'; c.lineWidth = .9; for (const [ax, ay] of [[-3.8, -5], [.6, -6.2], [4, -4.8]]) { c.beginPath(); c.moveTo(ax - 1.6, ay - 1.2); c.lineTo(ax + 1.6, ay + 1.2); c.moveTo(ax - 1.6, ay + .4); c.lineTo(ax + 1, ay + 2); c.stroke(); }
+    c.strokeStyle = '#6fcf4a'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(-5.6, -3.8); c.lineTo(-6.8, -8); c.moveTo(5.8, -3.4); c.lineTo(7, -7.8); c.stroke();
+    c.fillStyle = '#fff8ea'; c.fillRect(-1.2, -8.6, 2.2, 1.5); blob(2.6, -8.2, 1.2, '#9bd84a');
+  } else if (kind === 'arrachera') {                                                                            // arrachera: tiras gruesas con la marca de la parrilla y cebollitas cambray
+    c.lineWidth = 1.2; c.strokeStyle = P.ink;
+    for (const [ox, oy, rot] of [[-3.4, -5.6, -.4], [.4, -7, .05], [3.8, -5.4, .5]]) { c.save(); c.translate(ox, oy); c.rotate(rot); c.fillStyle = '#9a4a34'; rr(c, -4.2, -2.2, 8.4, 4.4, 1.8); c.fill(); c.stroke(); c.strokeStyle = 'rgba(25,8,4,.75)'; c.beginPath(); c.moveTo(-2.4, -1.8); c.lineTo(-1.2, 1.8); c.moveTo(.6, -1.8); c.lineTo(1.8, 1.8); c.stroke(); c.restore(); c.strokeStyle = P.ink; }
+    blob(-5.4, -8.6, 1.9, '#f4f1e8'); blob(5.6, -8.4, 1.7, '#f4f1e8'); c.strokeStyle = '#4fbf4a'; c.lineWidth = 1.4; c.beginPath(); c.moveTo(-5.4, -9.6); c.lineTo(-6, -12.4); c.moveTo(5.6, -9.4); c.lineTo(6.2, -12.2); c.stroke();
   } else {
     for (const [col, w] of [[P.ink, 3.4], ['#f0b43a', 1.9]]) {                                                   // tripa: tiras rizadas y crujientes
       c.strokeStyle = col; c.lineWidth = w;
@@ -1240,6 +1257,8 @@ const Grid = {
 const FURN = {
   table:  { fw: 4, fh: 1, h: 46,  name: 'Mesa con sillas' },
   comal:  { fw: 2, fh: 1, h: 56,  name: 'Comal' },
+  parrilla: { fw: 3, fh: 1, h: 80, name: 'Parrilla de carne asada' },
+  vitrinam: { fw: 1, fh: 1, h: 84, name: 'Vitrina de máscaras' },
   fridge: { fw: 1, fh: 1, h: 66,  name: 'Refrigerador' },
   drinks: { fw: 2, fh: 1, h: 38,  name: 'Mostrador de bebidas' },
   bar:    { fw: 3, fh: 1, h: 38,  name: 'Barra de comida lista' },
@@ -1279,7 +1298,7 @@ const CHAIRS = {
 const tablePrice = (style, owned) => Math.round(priceOf('table', owned) * (TABLES[style].mult || 1) / 5) * 5;
 const comfortOf = tb => (tb && tb.chair && CHAIRS[tb.chair] ? CHAIRS[tb.chair].comfort : 0);
 const SEATS = [];                                               // todas las sillas de las mesas colocadas
-const LAYOUT = { comals: [], tables: [], fridge: null, bar: null, bar2: null, drinks: null, bench: null, storage: null, claw: null };
+const LAYOUT = { mask: null, comals: [], slotItem: [], slotK: [], parrilla: null, tables: [], fridge: null, bar: null, bar2: null, drinks: null, bench: null, storage: null, claw: null };
 let furnId = 1;
 // Girar: it.rot = 1 pone la pieza "de lado" (su largo corre a lo largo de isoY). Todo se calcula con dimsOf/tp; el dibujo se pinta espejado.
 const dimsOf = it => { const d = FURN[it.type]; return it.rot ? { fw: d.fh, fh: d.fw } : { fw: d.fw, fh: d.fh }; };
@@ -1296,7 +1315,10 @@ function makeFurn(type, c = 0, r = 0, rot = 0, extra = null) {
   const it = { id: furnId++, type, c, r, rot: rot ? 1 : 0 };
   if (type === 'table') { it.style = extra && TABLES[extra.style] ? extra.style : 'mantel'; it.chair = extra && extra.chair !== undefined ? extra.chair : null; }
   if (type === 'chairs') it.style = extra && CHAIRS[extra.style] ? extra.style : 'plastico';
-  if (type === 'comal') it.slot = { state: 'empty', dish: null, t: 0 };                               // cada comal prepara una tanda a la vez
+  if (type === 'comal' || type === 'parrilla') {                                                      // v1.7: varios lugares de cocción (2, 4 u 8)
+    it.cap = type === 'parrilla' ? 8 : ([2, 4].includes(extra && extra.cap) ? extra.cap : 2);
+    it.slots = Array.from({ length: it.cap }, () => ({ state: 'empty', dish: null, t: 0 }));
+  }
   if (type === 'fridge') it.slots = [0, 1].map(() => ({ state: 'empty', dish: null, t: 0 }));        // el refrigerador prepara dos tandas
   if (type === 'table') {
     it.seats = [-1, 1].map(side => ({ tb: it, outer: side, dir: -side, customer: null, c: 0, r: 0, gx: 0, gy: 0, plate: { x: 0, y: 0 } }));
@@ -1325,9 +1347,10 @@ const defaultFurn = () => [
 ];
 function rebuildLayout(w) {                                      // se llama cada vez que cambia el mobiliario colocado
   const f = w.furn, one = t => f.find(x => x.type === t) || null;
-  LAYOUT.comals = f.filter(x => x.type === 'comal'); LAYOUT.tables = f.filter(x => x.type === 'table');
-  LAYOUT.fridge = one('fridge'); LAYOUT.bar = one('bar'); LAYOUT.bar2 = one('bar2'); LAYOUT.drinks = one('drinks'); LAYOUT.bench = one('bench'); LAYOUT.storage = one('storage'); LAYOUT.claw = one('garra');
-  w.slots = LAYOUT.comals.map(x => x.slot);
+  LAYOUT.comals = f.filter(x => x.type === 'comal' || x.type === 'parrilla'); LAYOUT.tables = f.filter(x => x.type === 'table'); LAYOUT.parrilla = one('parrilla');
+  LAYOUT.fridge = one('fridge'); LAYOUT.bar = one('bar'); LAYOUT.bar2 = one('bar2'); LAYOUT.drinks = one('drinks'); LAYOUT.bench = one('bench'); LAYOUT.storage = one('storage'); LAYOUT.claw = one('garra'); LAYOUT.mask = one('vitrinam');
+  LAYOUT.slotItem = []; LAYOUT.slotK = []; LAYOUT.comals.forEach(x => x.slots.forEach((_, k) => { LAYOUT.slotItem.push(x); LAYOUT.slotK.push(k); }));
+  w.slots = [].concat(...LAYOUT.comals.map(x => x.slots));
   w.dslots = LAYOUT.fridge ? LAYOUT.fridge.slots : [];
   SEATS.length = 0; LAYOUT.tables.forEach(t => t.seats.forEach(s => SEATS.push(s)));
   Grid.blocked.fill(0);                                          // mesas, sillas y muebles son sólidos: nadie los atraviesa
@@ -1364,7 +1387,7 @@ const stockPos = key => {
   const b = LAYOUT[sh]; if (!b) return null;
   const q = barSlot(SHELF_KEYS[sh].indexOf(key)); return TS(b, q[0], q[1], 34);
 };
-const comalPos = (i = 0) => { const it = LAYOUT.comals[i]; return it ? TS(it, 1, .5, 36) : null; };
+const comalPos = (i = 0) => { const it = LAYOUT.comals[i]; return it ? TS(it, FURN[it.type].fw / 2, .5, 36) : null; };
 function stockAt(w, x, y, rad = 20) {                          // la pila de comida lista más cercana al clic (las filas de la barra se acercan entre sí)
   let best = null, bd = rad;
   for (const k of MENU) {
@@ -1375,10 +1398,12 @@ function stockAt(w, x, y, rad = 20) {                          // la pila de com
   }
   return best;
 }
-const slotPos = comalPos;                                       // cada comal tiene un único lugar de cocción
+const SLOT_XY = { 2: [[.5, .5], [1.5, .5]], 4: [[.55, .3], [1.45, .3], [.55, .72], [1.45, .72]], 8: [[.4, .3], [1.03, .3], [1.66, .3], [2.3, .3], [.4, .72], [1.03, .72], [1.66, .72], [2.3, .72]] };
+const slotPosOf = (it, k) => { const q = (SLOT_XY[it.cap] || SLOT_XY[2])[k] || [1, .5]; return TS(it, q[0], q[1], it.type === 'parrilla' ? 40 : 36); };
+const slotPos = i => { const it = LAYOUT.slotItem[i]; return it ? slotPosOf(it, LAYOUT.slotK[i]) : { x: 0, y: 0 }; };      // posición en pantalla del lugar de cocción n (de todos los comales juntos)
 function comalHit(x, y, i = 0) {
   const p = comalPos(i); if (!p) return false;
-  const dx = (x - p.x) / 64, dy = (y - (p.y + 2)) / 40;
+  const dx = (x - p.x) / (32 * FURN[LAYOUT.comals[i].type].fw), dy = (y - (p.y + 2)) / 40;
   return dx * dx + dy * dy <= 1;
 }
 const fridgeRingPos = i => { const f = LAYOUT.fridge; const p = S(f.c + .5, f.r + .45, FURN.fridge.h + 34); return { x: p.x + (i ? 15 : -15), y: p.y }; };
@@ -2525,7 +2550,7 @@ const Game = {
     const w = this.w; if (!w || !this.slot) return;
     const held = w.edit && w.edit.held ? [w.edit.held.it] : [];
     const midDay = w.phase === 'play', pocket = w.coins.reduce((s, co) => s + co.v, 0);   // las monedas sin cobrar también cuentan
-    const grab = it => ({ type: it.type, c: it.c, r: it.r, rot: it.rot || 0, style: it.style, chair: it.type === 'table' ? it.chair : undefined, slot: it.slot ? { state: it.slot.state, dish: it.slot.dish, t: it.slot.t, n: it.slot.n, dur: it.slot.dur } : undefined,
+    const grab = it => ({ type: it.type, c: it.c, r: it.r, rot: it.rot || 0, style: it.style, chair: it.type === 'table' ? it.chair : undefined, cap: it.cap,
       slots: it.slots ? it.slots.map(s => ({ state: s.state, dish: s.dish, t: s.t, n: s.n, dur: s.dur })) : undefined });
     Store.write(Store.key(this.slot), { v: 12, stars: w.stars, moves: w.moves, conq: w.conq, flock: w.fightLock, guards: w.guards.map(g => g.id), chefs: w.chefs.map(m => m.id), cookN: w.cookN || 0, at: Date.now(), gems: w.gems, char: w.char, outs: w.outs.map(o => ({ type: o.type, c: o.c, r: o.r })), lot: w.lot ? { c: w.lot.c, r: w.lot.r } : null, clawN: w.clawN, clawDay: w.clawDay, tut: w.tut ? w.tut.s : null, day: w.phase === 'summary' ? w.day + 1 : w.day, money: w.money + pocket, rep: w.rep, totalServed: w.totalServed, stock: stockSaved(w), hands: w.nHands, level: w.level, xp: w.xp,
       furn: w.furn.map(grab), inv: w.inv.concat(held).map(f => ({ type: f.type, style: f.style, chair: f.type === 'table' ? f.chair : undefined })), invCap: w.invCap, staff: w.staff.map(m => m.id), deco: w.deco,
@@ -2597,6 +2622,7 @@ function createWorld(save) {
     level: save && save.level ? save.level : 1, xp: save && save.xp ? save.xp : 0, levelFlash: 0, shake: 0, fx: [],
     shop: false, edit: null, bench: [null, null], panelIdx: 0, furn: [], inv: [], invCap: INV_BASE, slots: [], dslots: [],
     hands: [null, null, null, null], hand: 0, nHands: save ? clamp(save.hands || 1, 1, HANDS.length) : 1,
+    open: true, maskCust: 0,
     panel: false, doorA: 0, doorV: 0, doorOpen: false, toasts: [], btns: [], overlay: []
   };
   w.novato = { x: 2.5, y: 2.5, dir: 1, phase: 0, path: [], speed: 3.2, moving: false, carrying: null, task: null,
@@ -2612,7 +2638,7 @@ function createWorld(save) {
   w.char = { look: Object.assign({}, LOOK_DEFAULT, save && save.char && save.char.look), own: Object.assign({}, save && save.char && save.char.own) };            // personalización del personaje
   w.cookN = save && save.cookN ? clamp(save.cookN | 0, 0, 6) : 0; w.outs = []; w.pendingLv = []; w.lot = null; w.cars = []; w.carT = 12; w.clawN = save && save.clawN ? save.clawN : 0; w.clawDay = save && save.clawDay ? save.clawDay : 0; w.shopPage = 0; w.modal = null;
   w.tut = save ? (Number.isInteger(save.tut) ? { s: save.tut } : null) : { s: 0 };                // tutorial: solo en partida nueva (y se retoma si se guardó a medias)
-  DECO = w.deco; applyRemodel(w.deco.remodeled);                                                // el local se ensancha si ya se remodeló
+  DECO = w.deco; applyRemodel(extOf(w.deco));                                                // el local se ensancha si ya se remodeló
   loadLayout(w, save);                                                                           // mobiliario colocado e inventario
   const hired = save ? (Array.isArray(save.staff) ? save.staff : save.waiter ? ['waiter1'] : []).filter(id => STAFF[id]) : [];
   w.staff = hired.map(id => makeStaff(id, false));
@@ -2637,10 +2663,11 @@ function createWorld(save) {
 function loadLayout(w, save) {
   const ok = o => o && FURN[o.type];
   if (save && Array.isArray(save.furn)) {                                  // partida con mobiliario guardado
+    let comalN = 0;
     w.furn = save.furn.filter(ok).map(o => {
-      const it = makeFurn(o.type, o.c, o.r, o.rot, { style: o.style, chair: o.chair === undefined ? 'plastico' : o.chair });        // las mesas de antes ya traían sillas de plástico
+      const it = makeFurn(o.type, o.c, o.r, o.rot, { style: o.style, chair: o.chair === undefined ? 'plastico' : o.chair, cap: o.type === 'comal' ? (o.cap || (comalN++ === 0 ? 2 : 4)) : undefined });        // las mesas de antes ya traían sillas de plástico
       if (it.type === 'table') placeSeats(it);
-      if (it.slot && o.slot && (o.slot.state === 'cook' ? RECIPES[o.slot.dish] : true)) Object.assign(it.slot, o.slot);      // la tanda que se estaba cocinando sigue en el fuego
+      if (it.slots && o.slot && !Array.isArray(o.slots) && (o.slot.state === 'cook' ? RECIPES[o.slot.dish] : true)) Object.assign(it.slots[0], o.slot);      // la tanda que se estaba cocinando sigue en el fuego
       if (it.slots && Array.isArray(o.slots)) it.slots.forEach((s, i) => { const q = o.slots[i]; if (q && (q.state !== 'cook' || RECIPES[q.dish])) Object.assign(s, q); });
       return it;
     });
@@ -2881,7 +2908,7 @@ function startDay(w, rs) {
   w.dayServed = 0; w.dayEarned = 0; w.dayCost = 0; w.dayAngry = 0; w.perfect = false; w.loanT = 0;
   w.spawnT = 1.5; w.endT = 0; w.overT = 0; w.banner = w.event ? 3.4 : 2.6; w.panel = false;
   if (w.event && !rs && !w.tut) toast(w, `${w.event.name}: ${eventEffect(w.event)}`);
-  w.clawCust = 0; w.clawBusy = 0;
+  w.clawCust = 0; w.clawBusy = 0; w.maskCust = 0;
   w.customers = []; w.queue = []; w.cars = []; w.carT = rand(8, 16); w.coins = []; w.parts = [];
   if (!rs) allSlots(w).forEach(s => { s.state = 'empty'; s.dish = null; s.t = 0; });    // al cargar a media jornada, lo que estaba en el fuego sigue ahí
   SEATS.forEach(s => { s.customer = null; });
@@ -2932,6 +2959,10 @@ function addPart(w, p) { w.parts.push(Object.assign({ life: 1, max: 1, x: 0, y: 
 // posición en pantalla de un actor (sentado: la cadera queda sobre el asiento)
 const actorPos = (e, seated) => { const p = S(e.x, e.y); if (seated) p.y -= 7; return p; };
 
+/* Llegada de clientes (v1.7): cada asiento atiende ≈ a un cliente cada 36 s, así que el ritmo sigue a los lugares que tienes en las mesas con silla
+   (2 mesas ≈ 1 cliente cada 12 s al principio; 6 mesas ≈ cada 4 s). Con los días se acerca al límite de lo que cabe, y en las fechas especiales llega más gente. */
+const seatCount = () => Math.max(2, SEATS.filter(s => s.tb.chair).length);
+const arrivalGap = w => (36 / seatCount()) / clamp(.75 + .04 * (w.day - 1), .75, 1.12) / (CUR_EVENT ? Math.pow(CUR_EVENT.arr, 1.5) : 1);
 /* ---------- Experiencia, cansancio y modo rudo rabioso ---------- */
 const maxStamina = (w, n = w.novato) => n.isWaiter ? 100 : STAM.base + STAM.perLevel * (w.level - 1);
 function addXp(w, amt) {
@@ -2999,7 +3030,7 @@ function slamPos(w, cu) {                                      // posición en p
 
 /* ---------- Pedidos: un platillo al azar y, a veces, una michelada para acompañar ---------- */
 // ¿Se puede preparar esto con lo que hay en el local? (la comida pide comal; las micheladas, refri)
-const canMake = k => RECIPES[k].drink ? !!LAYOUT.fridge && !!shelfItem(k) : LAYOUT.comals.length > 0 && !!shelfItem(k);
+const canMake = k => RECIPES[k].drink ? !!LAYOUT.fridge && !!shelfItem(k) : LAYOUT.comals.length > 0 && !!shelfItem(k) && (!RECIPES[k].needs || LAYOUT.comals.some(x => x.type === RECIPES[k].needs));
 function makeOrder(w) {
   if (w.tut) return [{ key: 'pastor', done: false }];                                  // en el tutorial todos piden el taco que acabas de aprender a cocinar
   const menu = MENU.filter(k => RECIPES[k].level <= w.level && canMake(k));                       // solo piden lo que ya está desbloqueado y se puede cocinar
@@ -3075,7 +3106,7 @@ function spawnCar(w) {
 function carPassengerDone(car, cu) { if (car && car.alive > 0) car.alive--; }
 function updateCars(w, dt) {
   const lot = w.lot;
-  if (lot && w.dayTime > 25 && !w.tut && w.phase === 'play') {                                     // llegan coches
+  if (lot && w.dayTime > 25 && w.open && !w.tut && w.phase === 'play') {                                     // llegan coches
     w.carT -= dt;
     if (w.carT <= 0) {
       const h = hourOf(w), rush = h >= 13 && h < 15.5 ? .75 : h >= 18 && h < 21 ? .8 : h < 9 || h >= 21.5 ? 1.5 : 1;
@@ -3094,7 +3125,7 @@ function updateCars(w, dt) {
         else car.state = 'gone';
       }
     } else if (car.state === 'park') {                                                            // bajan los pasajeros uno por uno
-      car.t += dt; if (w.dayTime <= 0) car.pend = 0;                                              // ya cerramos: los que faltaban por bajar se quedan en el coche
+      car.t += dt; if (w.dayTime <= 0 || !w.open) car.pend = 0;                                              // ya cerramos: los que faltaban por bajar se quedan en el coche
       if (car.pend > 0 && car.t >= .8) {
         car.t = 0;
         const src = { x: car.x, y: I.walkY, pre: [{ x: CAR_X, y: I.walkY }, { x: CAR_X, y: SIDE_Y }], car };
@@ -3235,6 +3266,7 @@ function sendFromClaw(w, cu) {                                       // ya jugó
   cu.state = 'leave'; cu.moving = true; cu.speed = 1.9; cu.cl = null; cu.path = cells.map(n => Grid.pt(n.c, n.r)).concat(exitTail(cu));
 }
 function updateClawCust(w, cu, dt) {
+  if (cu.cl && cu.cl.kind === 'mask') { updateMaskCust(w, cu, dt); return; }
   const K = cu.cl, it = LAYOUT.claw;
   if (!K || !it) { sendFromClaw(w, cu); return; }
   if (K.ph === 0) {
@@ -3257,8 +3289,10 @@ function updateClawCust(w, cu, dt) {
     if (K.t > 4.1) sendFromClaw(w, cu);
   }
 }
-function drawClawCust(c, cu, w) {                                    // el peluche que se lleva, sobre su cabeza
-  const K = cu.cl; if (!K || K.ph !== 1 || !K.win || K.t < 3) return;
+function drawClawCust(c, cu, w) {                                    // el peluche (o la máscara) que se lleva, sobre su cabeza
+  const K = cu.cl;
+  if (K && K.kind === 'mask') { if (K.ph === 1 && K.t > 1.2) { const p = actorPos(cu); drawMask(c, p.x + 16 * (cu.dir || 1), p.y - 52 - Math.sin(w.t * 6) * 2, 8.5, MASKS[K.mk] || MASKS.ring); } return; }
+  if (!K || K.ph !== 1 || !K.win || K.t < 3) return;
   const p = actorPos(cu); drawPlush(c, K.plush, p.x + 18 * (cu.dir || 1), p.y - 40 - Math.min(10, (K.t - 3) * 14), .62, Math.sin(w.t * 6) * .12, 1);
 }
 /* =========================================================
@@ -3272,7 +3306,7 @@ function unlocksFor(L) {
   if (L <= 1) return out;
   MENU.filter(k => RECIPES[k].level === L).forEach(k => {
     const r = RECIPES[k];
-    out.push({ kind: r.drink ? 'drink' : 'dish', key: k, name: r.name, desc: `${r.drink ? 'Se prepara en el refri' : 'Se cocina en el comal'}: cuesta ${pesos(r.cost)}, rinde ${r.yield} y se vende a ${pesos(r.price)} c/u` });
+    out.push({ kind: r.drink ? 'drink' : 'dish', key: k, name: r.name, desc: `${r.drink ? 'Se prepara en el refri' : r.needs ? 'Se cocina en la parrilla' : 'Se cocina en el comal'}: cuesta ${pesos(r.cost)}, rinde ${r.yield} y se vende a ${pesos(r.price)} c/u` });
   });
   Object.keys(TABLES).forEach(k => { const T = TABLES[k]; if (!T.gems && T.level === L) out.push({ kind: 'furn', icon: k === 'mantel' ? 'table' : 'table_' + k, name: T.name, desc: T.desc }); });
   Object.keys(CHAIRS).forEach(k => { const C = CHAIRS[k]; if (!C.gems && C.level === L) out.push({ kind: 'furn', icon: 'chairs_' + k, name: C.name, desc: C.desc + ' (sillas de 2 en 2, en la tienda)' }); });
@@ -3291,6 +3325,10 @@ function unlocksFor(L) {
   GUARD_IDS.forEach(id => { if (GUARDS[id].level === L) out.push({ kind: 'staff', icon: id, name: GUARDS[id].name, desc: GUARDS[id].desc.split(' · ')[0] + ' · ' + pesos(GUARDS[id].price) }); });
   feat(MOVES_LEVEL, 'Técnicas de lucha', 'Aprende llaves y vuelos en la TIENDA › TÉCNICAS: sirven para atacar a los restaurantes rivales', 'mv_punetazo', 'move');
   MOVE_BUY.forEach(k => { const M = MOVES[k]; if (M.level === L && L !== MOVES_LEVEL) out.push({ kind: 'move', icon: 'mv_' + k, name: M.name, desc: M.desc + '. Daño ' + M.dmg + ', gasta ' + M.cost + ' de energía' }); });
+  feat(EXPANDS[2].level, 'Ampliación II del local', 'El local se ensancha a 13 losetas: caben 2 mesas y 1 comal más. TIENDA › OBRAS', 'ext2');
+  feat(EXPANDS[3].level, 'Ampliación III del local', 'El local se ensancha a 15 losetas: 2 mesas y 1 comal más. TIENDA › OBRAS', 'ext3');
+  feat(MASK_LEVEL, 'Vitrina de máscaras', 'Tus clientes compran máscaras al salir: te dejan monedas y a veces gemas. TIENDA › MUEBLES', 'vitrinam', 'furn');
+  feat(PARRILLA_LEVEL, 'Parrilla de carne asada', 'Ocho lugares para asar a la vez, con tacos de carne asada: se compra en la TIENDA', 'parrilla', 'furn');
   feat(MAP_LEVEL, 'Mapa de rivales', 'Toca el botón del mapa (o la tecla M): ataca restaurantes rivales para robar estrellas, dinero y meseros', 'mapa');
   RIVALS.forEach(r => { if (r.level === L) out.push({ kind: 'rival', icon: 'rv_' + r.id, name: r.name, desc: r.sub + '. Ya puedes retarlo desde el MAPA si tienes sus técnicas' }); });
   feat(FAROL_TIERS[0].level, 'Faroles de calle', 'Compra faroles en TIENDA › OBRAS y plántalos en la calle: de noche alumbran el piso de verdad', 'farol');
@@ -3434,13 +3472,14 @@ function drawLevelUp(c, w) {
    los dos te quitan reputación (⅓ de máscara cada uno). Mientras haya tutorial, no hay fila. Al cerrar, la fila se dispersa sin castigo. */
 const QY = -2.55, QMAX = w => Math.min(8, 4 + Math.floor(w.level / 10));
 const qSpot = i => ({ x: DOOR.ix - 1.15 - .78 * i, y: QY });
+const custPatience = w => Math.max(29, 50 - (w.day - 1) * 3);                  // v1.7: los clientes esperan ≈ 20 % más
 const freeSeatsNow = () => SEATS.filter(s => !s.customer && !(s.tb.down > 0) && s.tb.chair);
 function exitTail(cu) {                                            // de la puerta hacia afuera de la pantalla (o hasta su coche)
   return [{ x: DOOR.ix, y: -.3 }, { x: DOOR.ix, y: SIDE_Y }, { x: EXIT_X, y: SIDE_Y }].concat(cu.car ? carWalkBack(cu.car) : []);
 }
 function enqueueCustomer(w, src) {
   if (w.queue.length >= QMAX(w)) return false;
-  const i = w.queue.length, sp = qSpot(i), qp = Math.max(40, Math.max(24, 42 - (w.day - 1) * 3) * 1.7);
+  const i = w.queue.length, sp = qSpot(i), qp = Math.max(48, custPatience(w) * 1.7);
   const cu = {
     x: src.x, y: src.y, path: (src.pre || []).concat([{ x: sp.x, y: SIDE_Y }, { x: sp.x, y: sp.y }]), speed: rand(1.6, 2.0), dir: -1, phase: rand(0, 6), moving: true, alpha: 1,
     state: 'qwalk', seat: null, look: randomLook(), off: rand(0, 6), seated: false, patience: qp, pmax: qp, timer: 0, bubbleT: 0, eatT: 0, angry: false,
@@ -3480,7 +3519,7 @@ function updateBrawl(w, cu, dt) {
 function updateQueue(w, dt) {
   const q = w.queue;
   if (!q.length) return;
-  if (w.dayTime <= 0) { q.slice().forEach(cu => leaveQueue(w, cu, false)); return; }          // cerramos: la fila se dispersa
+  if (w.dayTime <= 0 || !w.open) { q.slice().forEach(cu => leaveQueue(w, cu, false)); return; }          // cerramos: la fila se dispersa
   q.forEach((cu, i) => {                                           // cada quien avanza al lugar que le toca
     if (cu.qi === i) return;
     cu.qi = i; const sp = qSpot(i);
@@ -3509,7 +3548,7 @@ function promoteQueue(w) {                                         // cuando se 
   pts[pts.length - 1] = { x: seat.gx, y: seat.gy };
   w.queue.shift();
   Object.assign(head, { state: 'enter', seat, path: pts, moving: true, speed: rand(1.7, 2.1) });
-  head.pmax = head.patience = Math.max(24, 42 - (w.day - 1) * 3) * (1 + .03 * comfortOf(seat.tb));
+  head.pmax = head.patience = custPatience(w) * (1 + .03 * comfortOf(seat.tb));
   seat.customer = head;
 }
 function drawQueueBar(c, cu, w) {                                  // barrita de paciencia sobre los que esperan afuera
@@ -3569,7 +3608,7 @@ function spawnCustomer(w, vip = null, gem = null, src = null) {   // vip = defin
     ...cells.map(n => Grid.pt(n.c, n.r))
   ];
   pts[pts.length - 1] = { x: seat.gx, y: seat.gy };
-  const pmax = (vip ? vip.patience : gem ? gem.patience : Math.max(24, 42 - (w.day - 1) * 3)) * (1 + .03 * comfortOf(seat.tb));       // sillas cómodas: clientes más pacientes
+  const pmax = (vip ? vip.patience : gem ? gem.patience : custPatience(w)) * (1 + .03 * comfortOf(seat.tb));       // sillas cómodas: clientes más pacientes
   const cu = {
     x: src.x, y: src.y, path: pts, speed: vip ? vip.speed : gem ? gem.speed : rand(1.6, 2.0), dir: -1, phase: rand(0, 6), moving: true, alpha: 1,
     state: 'enter', seat, look: vip ? VIP_LOOKS[vip.key] : gem ? gem.look : randomLook(), off: rand(0, 6), seated: false, patience: pmax, pmax, timer: 0, bubbleT: 0, eatT: 0, angry: false,
@@ -3725,7 +3764,7 @@ function leaveSeat(w, cu, angry) {
   const pts = cells.map(n => Grid.pt(n.c, n.r));
   pts.push(...exitTail(cu));                                      // puerta → banqueta → se aleja (o a su coche)
   cu.path = pts;
-  if (!angry) clawTrip(w, cu, seat);                                  // (a veces, antes de irse, pasa a jugar a la garra)
+  if (!angry && !clawTrip(w, cu, seat)) maskTrip(w, cu, seat);                                  // (a veces, antes de irse, pasa a jugar a la garra)
   seat.customer = null; cu.seat = null;
 }
 
@@ -4401,6 +4440,23 @@ const MAPHOME = { x: 240, y: 166 };
 const MAPDET = { x: MAPREG.x + MAPREG.w + 22, y: MAPREG.y, w: MAPBOX.x + MAPBOX.w - 24 - (MAPREG.x + MAPREG.w + 22) };
 const MAPCLOSE = { x: MAPBOX.x + MAPBOX.w - 40, y: MAPBOX.y + 10, w: 30, h: 30 };
 const MAPGO = { x: MAPDET.x, y: MAPDET.y + 332, w: MAPDET.w, h: 46, label: 'ATACAR', size: 24, style: 'red' };
+const openBtn = () => ({ x: 12 - EX + SL, y: 68, w: 80, h: 30 });
+const openAvail = w => w.phase === 'play' && !w.tut && w.dayTime > 0 && !w.modal && !w.shop && !w.edit;
+function toggleOpen(w) {
+  w.open = !w.open; sfx(w.open ? 'door' : 'back');
+  if (w.open) toast(w, '¡Abierto otra vez! Ya pueden llegar clientes');
+  else toast(w, 'Cerraste el local: nadie nuevo entra. Los que ya están comen y se van');
+  Game.save();
+}
+function drawOpenBtn(c, w) {
+  const b = openBtn(), on = w.open, hov = UI.hit(b); if (hov) UI.cursor = true;
+  c.save();
+  rr(c, b.x, b.y, b.w, b.h, 10); c.fillStyle = on ? '#14633a' : '#7a1c28'; c.fill(); c.lineWidth = 2.6; c.strokeStyle = hov ? P.gold : P.white; c.stroke();
+  c.fillStyle = on ? '#7bff9e' : '#ff6a78'; c.shadowColor = on ? '#7bff9e' : '#ff6a78'; c.shadowBlur = 6; c.beginPath(); c.arc(b.x + 13, b.y + b.h / 2, 4.6, 0, 6.3); c.fill(); c.shadowBlur = 0;
+  txt(c, on ? 'ABIERTO' : 'CERRADO', b.x + 22 + (b.w - 28) / 2, b.y + 20.5, { font: `700 14px ${FONT_UI}`, align: 'center', color: P.white, ls: .6, maxW: b.w - 30 });
+  c.restore();
+  if (hov) drawTip(c, b.x + b.w + 10, b.y, [on ? 'Local abierto' : 'Local cerrado', on ? 'Toca para cerrar: ya no llegan clientes' : 'Toca para abrir y recibir clientes']);
+}
 const mapBtn = () => ({ x: 12 - EX + SL, y: 338, w: 38, h: 48 });
 const mapAvail = w => !w.tut && !w.edit && !w.shop && !w.modal && w.phase === 'play';
 function openMap(w) { w.modal = 'map'; w.panel = false; w.map = { sel: Math.max(0, RIVALS.findIndex(r => rivalState(w, r) === 'ok')) }; sfx('click'); }
@@ -4518,8 +4574,9 @@ function drawMapDetail(c, w, R) {
 // Lo que se compra llega al inventario (la "cajita"), que tiene lugares limitados; de ahí se coloca desde el modo EDITAR.
 const countOf = (w, type) => w.furn.filter(f => f.type === type).length + w.inv.filter(f => f.type === type).length + (w.outs || []).filter(f => f.type === type).length + (w.lot && type === 'parking' ? 1 : 0) + (w.edit && w.edit.held && w.edit.held.it.type === type ? 1 : 0);
 const nextInvTier = w => INV_TIERS.find(t => t.cap > w.invCap) || null;
-const maxOf = (w, type) => type === 'table' ? (DECO.arena ? ARENA.maxTables : SHOP.maxTables) : type === 'comal' ? (DECO.arena ? ARENA.maxComals : SHOP.maxComals) : 1;
+const maxOf = (w, type) => type === 'table' ? (DECO.arena ? ARENA.maxTables : SHOP.maxTables) + 2 * Math.max(0, extOf(DECO) - 1) : type === 'comal' ? (DECO.arena ? ARENA.maxComals : SHOP.maxComals) + Math.max(0, extOf(DECO) - 1) : 1;
 // Precios de lo nuevo (nivel mínimo y pesos). El resto de la economía sigue igual: ver PRICES, STAFF, REMODEL y ARENA
+const PARRILLA_LEVEL = 18, PARRILLA_PRICE = 7500;
 const CLAW_LEVEL = 13, CLAW_PRICE = 3000, CARTEL_LEVEL = 8, CARTEL_PRICE = 1200, BAR2_LEVEL = 5, BAR2_PRICE = 650, STORAGE_PRICE = 1600, DRINKS_PRICE = 120;
 function shopItems(w) {
   const cnt = t => countOf(w, t), tier = nextInvTier(w), full = w.inv.length >= w.invCap;
@@ -4531,9 +4588,11 @@ function shopItems(w) {
   const arenaNeed = !DECO.remodeled ? 'Primero remodela el changarro' : w.level < ARENA.level ? `Requiere nivel ${ARENA.level}` : null;
   const one = (id, name, desc, price, level, extra = {}) => Object.assign({ id, tab: 'furn', name, desc, price, done: cnt(id) >= 1, need: lvl(level) || fullMsg }, extra);
   const rows = [
-    { id: 'comal', tab: 'furn', name: comals >= mc ? 'Comales' : comals === 0 ? 'Comal de lámina' : `${comals + 1}º Comal`, desc: comals === 0 ? 'Aquí se cocinan los tacos. Tú lo colocas en el piso' : comals >= 2 ? 'Otro fogón: tres recetas a la vez' : 'Dos recetas a la vez', price: priceOf('comal', comals), done: comals >= mc, need: fullMsg },
+    { id: 'comal', tab: 'furn', name: comals >= mc ? 'Comales' : comals === 0 ? 'Comal de lámina' : `${comals + 1}º Comal`, desc: comals === 0 ? 'Aquí se cocinan los tacos: 2 platillos a la vez. Tú lo colocas en el piso' : 'Otro fogón grande: 4 platillos distintos a la vez', price: priceOf('comal', comals), done: comals >= mc, need: fullMsg },
     { id: 'fridge', tab: 'furn', name: 'Refrigerador', desc: 'Prepara micheladas, aguas de sabores y cervezas bien frías', price: priceOf('fridge', fridges), done: fridges >= 1, need: fullMsg },
     { id: 'drinks', tab: 'furn', name: 'Mostrador de bebidas', desc: 'Aquí reposan las bebidas que salen del refri (caben seis tipos)', price: DRINKS_PRICE, done: cnt('drinks') >= 1, need: fridges < 1 ? 'Primero compra el refrigerador' : fullMsg },
+    one('vitrinam', 'Vitrina de máscaras', 'Tus clientes compran máscaras de lucha al salir: te dejan monedas y, con suerte, gemas', MASK_PRICE, MASK_LEVEL),
+    one('parrilla', 'Parrilla de carne asada', 'Ocho lugares para asar a la vez, con tacos de asada y arrachera. ¡Llama la atención!', PARRILLA_PRICE, PARRILLA_LEVEL),
     one('bar2', 'Barra de antojitos', 'Exhibe elotes, tostadas, pambazos, chilaquiles, cochinita y pozole', BAR2_PRICE, BAR2_LEVEL),
     one('storage', 'Refri de sobrantes', `Guarda hasta ${STORAGE_CAP} porciones al cerrar: lo demás se echa a perder`, STORAGE_PRICE, SPOIL_LEVEL),
     one('cartel', 'Cartel de tacos', 'Tu nombre con lucecitas, afuera en el pasto; brilla de noche y atrae más clientes', CARTEL_PRICE, CARTEL_LEVEL),
@@ -4555,6 +4614,8 @@ function shopItems(w) {
   rows.push({ id: 'farol', tab: 'works', name: 'Farol de calle', desc: `De noche deja un círculo de luz en el piso (${fn} de ${FAROL_MAX}). Va en la calle, junto a la banqueta`, price: ft.price, done: fn >= FAROL_MAX, need: fn >= FAROL_MAX ? null : (lvl(ft.level) || fullMsg) });
   rows.push(one('parking', 'Estacionamiento', `Coches con clientes llegan al frente del local (4 cajones). Moverlo después cuesta ${pesos(LOT_MOVE)}`, PARKING_PRICE, PARKING_LEVEL, { tab: 'works' }),
     { id: 'remodel', tab: 'works', name: 'Remodelar Changarro', desc: 'El local se ensancha (más lugar para mesas). Suma ½ máscara', price: REMODEL.price, done: !!DECO.remodeled, need: w.level < REMODEL.level ? `Requiere nivel ${REMODEL.level}` : null },
+    { id: 'ext2', tab: 'works', name: 'Ampliación II del local', desc: 'El local pasa a 13 losetas de ancho: caben 2 mesas y 1 comal más. Suma ¼ de máscara', price: EXPANDS[2].price, done: extOf(DECO) >= 2, need: extOf(DECO) < 1 ? 'Primero remodela el changarro' : w.level < EXPANDS[2].level ? `Requiere nivel ${EXPANDS[2].level}` : null },
+    { id: 'ext3', tab: 'works', name: 'Ampliación III del local', desc: 'El local pasa a 15 losetas de ancho: 2 mesas y 1 comal más. Suma ¼ de máscara', price: EXPANDS[3].price, done: extOf(DECO) >= 3, need: extOf(DECO) < 2 ? 'Primero la Ampliación II' : w.level < EXPANDS[3].level ? `Requiere nivel ${EXPANDS[3].level}` : null },
     { id: 'arena', tab: 'works', name: 'Mega Ampliación: Arena', desc: 'Cuadrilátero central, hasta 6 mesas y 3 comales. Llegan VIPs nuevos', price: ARENA.price, done: !!DECO.arena, need: arenaNeed });
   MOVE_BUY.forEach(k => { const M = MOVES[k]; rows.push({ id: 'mv_' + k, tab: 'moves', name: M.name, desc: `${M.desc} · daño ${M.dmg} · energía ${M.cost}`, price: M.price, done: hasMove(w, k), need: lvl(M.level) }); });
   return rows;
@@ -4593,6 +4654,7 @@ function buy(w, id) {
   else if (id === 'inv') { w.invCap = tier.cap; toast(w, `¡Inventario ampliado a ${tier.cap} lugares!`); }
   else if (/^hand\d$/.test(id)) { w.nHands = parseInt(id.slice(4), 10); toast(w, `¡${HAND_NAMES[w.nHands - 1]} lista! Cambia de mano con los cuadros de abajo o las teclas 1 a 4`); }
   else if (id === 'arena') doArena(w);
+  else if (id === 'ext2' || id === 'ext3') doExpand(w, id === 'ext2' ? 2 : 3);
   else if (STAFF[id]) { const m = makeStaff(id, true, w.staff.length); w.staff.push(m); w.shop = false; toast(w, `¡Contrataste a ${STAFF[id].name}!${STAFF[id].wage ? ' Cobra ' + pesos(STAFF[id].wage) + ' por semana' : ''}`); }
   else if (CHEFS[id]) { w.chefs.push(makeChef(id, true, w.chefs.length)); w.shop = false; toast(w, `¡Contrataste a ${CHEFS[id].name}! ${CHEFS[id].wage ? 'Cobra ' + pesos(CHEFS[id].wage) + ' por semana' : 'Pago único: no cobra sueldo'}`); }
   else if (GUARDS[id]) { w.guards.push(makeGuard(id, true)); w.shop = false; toast(w, `¡Contrataste a ${GUARDS[id].name}! Cobra ${pesos(GUARDS[id].wage)} por semana`); }
@@ -4601,7 +4663,7 @@ function buy(w, id) {
     let piece, msg = 'Toca una loseta del piso para colocarlo (o guárdalo en la cajita)';
     if (id === 'table' || id.startsWith('table_')) piece = makeFurn('table', 0, 0, 0, { style: id === 'table' ? 'mantel' : id.slice(6), chair: w.tut ? 'plastico' : null });   // en el tutorial la primera mesa ya trae sillas
     else if (id.startsWith('chairs_')) { piece = makeFurn('chairs', 0, 0, 0, { style: id.slice(7) }); msg = 'Toca la mesa a la que quieres ponerle estas sillas'; }
-    else { piece = makeFurn(id); if (id === 'farol') msg = 'Toca la calle (la orilla junto a la banqueta) para instalar el farol'; else if (id === 'cartel') msg = 'Toca una loseta de pasto afuera del local para plantar el cartel'; else if (id === 'parking') msg = 'Toca el pasto del frente del local para poner el estacionamiento'; }
+    else { piece = makeFurn(id, 0, 0, 0, id === 'comal' ? { cap: countOf(w, 'comal') === 0 ? 2 : 4 } : null); if (id === 'farol') msg = 'Toca la calle (la orilla junto a la banqueta) para instalar el farol'; else if (id === 'cartel') msg = 'Toca una loseta de pasto afuera del local para plantar el cartel'; else if (id === 'parking') msg = 'Toca el pasto del frente del local para poner el estacionamiento'; }
     w.inv.push(piece); w.shop = false; enterEdit(w); editPick(w, piece, 'inv');
     toast(w, msg);
   }
@@ -4661,12 +4723,21 @@ function loseRep(w, amt = REP.lose) {
 }
 function doRemodel(w) {
   w.coins.forEach(co => collectCoin(w, co, true)); w.coins = [];       // las monedas están en pantalla: se cobran antes de mover la cámara
-  w.deco.remodeled = true; applyRemodel(true); rebuildLayout(w); fixOuts(w);
+  w.deco.remodeled = true; w.deco.ext = Math.max(1, extOf(w.deco)); applyRemodel(extOf(w.deco)); rebuildLayout(w); fixOuts(w);
   LAYOUT.tables.forEach(placeSeats);                                  // los platos de cada mesa se reubican en el lienzo ensanchado
   addRep(w, REMODEL.bonus);
   planVips(w, hourOf(w));
   w.shop = false; w.shopView = 'main'; w.shake = .35;
   toast(w, '¡Remodelación lista! El local se ensanchó (+½ máscara). Decóralo desde la tienda');
+}
+function doExpand(w, n) {                                           // Ampliación II (13 de ancho) o III (15): caben más mesas y comales
+  w.coins.forEach(co => collectCoin(w, co, true)); w.coins = [];
+  w.deco.ext = n; applyRemodel(n); rebuildLayout(w); fixOuts(w);
+  LAYOUT.tables.forEach(placeSeats);
+  addRep(w, EXPANDS[n].bonus); planVips(w, hourOf(w));
+  w.shop = false; w.shopView = 'main'; w.shake = .35;
+  Cam.z = Math.min(Cam.z, (Cam.def || 1) * (n === 2 ? .9 : .8)); Cam.px = 0; Cam.py = 0; camClamp();
+  toast(w, `¡Ampliación ${n === 2 ? 'II' : 'III'} lista! El local mide ${COLS} losetas de ancho: caben 2 mesas y 1 comal más`);
 }
 /* Mega Ampliación (nivel 40): el local se vuelve una arena con un cuadrilátero sólido en el centro.
    Lo que estorbaba en esas losetas se reacomoda solo (o va al inventario si no cabe). */
@@ -5017,13 +5088,14 @@ const portChip = i => ({ x: PANEL.x + 84 + i * 37, y: PANEL.y + 44, w: 34, h: 26
 const panelClose = { x: PANEL.x + PANEL.w - 36, y: PANEL.y + 8, w: 28, h: 28 };
 const panelBtn = i => ({ x: PANEL.x + PANEL.w - 98, y: PANEL.y + PANEL.top + i * PANEL.rowH + (PANEL.rowH - 34) / 2, w: 86, h: 34 });
 // lugar libre de la estación abierta: en el comal, el del comal que se tocó; en el refrigerador, cualquiera de sus dos
-const slotFor = (w, station) => station === 'fridge' ? w.dslots.find(s => s.state === 'empty') : (w.slots[w.panelIdx] && w.slots[w.panelIdx].state === 'empty' ? w.slots[w.panelIdx] : null);
+const slotFor = (w, station) => station === 'fridge' ? w.dslots.find(s => s.state === 'empty') : ((LAYOUT.comals[w.panelIdx] && LAYOUT.comals[w.panelIdx].slots.find(s => s.state === 'empty')) || null);
 const cookN = (w, r) => { const n = w.cookN || 0; return n ? clamp(n, 1, r.yield) : r.yield; };                            // porciones de esta tanda (0 = tanda completa)
 const cookCost = (w, r) => { const n = cookN(w, r); return n >= r.yield ? r.cost : Math.max(1, Math.ceil(r.cost * n / r.yield)); };
 const cookTime = (w, r) => { const n = cookN(w, r), k = perkOn(w, 'cook') ? .9 : 1; return Math.round((n >= r.yield ? r.time : r.time * (.4 + .6 * n / r.yield)) * k * 10) / 10; };
 function canCook(w, key) {
   const r = RECIPES[key], cost = cookCost(w, r);
   if (r.level > w.level) return { ok: false, locked: true, why: `Nivel ${r.level}` };
+  if (r.needs && !(LAYOUT.comals[w.panelIdx] && LAYOUT.comals[w.panelIdx].type === r.needs)) return { ok: false, grill: true, why: 'Solo parrilla' };
   if (w.money < cost) return { ok: false, why: `Faltan ${pesos(cost - w.money)}` };
   if (!slotFor(w, r.station)) return { ok: false, full: true, why: r.station === 'fridge' ? 'Refri ocupado' : 'Comal ocupado' };
   if (!shelfItem(key)) return { ok: false, shelf: true, why: r.shelf === 'bar2' ? 'Sin barra' : 'Sin mostrador', long: r.shelf === 'bar2' ? 'Falta la barra de antojitos' : 'Falta el mostrador de bebidas' };
@@ -5033,14 +5105,14 @@ function startCook(w, key) {
   const chk = canCook(w, key), r = RECIPES[key];
   if (!chk.ok) {
     sfx('nope'); w.moneyFlash = chk.locked ? 0 : .8;
-    toast(w, chk.shelf ? `${chk.long}: cómprala en la TIENDA y colócala en el modo EDITAR` : chk.locked ? `${r.name} se desbloquea en el nivel ${r.level}` : chk.full ? (r.station === 'fridge' ? 'El refrigerador está ocupado: espera a que termine una tanda' : 'Este comal está ocupado: espera a que termine la tanda o usa el otro') : `No te alcanza para ${r.name}. ${chk.why}`);
+    toast(w, chk.grill ? 'Eso solo se cocina en la parrilla de carne asada' : chk.shelf ? `${chk.long}: cómprala en la TIENDA y colócala en el modo EDITAR` : chk.locked ? `${r.name} se desbloquea en el nivel ${r.level}` : chk.full ? (r.station === 'fridge' ? 'El refrigerador está ocupado: espera a que termine una tanda' : 'Este comal está lleno: espera a que termine una tanda o usa otro') : `No te alcanza para ${r.name}. ${chk.why}`);
     return false;
   }
   const slot = slotFor(w, r.station);
   const n = cookN(w, r), cost = cookCost(w, r);
   slot.state = 'cook'; slot.dish = key; slot.t = 0; slot.n = n; slot.dur = cookTime(w, r);
   w.money -= cost; w.dayCost += cost; spend(w, STAM.cook);
-  const p = r.station === 'fridge' ? fridgeRingPos(0) : comalPos(w.panelIdx);
+  const p = r.station === 'fridge' ? fridgeRingPos(0) : slotPos(w.slots.indexOf(slot));
   addPart(w, { type: 'text', text: '-' + pesos(cost), x: p.x, y: p.y - 30, vy: -34, life: 1.2, color: '#ff8fa0' });
   sfx(r.drink ? 'drinkStart' : 'cookStart');
   slot.snd = .5;
@@ -5049,7 +5121,7 @@ function startCook(w, key) {
 // Lo que se ve en el panel: lo desbloqueado y el siguiente por desbloquear (así se ve qué sigue), en páginas de 7
 const PANEL_PER = 7;
 function panelPage(w) {
-  const all = STATIONS[w.panel || 'comal'].items, unl = all.filter(k => RECIPES[k].level <= w.level), nxt = all.find(k => RECIPES[k].level > w.level);
+  const all = STATIONS[w.panel || 'comal'].items.filter(k => !RECIPES[k].needs || (w.panel === 'comal' && LAYOUT.comals[w.panelIdx] && LAYOUT.comals[w.panelIdx].type === RECIPES[k].needs)), unl = all.filter(k => RECIPES[k].level <= w.level), nxt = all.find(k => RECIPES[k].level > w.level);
   const list = nxt ? unl.concat([nxt]) : unl, pages = Math.max(1, Math.ceil(list.length / PANEL_PER));
   w.panelPage = clamp(w.panelPage || 0, 0, pages - 1);
   return { pages, rows: list.slice(w.panelPage * PANEL_PER, w.panelPage * PANEL_PER + PANEL_PER) };
@@ -5197,6 +5269,7 @@ function clickDeferrable(w, x, y) {
   if (w.tut && (TUT[w.tut.s] === 'intro' || TUT[w.tut.s] === 'outro' || UI.hit(tutBtnSkip))) return false;
   if (zoomBtns().some(b => UI.hit(b))) return false;
   if (mapAvail(w) && UI.hit(mapBtn())) return false;
+  if (openAvail(w) && UI.hit(openBtn())) return false;
   if (handsOn(w) && UI.hit(handBar())) return false;
   if (w.edit && x >= EDIT.x && x <= EDIT.x + EDIT.w && y >= EDIT.y && y <= EDIT.y + editH(w)) return false;
   return true;
@@ -5219,6 +5292,7 @@ function worldPointer(w, x, y) {
   const zb = zoomBtns().find(b => UI.hit(b));                      // botones + − del zoom
   if (zb) { zb.fn(); sfx('click'); return; }
   if (mapAvail(w) && UI.hit(mapBtn())) { openMap(w); return; }
+  if (openAvail(w) && UI.hit(openBtn())) { toggleOpen(w); return; }
   if (handsOn(w) && UI.hit(handBar())) { const hi = HANDS.findIndex((_, i) => UI.hit(handBtn(i))); if (hi >= 0) handClick(w, hi); return; }
   if (w.edit) {                                                   // modo edición: solo el botón EDITAR (sale) y el panel/escenario
     const eb = w.btns.find(b => b.label === 'EDITAR');
@@ -5234,7 +5308,7 @@ function worldPointer(w, x, y) {
     const c = w.coins[i];
     if (Math.hypot(x - c.x, y - (c.y - 4)) < 26) { w.coins.splice(i, 1); collectCoin(w, c); Game.save(); return; }
   }
-  for (let i = w.slots.length - 1; i >= 0; i--) if (comalHit(x, y, i)) { comalClick(w, i); return; }
+  for (let i = LAYOUT.comals.length - 1; i >= 0; i--) if (comalHit(x, y, i)) { comalClick(w, i); return; }
   if (fridgeHit(x, y)) { fridgeClick(w); return; }
   if (restHit(x, y)) { restClick(w); return; }
   const sk = stockAt(w, x, y);                                    // pilas de la barra de comida lista y del mostrador de bebidas
@@ -5289,7 +5363,7 @@ function updateWorld(w, dt) {
       if (cu.held && !(w.edit && w.edit.held && cu.seat && w.edit.held.it === cu.seat.tb)) cu.held = false;
       if (cu.seat && !w.furn.includes(cu.seat.tb) && !(w.edit && w.edit.held && w.edit.held.it === cu.seat.tb)) leaveSeat(w, cu, false);
     });
-    if (w.dayTime > 0) promoteQueue(w);
+    if (w.dayTime > 0 && w.open) promoteQueue(w);
     updateQueue(w, dt);
     updateCars(w, dt);
     if (w.clawBusy > 0) w.clawBusy -= dt;
@@ -5298,7 +5372,7 @@ function updateWorld(w, dt) {
       it.downT += dt; it.down -= dt;
       if (it.down <= 0) { it.down = 0; sfx('ready'); const tm = tableMid(it), mp = S(tm[0], tm[1]); addPart(w, { type: 'text', text: '¡Mesa lista otra vez!', x: mp.x, y: mp.y - 40, vy: -24, life: 1.5, color: '#9af0b8' }); }
     }
-    if (w.dayTime > 0 && !w.customers.some(cu => cu.vip || cu.gd)) {                   // llegada de los VIP y de los que regalan gemas, de uno en uno (si el local aún cumple los requisitos)
+    if (w.dayTime > 0 && w.open && !w.customers.some(cu => cu.vip || cu.gd)) {                   // llegada de los VIP y de los que regalan gemas, de uno en uno (si el local aún cumple los requisitos)
       const v = w.vips.find(q => !q.done && hourOf(w) >= q.at);
       if (v && GEMMERS[v.k]) { if (spawnGemmer(w, GEMMERS[v.k])) v.done = true; }
       else if (v) { const def = VIPS[v.k]; if (!vipEligible(w, def)) v.done = true; else if (spawnVip(w, def)) v.done = true; }
@@ -5309,8 +5383,8 @@ function updateWorld(w, dt) {
       w.spawnT -= dt;
       if (w.spawnT <= 0) {
         const h = hourOf(w), rush = h >= 13 && h < 15.5 ? .6 : h < 9 ? 1.35 : h >= 18 && h < 21 ? .85 : h >= 21 ? 1.3 : 1;      // hora de la comida: más gente; temprano y de noche, menos
-        const base = clamp(9.5 - (w.day - 1) * .9, 4.2, 9.5) * rush * ((w.outs || []).some(o => o.type === 'cartel') ? .94 : 1) / (CUR_EVENT ? CUR_EVENT.arr : 1) / (1 + .025 * starBonus(w));       // el cartel de afuera atrae ~6 % más clientes
-        w.spawnT = spawnCustomer(w) ? rand(base * .7, base * 1.3) : 1;
+        const base = arrivalGap(w) * rush * ((w.outs || []).some(o => o.type === 'cartel') ? .94 : 1) / (1 + .025 * starBonus(w));       // el cartel de afuera atrae ~6 % más clientes
+        w.spawnT = w.open ? (spawnCustomer(w) ? rand(base * .7, base * 1.3) : 1) : 1.5;       // cerrado: nadie llega
       }
     } else if (!w.closedWarned) { w.closedWarned = true; toast(w, '¡Son las 11:00 PM! Cerramos: atiende a los últimos clientes'); sfx('door'); }
     // comal
@@ -5398,6 +5472,7 @@ function spoilStock(w) {                                              // al cerr
 }
 function finishDay(w) {
   w.coins.forEach(c => collectCoin(w, c, true)); w.coins = [];
+  w.open = true;
   if (w.dayAngry === 0 && w.rep < 5) { w.rep = Math.min(5, w.rep + 1); w.perfect = true; }
   w.spoil = spoilStock(w);
   w.pay = payDay(w.day) ? payCrew(w) : null;                                 // al terminar la semana se paga el sueldo del personal nuevo
@@ -5651,7 +5726,7 @@ function drawWalls(c, w) {
   c.strokeRect(du0 - 5, H - DH - 4, du1 - du0 + 10, 6);
   // letrero ABIERTO sobre la puerta
   const fl = .85 + .15 * Math.sin(t * 7) * Math.sin(t * 2.3);
-  const shut = w.dayTime <= 0, nc = shut ? '255,90,90' : '90,255,150';                              // CERRADO a las 8 PM, ABIERTO el resto del día
+  const shut = w.dayTime <= 0 || !w.open, nc = shut ? '255,90,90' : '90,255,150';                              // CERRADO a las 8 PM, ABIERTO el resto del día
   c.save(); c.shadowColor = shut ? '#ff3b3b' : '#3bff8a'; c.shadowBlur = 8 * fl;
   c.fillStyle = '#16141b'; rr(c, du0 + 6, 3, du1 - du0 - 12, 13, 3); c.fill(); c.lineWidth = 1.4; c.strokeStyle = `rgba(${nc},${shut ? .9 : fl})`; c.stroke();
   txt(c, shut ? 'CERRADO' : 'ABIERTO', (du0 + du1) / 2, 13, { font: `700 10px ${FONT_UI}`, align: 'center', color: `rgba(${shut ? '255,150,150' : '160,255,200'},${shut ? .9 : fl})`, ls: 1.5, maxW: du1 - du0 - 24 });
@@ -5735,36 +5810,81 @@ function counterBox(c, it, col, h = 34) {                        // mostrador / 
 }
 const CT_WOOD = { top: '#c98b4e', left: '#b5482f', right: '#8f3624' };
 
+/* Comales y parrilla (v1.7): cada pieza tiene varios lugares de cocción (it.slots).
+   El primer comal tiene 2, los comales que se compran tienen 4 y la parrilla de carne asada tiene 8. w.slots junta todos (en orden) y LAYOUT.slotItem / slotK dicen de quién es cada uno. */
 function drawComalItem(c, w, it) {
-  const t = w.t, s = it.slot, i = LAYOUT.comals.indexOf(it);
+  if (it.type === 'parrilla') { drawParrillaItem(c, w, it); return; }
+  const t = w.t, i = LAYOUT.comals.indexOf(it), cap = it.cap || 2;
   const x0 = it.c + .04, x1 = it.c + 1.96, y1 = it.r + .92;
   counterBox(c, it, { top: '#3a3d48', left: '#2f323c', right: '#262830' });                                  // fogón
   isoPoly(c, [S(x0 + .2, y1, 5), S(x1 - .2, y1, 5), S(x1 - .2, y1, 22), S(x0 + .2, y1, 22)]); c.fillStyle = '#150806'; c.fill();
   for (let k = 0; k < 5; k++) { const f = S(x0 + .32 + k * .32, y1, 5); flame(c, f.x, f.y, 8 + Math.sin(t * 9 + k * 1.7 + (i < 0 ? 0 : i) * 2) * 3); }
-  const p = S(it.c + 1, it.r + .5, 36), rx = .9 * TW * .7071, ry = .9 * TH * .7071;
-  if (s.state === 'cook') { c.fillStyle = 'rgba(255,140,60,.2)'; c.beginPath(); c.ellipse(p.x, p.y + 4, rx + 14, ry + 8, 0, 0, 6.3); c.fill(); }
-  c.lineWidth = 2.2; c.strokeStyle = P.ink;
-  c.fillStyle = '#23252c'; c.fillRect(p.x - rx, p.y, rx * 2, 4); c.beginPath(); c.ellipse(p.x, p.y + 4, rx, ry, 0, 0, Math.PI); c.fill();
-  const g = c.createLinearGradient(p.x - rx, p.y - ry, p.x + rx, p.y + ry);
-  g.addColorStop(0, '#8b909e'); g.addColorStop(.5, '#4b4f5c'); g.addColorStop(1, '#2f323c');
-  c.beginPath(); c.ellipse(p.x, p.y, rx, ry, 0, 0, 6.3); c.fillStyle = g; c.fill(); c.stroke();
-  c.strokeStyle = 'rgba(255,255,255,.3)'; c.lineWidth = 1.6; c.beginPath(); c.ellipse(p.x, p.y, rx - 5, ry - 3, 0, Math.PI * 1.05, Math.PI * 1.55); c.stroke();
-  if (s.state === 'empty') {
-    c.strokeStyle = 'rgba(255,255,255,.2)'; c.lineWidth = 1.4; c.setLineDash([3, 3]);
-    c.beginPath(); c.ellipse(p.x, p.y, 16, 8, 0, 0, 6.3); c.stroke(); c.setLineDash([]);
-    if (LAYOUT.comals.length > 1 && i >= 0) txt(c, String(i + 1), p.x, p.y + 4, { font: `700 12px ${FONT_UI}`, align: 'center', color: 'rgba(255,255,255,.35)' });
-  } else {                                                     // en cocción: el platillo sobre el comal + anillo de progreso
-    const rec = RECIPES[s.dish], n = Math.min(s.n || rec.yield, 5);
-    for (let k = 0; k < n; k++) {
-      const ang = k / n * 6.283 + t * .3, ox = Math.cos(ang) * 17, oy = Math.sin(ang) * 8;
-      c.fillStyle = '#e7c46a'; c.strokeStyle = P.ink; c.lineWidth = 1.1; c.beginPath(); c.ellipse(p.x + ox, p.y + oy, 5.5, 3, 0, 0, 6.3); c.fill(); c.stroke();
+  const rad = cap <= 2 ? .44 : .27, rx = rad * TW * .7071, ry = rad * TH * .7071, rg = cap <= 2 ? 11 : 9, up = cap <= 2 ? 19 : 15;
+  it.slots.forEach((s, k) => {
+    const p = slotPosOf(it, k);
+    if (s.state === 'cook') { c.fillStyle = 'rgba(255,140,60,.2)'; c.beginPath(); c.ellipse(p.x, p.y + 3, rx + 8, ry + 5, 0, 0, 6.3); c.fill(); }
+    c.lineWidth = 2; c.strokeStyle = P.ink;
+    c.fillStyle = '#23252c'; c.fillRect(p.x - rx, p.y, rx * 2, 3); c.beginPath(); c.ellipse(p.x, p.y + 3, rx, ry, 0, 0, Math.PI); c.fill();
+    const g = c.createLinearGradient(p.x - rx, p.y - ry, p.x + rx, p.y + ry);
+    g.addColorStop(0, '#8b909e'); g.addColorStop(.5, '#4b4f5c'); g.addColorStop(1, '#2f323c');
+    c.beginPath(); c.ellipse(p.x, p.y, rx, ry, 0, 0, 6.3); c.fillStyle = g; c.fill(); c.stroke();
+    c.strokeStyle = 'rgba(255,255,255,.3)'; c.lineWidth = 1.4; c.beginPath(); c.ellipse(p.x, p.y, rx - 4, ry - 2.4, 0, Math.PI * 1.05, Math.PI * 1.55); c.stroke();
+    if (s.state === 'empty') {
+      c.strokeStyle = 'rgba(255,255,255,.2)'; c.lineWidth = 1.2; c.setLineDash([3, 3]);
+      c.beginPath(); c.ellipse(p.x, p.y, rx * .55, ry * .55, 0, 0, 6.3); c.stroke(); c.setLineDash([]);
+    } else {                                                   // en cocción: el platillo sobre el comal + anillo de progreso
+      const rec = RECIPES[s.dish], n = Math.min(s.n || rec.yield, cap <= 2 ? 5 : 3);
+      for (let q = 0; q < n; q++) {
+        const ang = q / n * 6.283 + t * .3, ox = Math.cos(ang) * rx * .62, oy = Math.sin(ang) * ry * .62;
+        c.fillStyle = '#e7c46a'; c.strokeStyle = P.ink; c.lineWidth = 1; c.beginPath(); c.ellipse(p.x + ox, p.y + oy, cap <= 2 ? 5.5 : 3.8, cap <= 2 ? 3 : 2.2, 0, 0, 6.3); c.fill(); c.stroke();
+      }
+      const pr = s.t / (s.dur || rec.time), ry2 = p.y - up;
+      c.fillStyle = 'rgba(28,26,33,.78)'; c.beginPath(); c.arc(p.x, ry2, rg + 1.5, 0, 6.3); c.fill();
+      drawDish(c, s.dish, p.x, ry2, rg * .47);
+      c.lineWidth = 2.6; c.strokeStyle = 'rgba(255,255,255,.2)'; c.beginPath(); c.arc(p.x, ry2, rg, 0, 6.3); c.stroke();
+      c.strokeStyle = P.gold; c.beginPath(); c.arc(p.x, ry2, rg, -Math.PI / 2, -Math.PI / 2 + pr * 6.283); c.stroke();
     }
-    const pr = s.t / (s.dur || rec.time);
-    c.fillStyle = 'rgba(28,26,33,.75)'; c.beginPath(); c.arc(p.x, p.y - 19, 12.5, 0, 6.3); c.fill();
-    drawDish(c, s.dish, p.x, p.y - 19, 5.2);
-    c.lineWidth = 3; c.strokeStyle = 'rgba(255,255,255,.2)'; c.beginPath(); c.arc(p.x, p.y - 19, 11, 0, 6.3); c.stroke();
-    c.strokeStyle = P.gold; c.beginPath(); c.arc(p.x, p.y - 19, 11, -Math.PI / 2, -Math.PI / 2 + pr * 6.283); c.stroke();
+  });
+  if (LAYOUT.comals.length > 1 && i >= 0) { const q = TS(it, 1, .52, 36); txt(c, String(i + 1), q.x, q.y + 4, { font: `700 12px ${FONT_UI}`, align: 'center', color: 'rgba(255,255,255,.4)' }); }
+}
+function drawParrillaItem(c, w, it) {                                // parrilla de carne asada: cuerpo rojo con franja cromada, brasas, rejilla y campana
+  const t = w.t, x0 = it.c + .04, x1 = it.c + 2.96, y0 = it.r + .08, y1 = it.r + .92, H = 38;
+  isoBox(c, x0, y0, x1, y1, 0, H, { top: '#24252c', left: '#d62f3a', right: '#8f1c26' });
+  isoPoly(c, [S(x0, y1, 27), S(x1, y1, 27), S(x1, y1, 30.5), S(x0, y1, 30.5)]); c.fillStyle = '#dfe3ee'; c.fill(); c.lineWidth = 1.2; c.strokeStyle = P.ink; c.stroke();
+  for (let k = 0; k < 4; k++) {                                       // cuatro bocas con brasas y flamas
+    const xa = x0 + .2 + k * .7, xb = xa + .5;
+    isoPoly(c, [S(xa, y1, 4), S(xb, y1, 4), S(xb, y1, 21), S(xa, y1, 21)]); c.fillStyle = '#130706'; c.fill(); c.lineWidth = 1.2; c.strokeStyle = P.ink; c.stroke();
+    const gl = S((xa + xb) / 2, y1, 7); c.save(); c.globalCompositeOperation = 'lighter'; const g = c.createRadialGradient(gl.x, gl.y, 1, gl.x, gl.y, 16); g.addColorStop(0, `rgba(255,120,30,${.55 + .15 * Math.sin(t * 7 + k)})`); g.addColorStop(1, 'rgba(255,90,20,0)'); c.fillStyle = g; c.beginPath(); c.arc(gl.x, gl.y, 16, 0, 6.3); c.fill(); c.restore();
+    for (const dx of [.14, .32]) { const f = S(xa + dx, y1, 4); flame(c, f.x, f.y, 6 + Math.sin(t * 9 + k * 1.3 + dx * 9) * 2.4); }
   }
+  // rejilla encima, con brasas entre las barras
+  const tp0 = S(x0 + .08, y0 + .06, H), tp1 = S(x1 - .08, y0 + .06, H), tp2 = S(x1 - .08, y1 - .05, H), tp3 = S(x0 + .08, y1 - .05, H);
+  c.fillStyle = '#2d1008'; c.beginPath(); c.moveTo(tp0.x, tp0.y); c.lineTo(tp1.x, tp1.y); c.lineTo(tp2.x, tp2.y); c.lineTo(tp3.x, tp3.y); c.closePath(); c.fill();
+  c.save(); c.globalCompositeOperation = 'lighter'; c.fillStyle = `rgba(255,110,30,${.34 + .08 * Math.sin(t * 5)})`; c.beginPath(); c.moveTo(tp0.x, tp0.y); c.lineTo(tp1.x, tp1.y); c.lineTo(tp2.x, tp2.y); c.lineTo(tp3.x, tp3.y); c.closePath(); c.fill(); c.restore();
+  c.strokeStyle = '#aab0bf'; c.lineWidth = 1.4; c.beginPath();
+  for (let k = 0; k <= 12; k++) { const a = S(x0 + .08 + (x1 - x0 - .16) * k / 12, y0 + .06, H + .6), b = S(x0 + .08 + (x1 - x0 - .16) * k / 12, y1 - .05, H + .6); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); }
+  c.stroke();
+  c.lineWidth = 2; c.strokeStyle = P.ink; c.beginPath(); c.moveTo(tp0.x, tp0.y); c.lineTo(tp1.x, tp1.y); c.lineTo(tp2.x, tp2.y); c.lineTo(tp3.x, tp3.y); c.closePath(); c.stroke();
+  // chimenea y humo
+  isoBox(c, x1 - .5, y0 + .06, x1 - .2, y0 + .34, H, H + 40, { top: '#9a9aa8', left: '#707080', right: '#54545f' }, 1.4);
+  const sm = S(x1 - .35, y0 + .2, H + 44);
+  for (let k = 0; k < 3; k++) { const ph = (t * .5 + k / 3) % 1; c.fillStyle = `rgba(210,210,220,${.34 * (1 - ph)})`; c.beginPath(); c.arc(sm.x + Math.sin(ph * 6 + k) * 7, sm.y - ph * 26, 4 + ph * 7, 0, 6.3); c.fill(); }
+  // letrero
+  const o = S(x0, y1, 38); c.save(); c.translate(o.x, o.y); c.transform(1, .5, 0, 1, 0, 0);
+  { const fw = (x1 - x0) * U; c.fillStyle = '#14100e'; rr(c, 14, 6, fw - 28, 13, 4); c.fill(); c.lineWidth = 1.4; c.strokeStyle = P.gold; c.stroke(); txt(c, 'CARNE ASADA', fw / 2, 16, { font: `700 9.5px ${FONT_UI}`, align: 'center', color: P.gold, ls: 1, maxW: fw - 40 }); }
+  c.restore();
+  // los 8 lugares
+  it.slots.forEach((s, k) => {
+    const p = slotPosOf(it, k);
+    if (s.state === 'empty') { c.strokeStyle = 'rgba(255,255,255,.22)'; c.lineWidth = 1.1; c.setLineDash([2.5, 2.5]); c.beginPath(); c.ellipse(p.x, p.y + 1, 9.5, 4.8, 0, 0, 6.3); c.stroke(); c.setLineDash([]); return; }
+    const rec = RECIPES[s.dish], pr = s.t / (s.dur || rec.time), ry2 = p.y - 15;
+    c.fillStyle = '#8a4326'; c.strokeStyle = P.ink; c.lineWidth = 1.2; c.beginPath(); c.ellipse(p.x, p.y + 1, 10, 5, 0, 0, 6.3); c.fill(); c.stroke();
+    c.strokeStyle = 'rgba(30,12,6,.8)'; c.lineWidth = 1.1; c.beginPath(); for (const dx of [-5, -1.5, 2, 5.5]) { c.moveTo(p.x + dx - 2, p.y - 2.2); c.lineTo(p.x + dx + 2, p.y + 4); } c.stroke();
+    c.fillStyle = 'rgba(28,26,33,.8)'; c.beginPath(); c.arc(p.x, ry2, 9.4, 0, 6.3); c.fill();
+    drawDish(c, s.dish, p.x, ry2, 4.4);
+    c.lineWidth = 2.2; c.strokeStyle = 'rgba(255,255,255,.2)'; c.beginPath(); c.arc(p.x, ry2, 8.4, 0, 6.3); c.stroke();
+    c.strokeStyle = P.gold; c.beginPath(); c.arc(p.x, ry2, 8.4, -Math.PI / 2, -Math.PI / 2 + pr * 6.283); c.stroke();
+  });
 }
 
 // Barra de comida lista (y barra de antojitos): una pila por platillo
@@ -5911,6 +6031,57 @@ function drawStatueItem(c, w, it) {
   c.fillStyle = '#ffd24a'; rr(c, pl.x - 9, pl.y - 4, 18, 8, 2); c.fill(); c.lineWidth = 1; c.strokeStyle = P.ink; c.stroke();
 }
 // Vitrina del campeón (exclusiva de gemas): cinturón dorado dentro de un cristal
+const MASK_LEVEL = 12, MASK_PRICE = 2400, MASK_MAX = 5;
+const MASK_KEYS = ['ring', 'blue', 'black', 'pink', 'novato'];
+const maskPrice = w => Math.round((20 + 1.6 * Math.min(w.level, 70)) / 5) * 5;                // lo que paga cada cliente por una máscara (L12 ≈ $40, L30 ≈ $70, L70 ≈ $130)
+function drawMaskCase(c, w, it) {                                    // vitrina de vidrio con tres repisas llenas de máscaras de lucha
+  isoBox(c, it.c + .08, it.r + .08, it.c + .92, it.r + .92, 0, 16, { top: '#8a5a32', left: '#5a331c', right: '#44261a' }, 1.6);
+  const gl = a => `rgba(${a},.26)`;
+  for (let k = 0; k < 3; k++) {                                       // repisas con máscaras
+    const z = 24 + k * 17;
+    isoBox(c, it.c + .14, it.r + .14, it.c + .86, it.r + .86, z - 1.5, z, { top: '#c9a35e', left: '#8f6a30', right: '#6d4f22' }, 1);
+    [[.34, .5], [.66, .5]].forEach(([u, v], j) => { const p = S(it.c + u, it.r + v + (k % 2 ? .02 : 0), z + 6); drawMask(c, p.x, p.y, 6.6, MASKS[MASK_KEYS[(k * 2 + j) % MASK_KEYS.length]]); });
+  }
+  isoBox(c, it.c + .1, it.r + .1, it.c + .9, it.r + .9, 16, 66, { top: gl('215,240,255'), left: gl('150,205,245'), right: gl('110,170,225') }, 1.4);
+  isoBox(c, it.c + .06, it.r + .06, it.c + .94, it.r + .94, 66, 72, { top: '#ffd24a', left: '#c99a1c', right: '#9a7414' }, 1.4);
+  const tg = S(it.c + .5, it.r + .5, 80);
+  c.fillStyle = P.ink; rr(c, tg.x - 28, tg.y - 7, 56, 14, 5); c.fill(); c.lineWidth = 1.3; c.strokeStyle = P.gold; c.stroke();
+  txt(c, 'MÁSCARAS', tg.x, tg.y + 3.5, { font: `700 9.5px ${FONT_UI}`, align: 'center', color: P.gold, ls: .7, maxW: 50 });
+  const sh = (Math.sin(w.t * 1.6) + 1) / 2;
+  c.strokeStyle = `rgba(255,255,255,${.22 + .3 * sh})`; c.lineWidth = 2; const a = S(it.c + .2, it.r + .9, 20), b = S(it.c + .2, it.r + .9, 60);
+  c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); c.stroke();
+}
+function maskTrip(w, cu, seat) {                                     // antes de irse, a veces pasa a comprar una máscara
+  const it = LAYOUT.mask;
+  if (!it || w.level < MASK_LEVEL || w.tut || w.maskCust >= MASK_MAX || w.dayTime <= 15 || w.customers.some(q => q.state === 'claw' && q.cl && q.cl.kind === 'mask')) return false;
+  if (Math.random() >= (cu.vip ? .6 : cu.gd ? .45 : cu.car ? .22 : .13)) return false;
+  const goals = neighborCells(it); if (!goals.length) return false;
+  const cells = Grid.path({ c: seat.c, r: seat.r }, goals); if (!cells) return false;
+  const mult = cu.vip ? 1.8 : cu.gd ? 1.4 : 1;
+  cu.state = 'claw'; cu.moving = true; cu.speed = 1.9; cu.angry = false; cu.path = cells.map(n => Grid.pt(n.c, n.r));
+  cu.cl = { kind: 'mask', ph: 0, t: 0, paid: false, v: Math.max(5, Math.round(maskPrice(w) * mult / 5) * 5), gems: Math.random() < (cu.vip ? .3 : cu.gd ? .18 : .08) ? 1 : 0, mk: MASK_KEYS[Math.floor(Math.random() * MASK_KEYS.length)] };
+  w.maskCust++;
+  return true;
+}
+function updateMaskCust(w, cu, dt) {
+  const K = cu.cl, it = LAYOUT.mask;
+  if (!K || !it) { sendFromClaw(w, cu); return; }
+  if (K.ph === 0) {
+    if (step(cu, dt)) {                                              // llegó: se pone frente a la vitrina y escoge
+      K.ph = 1; K.t = 0; cu.moving = false;
+      const m = S(it.c + .5, it.r + .5), me = actorPos(cu); cu.dir = m.x >= me.x ? 1 : -1;
+      sfx('click'); addPart(w, { type: 'text', text: '¡Qué buena máscara!', x: me.x, y: me.y - 92, vy: -26, life: 1.4, color: '#ffe27a' });
+    }
+  } else {
+    K.t += dt;
+    if (K.t > 1.6 && !K.paid) {                                      // paga: sale la moneda
+      K.paid = true; const p = S(it.c + .5, it.r + 1.25);
+      w.coins.push({ x: p.x, y: p.y + 4, v: K.v, t: 0, vip: false, xp: 0, gems: K.gems });
+      sfx('coin'); addPart(w, { type: 'text', text: K.gems ? '¡Máscara vendida + gema!' : '¡Máscara vendida!', x: p.x, y: p.y - 70, vy: -24, life: 1.5, color: '#9af0b8' });
+    }
+    if (K.t > 2.6) sendFromClaw(w, cu);
+  }
+}
 function drawVitrinaItem(c, w, it) {
   isoBox(c, it.c + .1, it.r + .1, it.c + .9, it.r + .9, 0, 22, { top: '#7a4a2a', left: '#5a331c', right: '#44261a' }, 1.6);
   const p = S(it.c + .5, it.r + .5, 36);
@@ -6039,7 +6210,7 @@ function drawTableBody(c, tb) {                                  // sin girar, t
 function drawFurn(c, w, it) {
   withMirror(c, it, () => {
     switch (it.type) {
-      case 'comal': drawComalItem(c, w, it); break;
+      case 'comal': case 'parrilla': drawComalItem(c, w, it); break;
       case 'bar': case 'bar2': drawBarItem(c, w, it); break;
       case 'storage': drawStorageItem(c, w, it); break;
       case 'garra': drawClawItem(c, w, it); break;
@@ -6051,6 +6222,7 @@ function drawFurn(c, w, it) {
       case 'caja': drawCajaItem(c, it); break;
       case 'estatua': drawStatueItem(c, w, it); break;
       case 'vitrina': drawVitrinaItem(c, w, it); break;
+      case 'vitrinam': drawMaskCase(c, w, it); break;
     }
   });
 }
@@ -6270,8 +6442,8 @@ function drawBubble(c, cu, t) {
 
 /* ---------- Panel del comal y avisos al pasar el cursor ---------- */
 function drawCookPanel(c, w) {
-  const st = STATIONS[w.panel], list = w.panel === 'fridge' ? w.dslots : [w.slots[w.panelIdx]], Q = Object.assign({}, PANEL, { h: panelH(w) }), used = list.filter(s => s.state === 'cook').length, pg = panelPage(w);
-  const title = w.panel === 'comal' && w.slots.length > 1 ? `COMAL ${w.panelIdx + 1}` : st.title;
+  const st = STATIONS[w.panel], list = w.panel === 'fridge' ? w.dslots : ((LAYOUT.comals[w.panelIdx] || { slots: [] }).slots), Q = Object.assign({}, PANEL, { h: panelH(w) }), used = list.filter(s => s.state === 'cook').length, pg = panelPage(w);
+  const it0 = LAYOUT.comals[w.panelIdx], title = w.panel === 'comal' && it0 ? (it0.type === 'parrilla' ? 'PARRILLA' : LAYOUT.comals.filter(x => x.type === 'comal').length > 1 ? `COMAL ${LAYOUT.comals.filter(x => x.type === 'comal').indexOf(it0) + 1}` : st.title) : st.title;
   const accent = w.panel === 'fridge' ? '#5fd0ff' : P.gold;
   c.save();
   c.fillStyle = 'rgba(0,0,0,.45)'; rr(c, Q.x + 4, Q.y + 8, Q.w, Q.h, 16); c.fill();
@@ -6381,6 +6553,24 @@ function drawShopIcon(c, id, x, y, w) {
     c.strokeStyle = 'rgba(255,255,255,.85)'; c.lineWidth = 1.6; c.beginPath(); for (let k = -1; k <= 1; k++) { c.moveTo(x + k * 10 - 6, y - 2 - k * 5 + 3); c.lineTo(x + k * 10 + 1, y + 2 - k * 5 + 7); } c.stroke(); c.strokeStyle = P.ink; c.lineWidth = 1.6;
     c.fillStyle = '#e0364a'; rr(c, x - 10, y - 8, 20, 10, 3); c.fill(); c.stroke(); c.fillStyle = '#8fd0f0'; rr(c, x - 5, y - 13, 10, 6, 2); c.fill(); c.stroke();
     c.fillStyle = '#2f6fd0'; rr(c, x + 12, y - 24, 12, 12, 2.5); c.fill(); c.stroke(); txt(c, 'P', x + 18, y - 14.5, { font: `700 11px ${FONT_UI}`, align: 'center', color: '#fff' });
+  } else if (id === 'ext2' || id === 'ext3') {                   // el local con una ala nueva y flechas de ampliación
+    const n = id === 'ext2' ? 2 : 3;
+    c.beginPath(); c.moveTo(x - 20, y + 14); c.lineTo(x - 20, y - 2); c.lineTo(x - 4, y - 12); c.lineTo(x - 4, y + 14); c.closePath(); c.fillStyle = '#dcaa50'; c.fill(); c.stroke();
+    c.beginPath(); c.moveTo(x - 4, y + 14); c.lineTo(x - 4, y - 12); c.lineTo(x + 20, y - 2); c.lineTo(x + 20, y + 14); c.closePath(); c.fillStyle = '#c4274a'; c.fill(); c.stroke();
+    c.fillStyle = '#fff4e6'; c.fillRect(x + 4, y + 1, 7, 6); c.strokeRect(x + 4, y + 1, 7, 6);
+    c.strokeStyle = P.gold; c.lineWidth = 2.4; c.beginPath(); c.moveTo(x - 22, y - 20); c.lineTo(x + 22, y - 20); c.moveTo(x + 16, y - 25); c.lineTo(x + 22, y - 20); c.lineTo(x + 16, y - 15); c.moveTo(x - 16, y - 25); c.lineTo(x - 22, y - 20); c.lineTo(x - 16, y - 15); c.stroke();
+    txt(c, n === 2 ? 'II' : 'III', x, y + 10, { font: `400 14px ${FONT_DISPLAY}`, align: 'center', color: P.gold, stroke: P.ink, sw: 3 });
+  } else if (id === 'vitrinam') {                                // vitrina con máscaras
+    c.fillStyle = '#8a5a32'; rr(c, x - 14, y + 8, 28, 10, 3); c.fill(); c.stroke();
+    c.fillStyle = 'rgba(190,225,250,.45)'; rr(c, x - 14, y - 20, 28, 30, 3); c.fill(); c.stroke();
+    drawMask(c, x - 5, y - 11, 5.2, MASKS.ring); drawMask(c, x + 6, y - 11, 5.2, MASKS.blue); drawMask(c, x, y + 1, 5.2, MASKS.pink);
+    c.fillStyle = '#ffd24a'; rr(c, x - 15, y - 25, 30, 6, 2); c.fill(); c.stroke();
+  } else if (id === 'parrilla') {                                // parrilla roja con rejilla y brasas
+    c.beginPath(); c.moveTo(x - 24, y - 2); c.lineTo(x, y - 14); c.lineTo(x + 24, y - 2); c.lineTo(x, y + 10); c.closePath(); c.fillStyle = '#24252c'; c.fill(); c.stroke();
+    c.beginPath(); c.moveTo(x - 24, y - 2); c.lineTo(x, y + 10); c.lineTo(x, y + 22); c.lineTo(x - 24, y + 10); c.closePath(); c.fillStyle = '#d62f3a'; c.fill(); c.stroke();
+    c.beginPath(); c.moveTo(x + 24, y - 2); c.lineTo(x, y + 10); c.lineTo(x, y + 22); c.lineTo(x + 24, y + 10); c.closePath(); c.fillStyle = '#8f1c26'; c.fill(); c.stroke();
+    c.strokeStyle = '#aab0bf'; c.lineWidth = 1.2; c.beginPath(); for (let k = -2; k <= 2; k++) { c.moveTo(x + k * 7 - 7, y - 8 + Math.abs(k) * 1.2 + k * 1.5); c.lineTo(x + k * 7 + 7, y - 3 + k * 1.5); } c.stroke(); c.strokeStyle = P.ink; c.lineWidth = 1.8;
+    flame(c, x - 8, y - 1, 8); flame(c, x + 6, y - 5, 7);
   } else if (id === 'farol') {                                   // poste con foco y su círculo de luz
     c.fillStyle = 'rgba(255,226,140,.3)'; c.beginPath(); c.ellipse(x, y + 17, 22, 8, 0, 0, 6.3); c.fill();
     c.fillStyle = '#2b2540'; rr(c, x - 2, y - 18, 4, 36, 1.5); c.fill(); c.stroke(); rr(c, x - 6, y + 14, 12, 5, 2); c.fill(); c.stroke();
@@ -6563,7 +6753,7 @@ function drawShop(c, w) {
     txt(c, it.name, B.x + 96, y + 21, { font: `700 ${fitFont(c, it.name, tw, 21, 700)}px ${FONT_UI}`, color: dim ? '#9d96b4' : P.cream });
     txt(c, it.desc, B.x + 96, y + 37, { font: `600 ${fitFont(c, it.desc, tw, 13.5)}px ${FONT_UI}`, color: P.muted });
     if (it.fire) txt(c, `Contratado · cobra ${pesos(it.wage)} por semana`, B.x + 96, y + 54, { font: `700 17px ${FONT_UI}`, color: '#9af0b8', ls: .5, maxW: tw });
-    else if (it.open || it.done) txt(c, it.open ? 'Ya remodelado' : it.id === 'inv' ? 'Al máximo' : /^hand\d$/.test(it.id) ? 'Desbloqueada' : it.id === 'farol' ? 'Todos los faroles puestos' : it.id.startsWith('mv_') ? 'Aprendida' : (STAFF[it.id] || CHEFS[it.id]) ? 'Contratado' : it.id === 'arena' ? 'Construida' : it.id === 'remodel' ? 'Ya remodelado' : 'En tu taquería', B.x + 96, y + 54, { font: `700 17px ${FONT_UI}`, color: '#9af0b8', ls: .5 });
+    else if (it.open || it.done) txt(c, it.open ? 'Ya remodelado' : it.id === 'inv' ? 'Al máximo' : /^hand\d$/.test(it.id) ? 'Desbloqueada' : it.id === 'farol' ? 'Todos los faroles puestos' : it.id.startsWith('mv_') ? 'Aprendida' : (STAFF[it.id] || CHEFS[it.id]) ? 'Contratado' : it.id === 'arena' ? 'Construida' : (it.id === 'ext2' || it.id === 'ext3') ? 'Ya ampliado' : it.id === 'remodel' ? 'Ya remodelado' : 'En tu taquería', B.x + 96, y + 54, { font: `700 17px ${FONT_UI}`, color: '#9af0b8', ls: .5 });
     else if (it.gems) { drawGem(c, B.x + 106, y + 49, 7); txt(c, `${it.gems} gemas`, B.x + 118, y + 55, { font: `700 17px ${FONT_UI}`, color: w.gems >= it.gems ? '#9ff0ff' : '#ff8fa0', ls: .5 }); }
     else txt(c, pesos(it.price) + (it.wage ? ` · ${pesos(it.wage)} por semana` : ''), B.x + 96, y + 54, { font: `700 17px ${FONT_UI}`, color: dim ? '#8a7a50' : P.gold, ls: .5, maxW: tw });
     drawButton(c, Object.assign({ label: it.fire ? 'DESPEDIR' : it.open ? 'DECORAR' : it.done ? (it.id.startsWith('mv_') ? 'APRENDIDA' : 'COMPRADO') : it.need ? 'BLOQUEADO' : 'COMPRAR', style: it.fire ? 'red' : it.open ? 'teal' : 'green', size: 18 }, b, { disabled: !chk.ok }));
@@ -6707,8 +6897,8 @@ function drawTooltips(c, w) {
   }
   if (restHit(mx, my)) { UI.cursor = true; const bp = TS(LAYOUT.bench, 1, .4, 70); tip(bp.x - 150, bp.y - 20, ['Vestidor con suero', 'Banca de dos lugares: toca para que el Novato descanse']); return; }
   const cp = comalPos();
-  const hov = w.slots.findIndex((_, i) => comalHit(mx, my, i));
-  if (hov >= 0) { UI.cursor = true; const hp = comalPos(hov); tip(hp.x + 70, hp.y - 40, [w.slots.length > 1 ? `Comal ${hov + 1}` : 'Comal', 'Toca para elegir qué cocinar']); }
+  const hov = LAYOUT.comals.findIndex((_, i) => comalHit(mx, my, i));
+  if (hov >= 0) { UI.cursor = true; const hp = comalPos(hov), hi = LAYOUT.comals[hov]; tip(hp.x + 70, hp.y - 40, [hi.type === 'parrilla' ? 'Parrilla de carne asada' : LAYOUT.comals.length > 1 ? `Comal ${hov + 1}` : 'Comal', `${hi.slots.filter(q => q.state === 'cook').length} de ${hi.slots.length} lugares en uso`, 'Toca para elegir qué cocinar']); }
   else if (fridgeHit(mx, my)) { UI.cursor = true; const fp = fridgeRingPos(0); tip(fp.x + 30, fp.y - 20, ['Refrigerador', 'Micheladas: toca para prepararlas']); }
 }
 
@@ -7320,13 +7510,13 @@ const ICON_COL = {
   drinks: ['#c98b4e', '#2a62c9', '#1f4a9c', 'Bebidas'], bar: ['#c98b4e', '#b5482f', '#8f3624', 'Barra'], bench: ['#c98b4e', '#8f5a2c', '#6e4220', 'Banca'],
   plant: ['#c4492a', '#2f8f4e', '#2a7d44', 'Planta'], trompo: ['#b23d1f', '#d2602d', '#a63a1f', 'Trompo'], caja: ['#e8dcc0', '#cdbf9c', '#a99a78', 'Caja'],
   estatua: ['#ffe27a', '#e3b53a', '#b88a1f', 'Estatua'], vitrina: ['#d7f0ff', '#6ea6d6', '#4d82b0', 'Vitrina'],
-  bar2: ['#e0b070', '#1f8f94', '#17707a', 'Antojos'], storage: ['#eef4fa', '#b9c9d8', '#8fa3b8', 'Sobrantes'], garra: ['#ffd23a', '#2f6fd0', '#c4272f', 'Garra'],
+  bar2: ['#e0b070', '#1f8f94', '#17707a', 'Antojos'], storage: ['#eef4fa', '#b9c9d8', '#8fa3b8', 'Sobrantes'], garra: ['#ffd23a', '#2f6fd0', '#c4272f', 'Garra'], parrilla: ['#24252c', '#d62f3a', '#8f1c26', 'Parrilla'], vitrinam: ['#d7f0ff', '#7a4a2a', '#5a331c', 'Máscaras'],
   chairs: ['#ffc43a', '#ffb21e', '#d98f00', 'Sillas'], cartel: ['#ff7ab8', '#7c3aed', '#2a2733', 'Cartel'], farol: ['#ffe58a', '#2b2540', '#1a1730', 'Farol'], parking: ['#6b6d80', '#4a4c5c', '#34364a', 'Estac.']
 };
 function drawFurnIcon(c, type, x, y) {                           // cubito isométrico con el color de cada pieza
   const k = ICON_COL[type];
   c.save(); c.lineJoin = 'round'; c.lineWidth = 1.6; c.strokeStyle = P.ink;
-  const tall = ['fridge', 'plant', 'trompo', 'estatua', 'vitrina', 'storage', 'garra', 'cartel', 'farol'].includes(type) ? 8 : 0;
+  const tall = ['fridge', 'plant', 'trompo', 'estatua', 'vitrina', 'storage', 'garra', 'cartel', 'farol', 'vitrinam'].includes(type) ? 8 : 0;
   c.beginPath(); c.moveTo(x - 17, y - 4 - tall); c.lineTo(x, y - 12 - tall); c.lineTo(x + 17, y - 4 - tall); c.lineTo(x, y + 4 - tall); c.closePath(); c.fillStyle = k[0]; c.fill(); c.stroke();
   c.beginPath(); c.moveTo(x - 17, y - 4 - tall); c.lineTo(x, y + 4 - tall); c.lineTo(x, y + 16); c.lineTo(x - 17, y + 8); c.closePath(); c.fillStyle = k[1]; c.fill(); c.stroke();
   c.beginPath(); c.moveTo(x + 17, y - 4 - tall); c.lineTo(x, y + 4 - tall); c.lineTo(x, y + 16); c.lineTo(x + 17, y + 8); c.closePath(); c.fillStyle = k[2]; c.fill(); c.stroke();
@@ -7460,6 +7650,7 @@ function drawWorld(c, w) {
   drawHud(c, w);
   if (w.phase === 'play' && !w.shop && !w.modal && !(w.tut && (TUT[w.tut.s] === 'intro' || TUT[w.tut.s] === 'outro'))) zoomBtns().forEach(b => drawButton(c, b));
   if (mapAvail(w)) drawMapBtn(c, w);
+  if (openAvail(w)) drawOpenBtn(c, w);
   if (handsOn(w)) drawHands(c, w);
   if (w.phase === 'play') {
     if (!w.shop && !w.edit) drawTooltips(c, w);
