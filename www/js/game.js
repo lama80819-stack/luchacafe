@@ -41,6 +41,7 @@ const STAFF = {
 const STAFF_IDS = Object.keys(STAFF);
 const HIRE_IDS = STAFF_IDS.filter(id => STAFF[id].tab);          // los que se compran en la tienda (los meseros robados a los rivales no)
 /* =========================================================
+   VERSIÓN 1.9.1: Ampliación IV (local de 17 con cuadrilátero que se coloca en EDITAR), apuestas y asientos sólidos en la arena, cancha de básquet, patas de muebles y guardado exacto a media jornada
    VERSIÓN 1.9.0: la Arena Enmascarada (gradas, ring y función de lucha), fachadas sólidas con detalle (el zócalo ya no tapa las paredes), cajeros detrás del mostrador, comales girados arreglados
    VERSIÓN 1.8.2: sonidos por lugar (el pueblo y los negocios no oyen la taquería), colores sólidos en fachadas y ventanas con marco, muebles alineados, ir a dormir al cerrar (un minuto, o te desmayas)
    VERSIÓN 1.8.1: el pueblo sólido (edificios y casas separados, nadie atraviesa paredes), mapa que se mueve y se acerca, madrugada hasta la 1 AM, interiores ordenados
@@ -208,8 +209,8 @@ function rivalState(w, R) {                                         // conq = ya
   return 'ok';
 }
 const MAP_LEVEL = RIVALS[0].level;                                  // desde este nivel el mapa muestra restaurantes disponibles
-// Mega Ampliación (nivel 40): el local se vuelve una arena con cuadrilátero central; caben 6 mesas y 3 comales
-const ARENA = { price: 40000, level: 40, bonus: 1, ring: { c: 4, r: 3, w: 3, h: 3 }, maxTables: 6, maxComals: 3 };
+// Ampliación IV (nivel 52): el local pasa a 17 losetas, trae un cuadrilátero (mueble que se coloca en EDITAR) y caben más mesas y comales
+const ARENA = { price: 90000, level: 52, bonus: 1, ring: { c: 7, r: 3, w: 3, h: 3 }, maxTables: 6, maxComals: 3 };
 // Inventario ("cajita") para guardar muebles sin colocar: empieza con 5 lugares y se amplía por niveles
 const INV_BASE = 5;
 const INV_TIERS = [{ cap: 6, level: 5, price: 600 }, { cap: 7, level: 10, price: 2500 }, { cap: 8, level: 16, price: 4500 }, { cap: 9, level: 22, price: 7000 }, { cap: 10, level: 30, price: 9000 },
@@ -312,7 +313,7 @@ const GEMMERS = {
 };
 const VIP_MIN_MASKS = 2;
 // v1.7: 0 = local original (9), 1 = remodelado (11), 2 = Ampliación II (13), 3 = Ampliación III (15)
-const EXT_COLS = [9, 11, 13, 15];
+const EXT_COLS = [9, 11, 13, 15, 17];
 const EXPANDS = { 2: { level: 26, price: 22000, bonus: .25 }, 3: { level: 46, price: 60000, bonus: .25 } };
 const extOf = d => d.ext != null ? d.ext : d.remodeled ? 1 : 0;
 function applyRemodel(on) {                                   // ensancha (o devuelve a su tamaño original) el local en el lienzo
@@ -1308,7 +1309,8 @@ const FURN = {
   trompo: { fw: 1, fh: 1, h: 96,  name: 'Trompo de pastor' },
   caja:   { fw: 1, fh: 1, h: 52,  name: 'Caja registradora' },
   estatua: { fw: 1, fh: 1, h: 104, name: 'Estatua de luchador' },
-  vitrina: { fw: 1, fh: 1, h: 78,  name: 'Vitrina del campeón' }
+  vitrina: { fw: 1, fh: 1, h: 78,  name: 'Vitrina del campeón' },
+  ring:   { fw: 3, fh: 3, h: 74,  name: 'Cuadrilátero' }
 };
 /* Mesas y sillas se venden por separado. Cada mesa lleva un juego de dos sillas (que se pone en el modo EDITAR).
    tip = propina extra de la mesa; comfort = comodidad de las sillas (más paciencia y un poco más de propina). */
@@ -1370,7 +1372,6 @@ function placeSeats(tb) {                                       // sillas y plat
 }
 const footprint = it => { const d = dimsOf(it), out = []; for (let i = 0; i < d.fw; i++) for (let j = 0; j < d.fh; j++) out.push([it.c + i, it.r + j]); return out; };
 const tableMid = tb => tp(tb, 2, .5);                           // centro de la mesa (isoX, isoY) sin contar las sillas
-const RING_CELLS = () => { const o = [], g = ARENA.ring; for (let i = 0; i < g.w; i++) for (let j = 0; j < g.h; j++) o.push([g.c + i, g.r + j]); return o; };
 // Partida nueva: el local está pelón. Solo trae la barra de comida lista y la banca del vestidor; el comal, la mesa y el refri se compran (tutorial)
 const starterFurn = () => [makeFurn('bar', 0, 5), makeFurn('bench', 7, 0)];
 // Partidas de versiones muy viejas (sin mobiliario guardado) arrancan con el local completo de antes
@@ -1389,7 +1390,6 @@ function rebuildLayout(w) {                                      // se llama cad
   SEATS.length = 0; LAYOUT.tables.forEach(t => t.seats.forEach(s => SEATS.push(s)));
   Grid.blocked.fill(0);                                          // mesas, sillas y muebles son sólidos: nadie los atraviesa
   f.forEach(it => footprint(it).forEach(([c, r]) => Grid.block(c, r)));
-  if (DECO.arena) RING_CELLS().forEach(([c, r]) => Grid.block(c, r));      // el cuadrilátero central también es sólido
 }
 const rebuildGrid = rebuildLayout;
 function neighborCells(it) {                                     // losetas libres que rodean una pieza (desde donde se le puede atender)
@@ -1456,7 +1456,6 @@ const SIDE_Y = -3.2, SPAWN_X = 13, EXIT_X = -1.8;               // banqueta exte
 function layoutConnected(w, items) {                             // todo debe seguir siendo alcanzable desde la puerta
   const blocked = new Uint8Array(COLS * ROWS);
   items.forEach(it => footprint(it).forEach(([c, r]) => { blocked[r * COLS + c] = 1; }));
-  if (DECO.arena) RING_CELLS().forEach(([c, r]) => { blocked[r * COLS + c] = 1; });
   const entry = DOOR.cells[0], start = entry.r * COLS + entry.c;
   if (blocked[start]) return false;
   const seen = new Uint8Array(COLS * ROWS); seen[start] = 1;
@@ -1491,8 +1490,7 @@ function canPlace(w, it, c, r) {
   if (tiles.some(([a, b]) => a === DOOR.cells[0].c && b === DOOR.cells[0].r)) return 'Esa loseta es la entrada';
   const taken = new Set();
   w.furn.forEach(o => { if (o !== it) footprint(o).forEach(([a, b]) => taken.add(b * COLS + a)); });
-  if (DECO.arena) RING_CELLS().forEach(([a, b]) => taken.add(b * COLS + a));
-  if (tiles.some(([a, b]) => taken.has(b * COLS + a))) return DECO.arena && RING_CELLS().some(([a, b]) => tiles.some(([x, y]) => x === a && y === b)) ? 'Ahí está el cuadrilátero' : 'Ahí ya hay otro mueble';
+  if (tiles.some(([a, b]) => taken.has(b * COLS + a))) return 'Ahí ya hay otro mueble';
   if (!layoutConnected(w, w.furn.filter(o => o !== it).concat([moved]))) return 'Bloquearía el paso';
   return null;
 }
@@ -2596,10 +2594,13 @@ const Game = {
     const midDay = w.phase === 'play', pocket = w.coins.reduce((s, co) => s + co.v, 0);   // las monedas sin cobrar también cuentan
     const grab = it => ({ type: it.type, c: it.c, r: it.r, rot: it.rot || 0, style: it.style, chair: it.type === 'table' ? it.chair : undefined, cap: it.cap,
       slots: it.slots ? it.slots.map(s => ({ state: s.state, dish: s.dish, t: s.t, n: s.n, dur: s.dur })) : undefined });
-    Store.write(Store.key(this.slot), { v: 12, stars: w.stars, moves: w.moves, conq: w.conq, flock: w.fightLock, guards: w.guards.map(g => g.id), chefs: w.chefs.map(m => m.id), town: townPersist(w), cookN: w.cookN || 0, at: Date.now(), gems: w.gems, char: w.char, outs: w.outs.map(o => ({ type: o.type, c: o.c, r: o.r })), lot: w.lot ? { c: w.lot.c, r: w.lot.r } : null, clawN: w.clawN, clawDay: w.clawDay, tut: w.tut ? w.tut.s : null, day: w.phase === 'summary' ? w.day + 1 : w.day, money: w.money + pocket, rep: w.rep, totalServed: w.totalServed, stock: stockSaved(w), hands: w.nHands, level: w.level, xp: w.xp,
+    Store.write(Store.key(this.slot), { v: 12, stars: w.stars, moves: w.moves, conq: w.conq, flock: w.fightLock, guards: w.guards.map(g => g.id), chefs: w.chefs.map(m => m.id), town: townPersist(w), cookN: w.cookN || 0, at: Date.now(), gems: w.gems, char: w.char, outs: w.outs.map(o => ({ type: o.type, c: o.c, r: o.r })), lot: w.lot ? { c: w.lot.c, r: w.lot.r } : null, clawN: w.clawN, clawDay: w.clawDay, tut: w.tut ? w.tut.s : null, day: w.phase === 'summary' ? w.day + 1 : w.day, money: w.money + pocket + (w.inn && w.inn.bet ? w.inn.bet.amt : 0), rep: w.rep, totalServed: w.totalServed, stock: stockSaved(w), hands: w.nHands, level: w.level, xp: w.xp,
       furn: w.furn.map(grab), inv: w.inv.concat(held).map(f => ({ type: f.type, style: f.style, chair: f.type === 'table' ? f.chair : undefined })), invCap: w.invCap, staff: w.staff.map(m => m.id), deco: w.deco,
       resume: midDay ? { dayTime: w.dayTime, dayServed: w.dayServed, dayEarned: w.dayEarned, dayCost: w.dayCost, dayAngry: w.dayAngry, repTemp: w.repTemp, vips: w.vips,
-        stam: w.novato.stamina, staffStam: w.staff.map(m => m.stamina) } : null });
+        stam: w.novato.stamina, staffStam: w.staff.map(m => m.stamina), late: w.late || 0, lateS0: w.lateS0, open: w.open !== false,
+        px: w.novato.x, py: w.novato.y, pdir: w.novato.dir, cust: custPersist(w),
+        away: w.loc !== 'rest' && w.town ? awayPersist(w) : null,
+        tc: w.town ? { movies: w.town.movies, shows: w.town.shows, penalN: w.town.penalN, hoopN: w.town.hoopN, movie: w.town.movie } : null } : null });
   },
   update(dt) {
     const w = this.w;
@@ -2614,6 +2615,7 @@ const Game = {
       if (w.modal === 'lvl') updateLevelUp(w, dt);
       if (w.modal === 'fight') updateFight(w, dt);
       if (w.modal === 'penal') updatePenal(w, dt);
+      if (w.modal === 'hoops') updateHoops(w, dt);
       updateFade(w, dt);
       if (w.moneyFlash > 0) w.moneyFlash -= dt;
       w.toasts.forEach(t => t.t -= dt); w.toasts = w.toasts.filter(t => t.t > 0);
@@ -2645,7 +2647,7 @@ const Game = {
   rightClick() { const w = this.w; if (w.edit && w.edit.held) editCancel(w); },
   key(e) {
     const w = this.w;
-    if (w.modal) { if (w.modal === 'sign') return signKey(w, e); if (w.modal === 'cal') return calKey(w, e); if (w.modal === 'lvl') return lvKey(w, e); if (w.modal === 'map') return mapKey(w, e); if (w.modal === 'fight') return fightKey(w, e); if (w.modal === 'dlg') return dlgKey(w, e); if (w.modal === 'catalog') { if (e.key === 'Escape') { w.modal = null; sfx('back'); return true; } return false; } if (w.modal === 'paint') { if (e.key === 'Escape') { w.modal = null; Game.save(); sfx('back'); return true; } return false; } if (w.modal === 'penal') { if (e.key === 'Escape') { penalClosePanel(w); return true; } return false; } if (e.key === 'Escape') { w.modal = null; sfx('back'); return true; } return false; }
+    if (w.modal) { if (w.modal === 'sign') return signKey(w, e); if (w.modal === 'cal') return calKey(w, e); if (w.modal === 'lvl') return lvKey(w, e); if (w.modal === 'map') return mapKey(w, e); if (w.modal === 'fight') return fightKey(w, e); if (w.modal === 'dlg') return dlgKey(w, e); if (w.modal === 'catalog') { if (e.key === 'Escape') { w.modal = null; sfx('back'); return true; } return false; } if (w.modal === 'paint') { if (e.key === 'Escape') { w.modal = null; Game.save(); sfx('back'); return true; } return false; } if (w.modal === 'penal') { if (e.key === 'Escape') { penalClosePanel(w); return true; } return false; } if (w.modal === 'hoops') return hoopsKey(w, e); if (e.key === 'Escape') { w.modal = null; sfx('back'); return true; } return false; }
     if (w.phase === 'play' && !w.shop) {                                                             // zoom con el teclado
       if (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd') { camZoomAt(1.2, CAMC.x, CAMC.y); return true; }
       if (e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract') { camZoomAt(1 / 1.2, CAMC.x, CAMC.y); return true; }
@@ -2690,6 +2692,7 @@ function createWorld(save) {
   w.char = { look: Object.assign({}, LOOK_DEFAULT, save && save.char && save.char.look), own: Object.assign({}, save && save.char && save.char.own) };            // personalización del personaje
   w.cookN = save && save.cookN ? clamp(save.cookN | 0, 0, 6) : 0; w.outs = []; w.pendingLv = []; w.lot = null; w.cars = []; w.carT = 12; w.clawN = save && save.clawN ? save.clawN : 0; w.clawDay = save && save.clawDay ? save.clawDay : 0; w.shopPage = 0; w.modal = null;
   w.tut = save ? (Number.isInteger(save.tut) ? { s: save.tut } : null) : { s: 0 };                // tutorial: solo en partida nueva (y se retoma si se guardó a medias)
+  if (w.deco.arena && extOf(w.deco) < 4) w.deco.ext = 4;
   DECO = w.deco; applyRemodel(extOf(w.deco));                                                // el local se ensancha si ya se remodeló
   loadLayout(w, save);                                                                           // mobiliario colocado e inventario
   const hired = save ? (Array.isArray(save.staff) ? save.staff : save.waiter ? ['waiter1'] : []).filter(id => STAFF[id]) : [];
@@ -2733,13 +2736,14 @@ function loadLayout(w, save) {
     if (save && save.comal2) w.inv.push(makeFurn('comal'));                // lo ya comprado pasa al inventario
     for (let i = 2; i < (save && save.tables || 2); i++) w.inv.push(makeFurn('table'));
   }
+  if (DECO.arena && !w.furn.some(f => f.type === 'ring') && !w.inv.some(f => f.type === 'ring')) w.furn.push(makeFurn('ring', 4, 3, 0));
   fixLayout(w); fixOuts(w);
   rebuildLayout(w);
 }
 // Si una pieza cambió de tamaño o de sitio (p. ej. el mostrador de bebidas ahora mide 2 losetas), las que quedan encimadas o fuera se reacomodan solas
 function fixLayout(w) {
-  const taken = new Set(), keep = [], bad = [], ring = DECO.arena ? new Set(RING_CELLS().map(([c, r]) => r * COLS + c)) : new Set();
-  const okTiles = t => t.every(([c, r]) => c >= 0 && r >= 0 && c < COLS && r < ROWS && !taken.has(r * COLS + c) && !ring.has(r * COLS + c) && !(c === DOOR.cells[0].c && r === DOOR.cells[0].r));
+  const taken = new Set(), keep = [], bad = [];
+  const okTiles = t => t.every(([c, r]) => c >= 0 && r >= 0 && c < COLS && r < ROWS && !taken.has(r * COLS + c) && !(c === DOOR.cells[0].c && r === DOOR.cells[0].r));
   w.furn.forEach(it => { const t = footprint(it); if (okTiles(t)) { t.forEach(([c, r]) => taken.add(r * COLS + c)); keep.push(it); } else bad.push(it); });
   bad.forEach(it => {
     let spot = null;
@@ -2952,6 +2956,29 @@ function planGemmer(w) {                                          // ¿llega hoy
     const rest = pool.filter(q => q !== k); if (rest.length) w.vips.push({ k: pick(rest), at: rand(15, 21), done: false });
   }
 }
+// clientes que estaban sentados (esperando o comiendo) al guardar: vuelven a su silla con su pedido, su paciencia y lo que ya se les sirvió
+function custPersist(w) {
+  return w.customers.filter(cu => cu.seated && cu.seat && (cu.state === 'wait' || cu.state === 'eat' || cu.state === 'sit') && SEATS.indexOf(cu.seat) >= 0).map(cu => ({
+    si: SEATS.indexOf(cu.seat), state: cu.state === 'sit' ? 'wait' : cu.state, look: cu.look, off: cu.off, pat: cu.patience, pmax: cu.pmax, eatT: cu.eatT || 0, freeze: cu.freeze || 0,
+    order: cu.order.map(i => ({ key: i.key, done: !!i.done })), served: cu.served || [], vk: cu.vd ? cu.vd.key : null, gk: cu.gd ? cu.gd.key : null }));
+}
+function custRestore(w, list) {
+  (Array.isArray(list) ? list : []).forEach(d => {
+    const seat = SEATS[d.si]; if (!seat || seat.customer || !d.look || !Array.isArray(d.order) || !d.order.length) return;
+    const vd = d.vk && VIPS[d.vk] ? VIPS[d.vk] : null, gd = d.gk && GEMMERS[d.gk] ? GEMMERS[d.gk] : null;
+    if (d.order.some(i => !RECIPES[i.key])) return;
+    const cu = { x: seat.gx, y: seat.gy, path: [], speed: 1.9, dir: seat.dir, phase: rand(0, 6), moving: false, alpha: 1, state: d.state === 'eat' ? 'eat' : 'wait', seat, look: d.look, off: d.off || 0, seated: true,
+      patience: clamp(+d.pat || 20, 1, 400), pmax: clamp(+d.pmax || 40, 1, 400), timer: 0, bubbleT: 0, eatT: +d.eatT || 0, angry: false, order: d.order, served: d.served || [], freeze: +d.freeze || 0,
+      vip: !!vd, vd, gd, z: 0, spin: 0, car: null };
+    seat.customer = cu; w.customers.push(cu);
+  });
+}
+// dónde estaba el jugador si guardó estando en el pueblo (o dentro de un edificio: reaparece en su puerta)
+function awayPersist(w) {
+  const T = w.town; let x = T.x, y = T.y;
+  if (w.loc === 'in' && w.inId && BLDG[w.inId]) { const sp = doorSpot(BLDG[w.inId]); x = sp.x; y = sp.y; }
+  return { x, y };
+}
 function startDay(w, rs) {
   w.phase = 'play';
   w.dayLen = DAY_SEC;
@@ -2963,7 +2990,7 @@ function startDay(w, rs) {
   w.spawnT = 1.5; w.endT = 0; w.overT = 0; w.banner = w.event ? 3.4 : 2.6; w.panel = false;
   if (w.event && !rs && !w.tut) toast(w, `${w.event.name}: ${eventEffect(w.event)}`);
   w.clawCust = 0; w.clawBusy = 0; w.maskCust = 0;
-  w.loc = 'rest'; w.inId = null; w.inn = null; w.hedit = null; w.fade = null; w.novato.away = false; if (w.town) { w.town.movies = 0; w.town.shows = 0; w.town.penalN = 0; w.town.sit = null; w.town.path = []; }
+  w.loc = 'rest'; w.inId = null; w.inn = null; w.hedit = null; w.fade = null; w.novato.away = false; if (w.town) { w.town.movies = 0; w.town.shows = 0; w.town.penalN = 0; w.town.hoopN = 0; w.town.sit = null; w.town.path = []; }
   w.customers = []; w.queue = []; w.cars = []; w.carT = rand(8, 16); w.coins = []; w.parts = [];
   if (!rs) allSlots(w).forEach(s => { s.state = 'empty'; s.dish = null; s.t = 0; });    // al cargar a media jornada, lo que estaba en el fuego sigue ahí
   SEATS.forEach(s => { s.customer = null; });
@@ -2979,11 +3006,19 @@ function startDay(w, rs) {
   w.fx = [];
   w.overlay = [];
   if (rs) {                                                                  // reanuda la jornada donde se guardó
-    w.dayTime = clamp(rs.dayTime, 1, w.dayLen); w.dayServed = rs.dayServed || 0; w.dayEarned = rs.dayEarned || 0; w.dayCost = rs.dayCost || 0; w.dayAngry = rs.dayAngry || 0;
+    w.late = clamp(+rs.late || 0, 0, lateSec(w)); w.lateS0 = Number.isFinite(rs.lateS0) ? rs.lateS0 : undefined;
+    w.dayTime = clamp(rs.dayTime, w.late > 0 ? 0 : 1, w.dayLen); if (w.late > 0) w.dayTime = 0; w.dayServed = rs.dayServed || 0; w.dayEarned = rs.dayEarned || 0; w.dayCost = rs.dayCost || 0; w.dayAngry = rs.dayAngry || 0;
     w.repTemp = rs.repTemp || 0; w.vips = Array.isArray(rs.vips) ? rs.vips.filter(v => VIPS[v.k] || GEMMERS[v.k]) : [];
     if (Number.isFinite(rs.stam)) n.stamina = clamp(rs.stam, 0, maxStamina(w));
     w.staff.forEach((m, i) => { if (rs.staffStam && Number.isFinite(rs.staffStam[i])) m.stamina = clamp(rs.staffStam[i], 0, 100); });
-    w.spawnT = 2;
+    w.spawnT = 2; if (rs.open === false) w.open = false;
+    if (Number.isFinite(rs.px) && Number.isFinite(rs.py)) { const cc = Grid.cell(rs.px, rs.py); if (Grid.free(cc.c, cc.r)) { n.x = rs.px; n.y = rs.py; if (rs.pdir) n.dir = rs.pdir < 0 ? -1 : 1; } }
+    custRestore(w, rs.cust);
+    if (w.town && rs.tc) { w.town.movies = rs.tc.movies | 0; w.town.shows = rs.tc.shows | 0; w.town.penalN = rs.tc.penalN | 0; w.town.hoopN = rs.tc.hoopN | 0; w.town.movie = rs.tc.movie | 0; }
+    if (w.town && rs.away && Number.isFinite(rs.away.x) && Number.isFinite(rs.away.y)) {       // guardó en el pueblo: sigue ahí (los NPCs y coches se vuelven a generar)
+      const T = w.town; T.x = rs.away.x; T.y = rs.away.y; T.path = []; T.intent = null; T.moving = false; T.sit = null; T.cx = null; T.free = false;
+      w.loc = 'town'; n.away = true; camReset();
+    }
   }
 }
 
@@ -3029,7 +3064,7 @@ function addXp(w, amt) {
     const hire = HIRE_IDS.filter(id => STAFF[id].level === w.level).map(id => STAFF[id].name).concat(GUARD_IDS.filter(id => GUARDS[id].level === w.level).map(id => GUARDS[id].name)).concat(CHEF_IDS.filter(id => CHEFS[id].level === w.level).map(id => CHEFS[id].name));
     const extra = hire.length ? ` ¡Ya puedes contratar: ${hire.join(' y ')}!` : unlocked.length ? ` Nuevo platillo: ${unlocked.join(' y ')}`
       : w.level === 2 ? ' ¡Ya puedes DECORAR el changarro desde la TIENDA!' : w.level === SPOIL_LEVEL ? ' ¡Ojo! La comida que sobra se echa a perder: compra el Refri de sobrantes' : w.level === 3 ? ' Nueva bebida: Agua de Horchata' : w.level === 13 ? ' ¡Ya puedes comprar la Máquina de garra!'
-      : w.level === REMODEL.level ? ' ¡Ya puedes remodelar el changarro!' : w.level === ARENA.level ? ' ¡Ya puedes construir la Arena!' : '';
+      : w.level === REMODEL.level ? ' ¡Ya puedes remodelar el changarro!' : w.level === ARENA.level ? ' ¡Ya puedes construir la Ampliación IV (Arena)!' : '';
     toast(w, `¡Nivel ${w.level}!${extra}`); sfx('fanfare'); w.pendingLv.push(w.level);
     const p = actorPos(n, n.resting);
     addPart(w, { type: 'text', text: `¡NIVEL ${w.level}!`, x: p.x, y: p.y - 112, vy: -30, life: 1.8, color: '#9af0b8' });
@@ -3382,7 +3417,7 @@ function unlocksFor(L) {
   MOVE_BUY.forEach(k => { const M = MOVES[k]; if (M.level === L && L !== MOVES_LEVEL) out.push({ kind: 'move', icon: 'mv_' + k, name: M.name, desc: M.desc + '. Daño ' + M.dmg + ', gasta ' + M.cost + ' de energía' }); });
   feat(EXPANDS[2].level, 'Ampliación II del local', 'El local se ensancha a 13 losetas: caben 2 mesas y 1 comal más. TIENDA › OBRAS', 'ext2');
   feat(EXPANDS[3].level, 'Ampliación III del local', 'El local se ensancha a 15 losetas: 2 mesas y 1 comal más. TIENDA › OBRAS', 'ext3');
-  feat(TOWN_LEVEL, 'El pueblo', 'Pulsa PUEBLO (a la izquierda): cine, boutique, tienda de muebles, parque, canchas de fútbol y casas en venta', 'pueblo');
+  feat(TOWN_LEVEL, 'El pueblo', 'Pulsa PUEBLO (a la izquierda): cine, boutique, tienda de muebles, arena de lucha, parque, canchas de fútbol y básquet y casas en venta', 'pueblo');
   Object.keys(HOUSES).forEach(id => { if (HOUSES[id].level === L) out.push({ kind: 'feat', icon: 'casa', name: HOUSES[id].name, desc: `Ya puedes comprar esta casa en el pueblo por ${pesos(HOUSES[id].price)}: ponle muebles y píntala` }); });
   feat(MASK_LEVEL, 'Vitrina de máscaras', 'Tus clientes compran máscaras al salir: te dejan monedas y a veces gemas. TIENDA › MUEBLES', 'vitrinam', 'furn');
   feat(PARRILLA_LEVEL, 'Parrilla de carne asada', 'Ocho lugares para asar a la vez, con tacos de carne asada: se compra en la TIENDA', 'parrilla', 'furn');
@@ -3392,7 +3427,7 @@ function unlocksFor(L) {
   feat(FAROL_TIERS[3].level, 'Más faroles', 'Ya puedes poner más faroles en la calle (hasta ' + FAROL_MAX + ')', 'farol');
   HANDS.forEach((d, k) => { if (k && d.level === L) out.push({ kind: 'feat', icon: 'hand' + (k + 1), name: HAND_NAMES[k], desc: `Otro cuadro de carga abajo: lleva más pedidos a la vez. Se compra en TIENDA › OBRAS por ${pesos(d.price)}` }); });
   INV_TIERS.forEach(t => { if (t.level === L) out.push({ kind: 'furn', icon: 'inv', name: 'Cajita más grande', desc: `Ya puedes ampliar el inventario a ${t.cap} lugares (${pesos(t.price)})` }); });
-  feat(ARENA.level, 'Mega Ampliación: Arena', 'Cuadrilátero central, hasta 6 mesas y 3 comales. Llegan VIPs nuevos', 'arena');
+  feat(ARENA.level, 'Ampliación IV: Arena', 'El local pasa a 17 losetas y trae un cuadrilátero que colocas donde quieras (EDITAR). Más mesas y comales. TIENDA › OBRAS', 'arena');
   const deco = [];                                                  // decoración: todo junto en una sola tarjeta
   Object.keys(PAINT_INFO).forEach(k => { if (PAINT_INFO[k][1] === L) deco.push('Pared ' + PAINTS[k][3]); });
   Object.keys(AWNING_INFO).forEach(k => { if (k && AWNING_INFO[k][1] === L) deco.push('Lona ' + AWNINGS[k].name); });
@@ -4642,7 +4677,7 @@ function shopItems(w) {
   const staff = id => { const d = STAFF[id], hired = w.staff.some(m => m.id === id); return { id, tab: d.tab, name: d.name, desc: d.desc, price: d.price, wage: d.wage || 0, done: hired && !d.wage, fire: hired && !!d.wage, need: w.level < d.level ? `Requiere nivel ${d.level}` : null }; };
   const guard = id => { const d = GUARDS[id], hired = w.guards.some(g => g.id === id); return { id, tab: 'staff', name: d.name, desc: d.desc, price: d.price, wage: d.wage, done: false, fire: hired, need: w.level < d.level ? `Requiere nivel ${d.level}` : null }; };
   const chef = id => { const d = CHEFS[id], hired = w.chefs.some(m => m.id === id); return { id, tab: 'staff', name: d.name, desc: d.desc, price: d.price, wage: d.wage, done: hired && !d.wage, fire: hired && !!d.wage, need: w.level < d.level ? `Requiere nivel ${d.level}` : null }; };
-  const arenaNeed = !DECO.remodeled ? 'Primero remodela el changarro' : w.level < ARENA.level ? `Requiere nivel ${ARENA.level}` : null;
+  const arenaNeed = extOf(DECO) < 3 ? 'Primero la Ampliación III' : w.level < ARENA.level ? `Requiere nivel ${ARENA.level}` : null;
   const one = (id, name, desc, price, level, extra = {}) => Object.assign({ id, tab: 'furn', name, desc, price, done: cnt(id) >= 1, need: lvl(level) || fullMsg }, extra);
   const rows = [
     { id: 'comal', tab: 'furn', name: comals >= mc ? 'Comales' : comals === 0 ? 'Comal de lámina' : `${comals + 1}º Comal`, desc: comals === 0 ? 'Aquí se cocinan los tacos: 2 platillos a la vez. Tú lo colocas en el piso' : 'Otro fogón grande: 4 platillos distintos a la vez', price: priceOf('comal', comals), done: comals >= mc, need: fullMsg },
@@ -4673,7 +4708,7 @@ function shopItems(w) {
     { id: 'remodel', tab: 'works', name: 'Remodelar Changarro', desc: 'El local se ensancha (más lugar para mesas). Suma ½ máscara', price: REMODEL.price, done: !!DECO.remodeled, need: w.level < REMODEL.level ? `Requiere nivel ${REMODEL.level}` : null },
     { id: 'ext2', tab: 'works', name: 'Ampliación II del local', desc: 'El local pasa a 13 losetas de ancho: caben 2 mesas y 1 comal más. Suma ¼ de máscara', price: EXPANDS[2].price, done: extOf(DECO) >= 2, need: extOf(DECO) < 1 ? 'Primero remodela el changarro' : w.level < EXPANDS[2].level ? `Requiere nivel ${EXPANDS[2].level}` : null },
     { id: 'ext3', tab: 'works', name: 'Ampliación III del local', desc: 'El local pasa a 15 losetas de ancho: 2 mesas y 1 comal más. Suma ¼ de máscara', price: EXPANDS[3].price, done: extOf(DECO) >= 3, need: extOf(DECO) < 2 ? 'Primero la Ampliación II' : w.level < EXPANDS[3].level ? `Requiere nivel ${EXPANDS[3].level}` : null },
-    { id: 'arena', tab: 'works', name: 'Mega Ampliación: Arena', desc: 'Cuadrilátero central, hasta 6 mesas y 3 comales. Llegan VIPs nuevos', price: ARENA.price, done: !!DECO.arena, need: arenaNeed });
+    { id: 'arena', tab: 'works', name: 'Ampliación IV: Arena', desc: 'El local pasa a 17 losetas y trae un cuadrilátero que colocas donde quieras. Hasta 12 mesas y 6 comales', price: ARENA.price, done: !!DECO.arena, need: arenaNeed });
   MOVE_BUY.forEach(k => { const M = MOVES[k]; rows.push({ id: 'mv_' + k, tab: 'moves', name: M.name, desc: `${M.desc} · daño ${M.dmg} · energía ${M.cost}`, price: M.price, done: hasMove(w, k), need: lvl(M.level) }); });
   return rows;
 }
@@ -4797,38 +4832,22 @@ function doExpand(w, n) {                                           // Ampliaci�
   Cam.z = Math.min(Cam.z, (Cam.def || 1) * (n === 2 ? .9 : .8)); Cam.px = 0; Cam.py = 0; camClamp();
   toast(w, `¡Ampliación ${n === 2 ? 'II' : 'III'} lista! El local mide ${COLS} losetas de ancho: caben 2 mesas y 1 comal más`);
 }
-/* Mega Ampliación (nivel 40): el local se vuelve una arena con un cuadrilátero sólido en el centro.
-   Lo que estorbaba en esas losetas se reacomoda solo (o va al inventario si no cabe). */
+/* Ampliación IV (nivel 52): el local pasa a 17 losetas y llega un cuadrilátero (mueble) que se coloca en el primer hueco libre del centro;
+   si no cabe, queda en el inventario. Después se mueve donde se quiera en el modo EDITAR. */
 function doArena(w) {
   w.coins.forEach(co => collectCoin(w, co, true)); w.coins = [];
-  w.deco.arena = true;
-  const ring = new Set(RING_CELLS().map(([c, r]) => r * COLS + c));
-  const moved = w.furn.filter(it => footprint(it).some(([c, r]) => ring.has(r * COLS + c)));
-  moved.forEach(it => {                                                 // quien esté sentado o descansando se levanta
-    if (it.type === 'table') it.seats.forEach(s => { if (s.customer) { leaveSeat(w, s.customer, false); } });
-    if (it.type === 'bench') w.bench.forEach(m => { if (m) standUp(w, m); });
-  });
-  w.furn = w.furn.filter(it => !moved.includes(it)); rebuildLayout(w);
-  let toInv = 0;
-  moved.forEach(it => {
-    let spot = null;
-    for (const rot of [it.rot || 0, it.rot ? 0 : 1]) {
-      it.rot = rot;
-      for (let r = 0; r < ROWS && !spot; r++) for (let c = 0; c < COLS && !spot; c++) if (!canPlace(w, it, c, r)) spot = { c, r };
-      if (spot) break;
-    }
-    if (spot) { it.c = spot.c; it.r = spot.r; if (it.type === 'table') placeSeats(it); w.furn.push(it); rebuildLayout(w); }
-    else { w.inv.push(it); w.invCap = Math.max(w.invCap, w.inv.length); toInv++; }
-  });
-  [w.novato].concat(w.staff).forEach(m => {                              // nadie se queda parado dentro del cuadrilátero
-    const cc = Grid.cell(m.x, m.y);
-    if (ring.has(cc.r * COLS + cc.c)) { const s = nearestFree(m.x, m.y); m.x = s.x; m.y = s.y; m.path = []; m.task = null; }
-  });
+  w.deco.arena = true; w.deco.ext = 4; applyRemodel(4); rebuildLayout(w); fixOuts(w);
+  const ring = makeFurn('ring', 0, 0, 0);
+  let spot = null, best = 1e9;
+  for (let r = 0; r + 3 <= ROWS; r++) for (let c = 0; c + 3 <= COLS; c++) if (!canPlace(w, ring, c, r)) { const d = Math.abs(c + 1 - (COLS - 1) / 2) + Math.abs(r + 1 - 3.5); if (d < best) { best = d; spot = { c, r }; } }
+  if (spot) { ring.c = spot.c; ring.r = spot.r; w.furn.push(ring); rebuildLayout(w); }
+  else { w.inv.push(ring); w.invCap = Math.max(w.invCap, w.inv.length); }
   LAYOUT.tables.forEach(placeSeats); repathAll(w);
   addRep(w, ARENA.bonus);
   planVips(w, hourOf(w));
   w.shop = false; w.shopView = 'main'; w.shake = .5;
-  toast(w, `¡La Arena está lista! (+1 máscara)${moved.length ? ` Reacomodé ${moved.length} mueble(s)${toInv ? `, ${toInv} fue(ron) al inventario` : ''}` : ''}`);
+  Cam.z = Math.min(Cam.z, (Cam.def || 1) * .72); Cam.px = 0; Cam.py = 0; camClamp();
+  toast(w, spot ? '¡Ampliación IV lista! El local mide 17 losetas y el cuadrilátero ya está puesto: muévelo en EDITAR (+1 máscara)' : '¡Ampliación IV lista! El cuadrilátero está en tu inventario: colócalo en EDITAR (+1 máscara)');
 }
 /* ---------- Decorar el changarro: pisos, paredes, banderas, pósters, muebles de adorno y fachada ----------
    Todo se desbloquea por nivel y se paga con monedas. Las gemas (que regalan ciertos visitantes) solo sirven para piezas EXCLUSIVAS. */
@@ -5354,6 +5373,7 @@ function worldPointer(w, x, y) {
   if (w.modal === 'catalog') { catPointer(w, x, y); return; }
   if (w.modal === 'paint') { paintPointer(w, x, y); return; }
   if (w.modal === 'penal') { penalPointer(w, x, y); return; }
+  if (w.modal === 'hoops') { hoopsPointer(w, x, y); return; }
   if (w.shop) { shopPointer(w, x, y); return; }
   const zb = zoomBtns().find(b => UI.hit(b));                      // botones + − del zoom
   if (zb) { zb.fn(); sfx('click'); return; }
@@ -6294,6 +6314,7 @@ function drawFurn(c, w, it) {
       case 'estatua': drawStatueItem(c, w, it); break;
       case 'vitrina': drawVitrinaItem(c, w, it); break;
       case 'vitrinam': drawMaskCase(c, w, it); break;
+      case 'ring': drawRing(c, w, it); break;
     }
   });
 }
@@ -6320,8 +6341,8 @@ function drawDoorLeaves(c, a) {                                // dos hojas bati
 }
 
 /* ---------- Arena: cuadrilátero central con dos luchadores de utilería ---------- */
-function drawRing(c, w) {
-  const g = ARENA.ring, x0 = g.c + .06, y0 = g.r + .06, x1 = g.c + g.w - .06, y1 = g.r + g.h - .06, ZP = 12, t = w.t, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+function drawRing(c, w, it) {
+  const g = it ? { c: it.c, r: it.r, w: 3, h: 3 } : ARENA.ring, x0 = g.c + .06, y0 = g.r + .06, x1 = g.c + g.w - .06, y1 = g.r + g.h - .06, ZP = 12, t = w.t, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
   c.fillStyle = 'rgba(0,0,0,.25)'; isoPoly(c, [S(x0 - .1, y0 - .1, 0), S(x1 + .25, y0 - .1, 0), S(x1 + .25, y1 + .3, 0), S(x0 - .1, y1 + .3, 0)]); c.fill();
   isoBox(c, x0, y0, x1, y1, 0, ZP, { top: '#2f56c9', left: '#c4272f', right: '#8f1c26' }, 2);        // lona azul sobre faldón rojo
   c.lineWidth = 3; c.strokeStyle = 'rgba(255,255,255,.55)';
@@ -7551,7 +7572,6 @@ function drawEditFloor(c, w) {
   for (let i = 0; i < COLS; i++) for (let j = 0; j < ROWS; j++) { groundQuad(c, i, j, i + 1, j + 1); c.stroke(); }
   const en = DOOR.cells[0]; groundQuad(c, en.c, en.r, en.c + 1, en.r + 1); c.fillStyle = 'rgba(255,200,61,.38)'; c.fill();
   txt(c, 'ENTRADA', S(en.c + .5, en.r + .5).x, S(en.c + .5, en.r + .5).y + 4, { font: `700 10px ${FONT_UI}`, align: 'center', color: P.ink, ls: .5 });
-  if (DECO.arena) RING_CELLS().forEach(([a, b]) => { groundQuad(c, a, b, a + 1, b + 1); c.fillStyle = 'rgba(255,70,90,.22)'; c.fill(); });
   if (e.hit) { footprint(e.hit).forEach(([a, b]) => { groundQuad(c, a, b, a + 1, b + 1); c.fillStyle = 'rgba(255,200,61,.42)'; c.fill(); }); UI.cursor = true; }
   if (e.hitOut) { const lw = e.hitOut.type === 'parking' ? LOT_W : 1, lh = e.hitOut.type === 'parking' ? LOT_H : 1; groundQuad(c, e.hitOut.c, e.hitOut.r, e.hitOut.c + lw, e.hitOut.r + lh); c.fillStyle = 'rgba(255,200,61,.5)'; c.fill(); UI.cursor = true; }
   e.why = null;
@@ -7599,13 +7619,13 @@ const ICON_COL = {
   drinks: ['#c98b4e', '#2a62c9', '#1f4a9c', 'Bebidas'], bar: ['#c98b4e', '#b5482f', '#8f3624', 'Barra'], bench: ['#c98b4e', '#8f5a2c', '#6e4220', 'Banca'],
   plant: ['#c4492a', '#2f8f4e', '#2a7d44', 'Planta'], trompo: ['#b23d1f', '#d2602d', '#a63a1f', 'Trompo'], caja: ['#e8dcc0', '#cdbf9c', '#a99a78', 'Caja'],
   estatua: ['#ffe27a', '#e3b53a', '#b88a1f', 'Estatua'], vitrina: ['#d7f0ff', '#6ea6d6', '#4d82b0', 'Vitrina'],
-  bar2: ['#e0b070', '#1f8f94', '#17707a', 'Antojos'], storage: ['#eef4fa', '#b9c9d8', '#8fa3b8', 'Sobrantes'], garra: ['#ffd23a', '#2f6fd0', '#c4272f', 'Garra'], parrilla: ['#24252c', '#d62f3a', '#8f1c26', 'Parrilla'], vitrinam: ['#d7f0ff', '#7a4a2a', '#5a331c', 'Máscaras'],
+  bar2: ['#e0b070', '#1f8f94', '#17707a', 'Antojos'], storage: ['#eef4fa', '#b9c9d8', '#8fa3b8', 'Sobrantes'], garra: ['#ffd23a', '#2f6fd0', '#c4272f', 'Garra'], parrilla: ['#24252c', '#d62f3a', '#8f1c26', 'Parrilla'], vitrinam: ['#d7f0ff', '#7a4a2a', '#5a331c', 'Máscaras'], ring: ['#2f56c9', '#c4272f', '#8f1c26', 'Ring'],
   chairs: ['#ffc43a', '#ffb21e', '#d98f00', 'Sillas'], cartel: ['#ff7ab8', '#7c3aed', '#2a2733', 'Cartel'], farol: ['#ffe58a', '#2b2540', '#1a1730', 'Farol'], parking: ['#6b6d80', '#4a4c5c', '#34364a', 'Estac.']
 };
 function drawFurnIcon(c, type, x, y) {                           // cubito isométrico con el color de cada pieza
   const k = ICON_COL[type];
   c.save(); c.lineJoin = 'round'; c.lineWidth = 1.6; c.strokeStyle = P.ink;
-  const tall = ['fridge', 'plant', 'trompo', 'estatua', 'vitrina', 'storage', 'garra', 'cartel', 'farol', 'vitrinam'].includes(type) ? 8 : 0;
+  const tall = ['fridge', 'plant', 'trompo', 'estatua', 'vitrina', 'storage', 'garra', 'cartel', 'farol', 'vitrinam'].includes(type) ? 8 : type === 'ring' ? 3 : 0;
   c.beginPath(); c.moveTo(x - 17, y - 4 - tall); c.lineTo(x, y - 12 - tall); c.lineTo(x + 17, y - 4 - tall); c.lineTo(x, y + 4 - tall); c.closePath(); c.fillStyle = k[0]; c.fill(); c.stroke();
   c.beginPath(); c.moveTo(x - 17, y - 4 - tall); c.lineTo(x, y + 4 - tall); c.lineTo(x, y + 16); c.lineTo(x - 17, y + 8); c.closePath(); c.fillStyle = k[1]; c.fill(); c.stroke();
   c.beginPath(); c.moveTo(x + 17, y - 4 - tall); c.lineTo(x, y + 4 - tall); c.lineTo(x, y + 16); c.lineTo(x + 17, y + 8); c.closePath(); c.fillStyle = k[2]; c.fill(); c.stroke();
@@ -7677,6 +7697,7 @@ const HOUSES = {
 };
 const PARK = { x0: 30, y0: 22, x1: 40, y1: 30 };
 const FIELDS = [{ id: 'f1', x0: 30.2, y0: 31, x1: 34.8, y1: 40 }, { id: 'f2', x0: 35.2, y0: 31, x1: 39.8, y1: 40 }];
+const COURTS = [{ id: 'b1', x0: 42, y0: 31.4, x1: 50.4, y1: 40 }];                              // cancha de básquet (a la derecha de las de fútbol)
 const BENCHES = [{ x: 35, y: 23.5, f: 'y' }, { x: 31.5, y: 26, f: 'x' }, { x: 37.5, y: 26, f: 'x' }, { x: 32.5, y: 27.5, f: 'y' }];       // cada banca cabe en una loseta; se sienta uno desde la loseta de enfrente
 const FOUNTAIN = { x: 35, y: 26, r: 1.3 };
 const SWING = { x: 36.8, y: 28.3 };
@@ -7684,7 +7705,7 @@ const PARK_TREES = [[31.6, 23.7], [38.4, 23.7], [31.6, 28.5], [38.4, 28.5]];
 const doorRow = b => Math.floor(b.door.t);                                // la fila (casas) o columna (negocios) de la puerta
 const housePath = b => ({ x0: b.x1, x1: 19, y0: doorRow(b) - 1, y1: doorRow(b) + 2 });               // el caminito de piedra de la puerta de la casa a la banqueta
 // zonas por donde se puede caminar (todo lo demás es pasto, jardín o lo que queda detrás de los edificios)
-const WALK_RECTS = [[TOWN_X0, 11, TOWN_X0 + TOWN_NX, 21], [19, 21, 30, TOWN_Y0 + TOWN_NY], [PARK.x0, PARK.y0, PARK.x1, PARK.y1], [30, 30, 40, 42]]
+const WALK_RECTS = [[TOWN_X0, 11, TOWN_X0 + TOWN_NX, 21], [19, 21, 30, TOWN_Y0 + TOWN_NY], [PARK.x0, PARK.y0, PARK.x1, PARK.y1], [30, 30, 40, 42], [40, 30, 52, 42]]
   .concat(BLD.filter(b => b.kind === 'casa').map(b => { const p = housePath(b); return [p.x0, p.y0, p.x1, p.y1]; }));
 const inWalkRect = (c, r) => WALK_RECTS.some(q => c >= q[0] && c < q[2] && r >= q[1] && r < q[3]);
 // arbolitos (siempre los mismos) y faroles
@@ -7693,7 +7714,7 @@ const TREES = (() => {
   const keep = (x, y) => {
     if (y > 9.2 && y < 21.8) return false;                                                            // la avenida, sus banquetas y los setos
     if (x > 17.6 && x < 30.8) return false;                                                           // la calle que cruza, sus banquetas y su seto
-    if (x > 28.6 && x < 41.4 && y > 21 && y < 43) return false;                                        // parque y canchas
+    if (x > 28.6 && x < 52.6 && y > 21 && y < 43) return false;                                        // parque y canchas
     for (const b of BLD) { if (x > b.x0 - 1.8 && x < b.x1 + 1.8 && y > b.y0 - 1.8 && y < b.y1 + 2.4) return false; if (b.kind === 'casa' && y > b.door.t - 4 && y < b.door.t + 4.2 && x > b.x1 - .5) return false; }
     return true;
   };
@@ -7798,7 +7819,7 @@ const doorSpot = b => b.door.f === 'y' ? { x: b.door.t, y: b.y1 + .8 } : { x: b.
 function townInit(w, save) {
   const sv = (save && save.town) || {};
   w.town = { x: 5, y: 13.4, dir: 1, phase: 0, moving: false, speed: 4.2, path: [], intent: null, npcs: [], cars: [], npcT: 0, carT: 2, cx: null, cy: null, free: false, sit: null, t: 0, seen: false,
-    houses: {}, hinv: Array.isArray(sv.hinv) ? sv.hinv.filter(t => HF[t]) : [], hasTicket: false, movie: 0, movies: 0, shows: 0, penalDay: 0, penalN: 0, bedDay: 0 };
+    houses: {}, hinv: Array.isArray(sv.hinv) ? sv.hinv.filter(t => HF[t]) : [], hasTicket: false, movie: 0, movies: 0, shows: 0, penalDay: 0, penalN: 0, hoopN: 0, bedDay: 0 };
   Object.keys(sv.houses || {}).forEach(id => {
     if (!HOUSES[id]) return; const h = sv.houses[id], d = houseOf(w, id);
     d.own = !!h.own; if (HOME_WALLS.includes(h.wall)) d.wall = h.wall; if (HOME_FLOORS[h.floor]) d.floor = h.floor; if (HOME_FACHADA.includes(h.fachada)) d.fachada = h.fachada; if (HOME_ROOF.includes(h.roof)) d.roof = h.roof; d.cuadros = h.cuadros !== false;
@@ -7895,6 +7916,7 @@ function enterBuilding(w, id) {
 }
 function exitBuilding(w) {
   if (w.loc !== 'in' || w.fade) return;
+  if (w.inn && w.inn.bet) { w.money += w.inn.bet.amt; toast(w, 'Saliste antes de la lucha: te devolvieron tu apuesta'); w.inn.bet = null; }
   sfx('door');
   fadeTo(w, () => { const T = w.town, b = BLDG[w.inId], sp = doorSpot(b); T.x = sp.x; T.y = sp.y; T.path = []; T.intent = null; T.cx = null; T.free = false; w.loc = 'town'; w.inId = null; w.inn = null; w.hedit = null; w.modal = null; camReset(); });
 }
@@ -7928,6 +7950,8 @@ function townPointer(w, x, y) {
   if (bn >= 0) { const b = BENCHES[bn], st = b.f === 'y' ? { x: b.x, y: b.y + 1 } : { x: b.x + 1, y: b.y }; townGoTo(w, st.x, st.y, { type: 'bench', i: bn }); return; }
   const fl = FIELDS.find(f => q.x >= f.x0 && q.x <= f.x1 && q.y >= f.y0 && q.y <= f.y1);
   if (fl) { townGoTo(w, (fl.x0 + fl.x1) / 2, fl.y0 + 1.2, { type: 'field', id: fl.id }); return; }
+  const ct = COURTS.find(f => q.x >= f.x0 - .4 && q.x <= f.x1 + .4 && q.y >= f.y0 - .4 && q.y <= f.y1 + .4);
+  if (ct) { townGoTo(w, (ct.x0 + ct.x1) / 2, ct.y0 + 1.6, { type: 'court', id: ct.id }); return; }
   townGoTo(w, q.x, q.y, null);
 }
 function updateTown(w, dt) {                                           // el personaje del jugador en la calle
@@ -7940,6 +7964,7 @@ function updateTown(w, dt) {                                           // el per
     if (it && it.type === 'enter') enterBuilding(w, it.id);
     else if (it && it.type === 'bench') { const b = BENCHES[it.i]; T.sit = { i: it.i, t: 0 }; T.dir = b.f === 'y' ? -1 : 1; sfx('pickup'); toast(w, 'Descansas en la banca: tu energía sube poco a poco'); }
     else if (it && it.type === 'field') openPenal(w, it.id);
+    else if (it && it.type === 'court') openHoops(w, it.id);
   }
 }
 function townHint(w) {
@@ -7994,6 +8019,18 @@ function drawTownGround(c, w) {
     const a = S(f.x0 + .25, ym), b = S(f.x1 - .25, ym); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y);
     c.stroke(); isoEllipse(c, xm, ym, 0, 1.1); c.stroke();
   });
+  COURTS.forEach(f => {                                                                       // cancha de básquet: banqueta, pintura terracota, llaves azules y líneas blancas
+    const xm = (f.x0 + f.x1) / 2, ym = (f.y0 + f.y1) / 2;
+    band(f.x0 - .7, f.y0 - .7, f.x1 + .7, f.y1 + .7, '#cfc9b8');
+    band(f.x0, f.y0, f.x1, f.y1, '#c8643a');
+    band(xm - 1.6, f.y0, xm + 1.6, f.y0 + 3.4, '#2f6fd0'); band(xm - 1.6, f.y1 - 3.4, xm + 1.6, f.y1, '#2f6fd0');
+    c.strokeStyle = 'rgba(255,255,255,.92)'; c.lineWidth = 2; c.beginPath();
+    const R = (a, b, cc, d) => { const p = [S(a, b), S(cc, b), S(cc, d), S(a, d)]; c.moveTo(p[0].x, p[0].y); p.slice(1).forEach(q => c.lineTo(q.x, q.y)); c.closePath(); };
+    R(f.x0 + .2, f.y0 + .2, f.x1 - .2, f.y1 - .2); R(xm - 1.6, f.y0 + .2, xm + 1.6, f.y0 + 3.4); R(xm - 1.6, f.y1 - 3.4, xm + 1.6, f.y1 - .2);
+    const a = S(f.x0 + .2, ym), b = S(f.x1 - .2, ym); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y);
+    c.stroke(); isoEllipse(c, xm, ym, 0, 1.2); c.stroke(); isoEllipse(c, xm, f.y0 + 3.4, 0, 1.2); c.stroke(); isoEllipse(c, xm, f.y1 - 3.4, 0, 1.2); c.stroke();
+    const mk = S(xm, ym); c.save(); c.translate(mk.x, mk.y); c.scale(1, .5); c.globalAlpha = .75; drawMask(c, 0, 0, 16, MASKS.ring); c.restore();
+  });
 }
 function fenceItems(c) {                                                // la cerca blanca del parque, con sus puertas, como piezas sueltas para ordenarlas con la gente
   const P0 = PARK, out = [];
@@ -8030,6 +8067,15 @@ function drawSwing(c, x, y) {
   c.lineWidth = 3; c.strokeStyle = '#d6342c'; c.lineCap = 'round'; c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(top.x - 2, top.y); c.moveTo(b.x, b.y); c.lineTo(top.x + 2, top.y); c.moveTo(top.x - 2, top.y); c.lineTo(top.x + 2, top.y); c.stroke();
   const sw = Math.sin(Game.w.t * 2) * 6; c.lineWidth = 1.2; c.strokeStyle = '#555'; c.beginPath(); c.moveTo(top.x - 8, top.y); c.lineTo(top.x - 8 + sw, top.y + 30); c.moveTo(top.x + 8, top.y); c.lineTo(top.x + 8 + sw, top.y + 30); c.stroke();
   c.fillStyle = '#ffb21e'; c.lineWidth = 1.5; c.strokeStyle = P.ink; rr(c, top.x - 11 + sw, top.y + 29, 22, 5, 2); c.fill(); c.stroke();
+}
+function drawHoopPost(c, x, y, s) {                                       // poste con tablero y aro en la línea de fondo (s = -1 tablero al norte · 1 al sur)
+  c.fillStyle = 'rgba(0,0,0,.2)'; c.beginPath(); const g = S(x, y); c.ellipse(g.x, g.y + 2, 16, 5, 0, 0, 6.3); c.fill();
+  isoBox(c, x - .07, y + s * .12 - .07, x + .07, y + s * .12 + .07, 0, 104, { top: '#c9ceda', left: '#7a8090', right: '#555b6b' }, 1.2);
+  const yb = y + s * .02;
+  polyFS(c, fq('y', yb, x - .75, x + .75, 80, 132), '#f4f6fb', P.ink, 1.6); polyFS(c, fq('y', yb, x - .3, x + .3, 86, 108), null, '#e0364a', 1.8);
+  const rc = S(x, yb - s * .55, 90), ring = (ZZ, r) => { const p = S(x, yb - s * .55, ZZ); c.beginPath(); c.ellipse(p.x, p.y, r * TW * .7071, r * TH * .7071, 0, 0, 6.3); };
+  c.strokeStyle = 'rgba(255,255,255,.75)'; c.lineWidth = 1; for (let k = 0; k < 8; k++) { const a = k * .7854, p0 = S(x + Math.cos(a) * .3, yb - s * .55 + Math.sin(a) * .3, 90), p1 = S(x + Math.cos(a) * .17, yb - s * .55 + Math.sin(a) * .17, 70); c.beginPath(); c.moveTo(p0.x, p0.y); c.lineTo(p1.x, p1.y); c.stroke(); }
+  ring(90, .3); c.lineWidth = 3; c.strokeStyle = '#ff7a2a'; c.stroke(); c.lineWidth = 1; c.strokeStyle = P.ink; c.stroke();
 }
 function drawGoal(c, cx, y, face, z) {                                // portería sobre una línea de gol (face -1 mira al norte, 1 al sur)
   const w2 = 1.2, h = 22, d = .5 * face;
@@ -8329,6 +8375,7 @@ function drawTown(c, w) {
     BENCHES.forEach(b => add(b.x, b.y, 70, { draw: () => drawTownBench(c, b) }));
     fenceItems(c).forEach(o => { if (vis(o.x, o.y, 60)) L.push(o); });
     add(FOUNTAIN.x, FOUNTAIN.y, 130, { draw: () => drawFountain(c, w) }); add(SWING.x, SWING.y, 110, { draw: () => drawSwing(c, SWING.x, SWING.y) });
+    COURTS.forEach(f => { const gx = (f.x0 + f.x1) / 2; add(gx, f.y0 + .3, 140, { draw: () => drawHoopPost(c, gx, f.y0 + .3, -1) }); add(gx, f.y1 - .3, 140, { draw: () => drawHoopPost(c, gx, f.y1 - .3, 1) }); });
     FIELDS.forEach(f => { const gx = (f.x0 + f.x1) / 2; add(gx, f.y0 + .25, 120, { draw: () => drawGoal(c, gx, f.y0 + .25, -1) }); add(gx, f.y1 - .25, 120, { draw: () => drawGoal(c, gx, f.y1 - .25, 1) }); });
     T.npcs.forEach(n => add(n.x, n.y, 110, { draw: () => drawTownActor(c, w, n, false) }));
     T.cars.forEach(cr => add(cr.x, cr.y, 170, { d: cr.x + cr.y + .35, draw: () => drawCar(c, cr, w) }));
@@ -8432,6 +8479,7 @@ const cb = col => ({ top: shade(col, .12), left: col, right: shade(col, -.18) })
 const bxf = (c, x0, y0, x1, y1, z0, z1, col, lw = 1.3) => isoBox(c, x0, y0, x1, y1, z0, z1, typeof col === 'string' ? cb(col) : col, lw);
 
 /* Cada pieza se dibuja en la caja (x0, y0)-(x1, y1) (ya girada). rot 0: el frente mira a +y; rot 1: mira a +x. */
+const hfLegs = (c, pts, z1, col, t = .07) => pts.forEach(([px, py]) => bxf(c, px, py, px + t, py + t, 0, z1, col, 1));        // patas: se dibujan ANTES que la tapa, así la tapa las cubre y no sobresalen
 function drawHF(c, t, x0, y0, x1, y1, rot, w) {
   const f = rot ? 'x' : 'y', front = f === 'y' ? y1 : x1, mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
   const tm = w ? w.t : 0;
@@ -8466,7 +8514,7 @@ function drawHF(c, t, x0, y0, x1, y1, rot, w) {
       const arm = rot ? [[x0 + .04, y0 + .04, x1 - .04, y0 + .22], [x0 + .04, y1 - .22, x1 - .04, y1 - .04]] : [[x0 + .04, y0 + .04, x0 + .22, y1 - .04], [x1 - .22, y0 + .04, x1 - .04, y1 - .04]];
       arm.forEach(a => bxf(c, a[0], a[1], a[2], a[3], 14, 26, shade(col, -.06)));
       break; }
-    case 'mesaC': { bxf(c, x0 + .12, y0 + .16, x1 - .12, y1 - .16, 10, 17, '#a8703a'); for (const [px, py] of [[x0 + .18, y0 + .2], [x1 - .22, y0 + .2], [x0 + .18, y1 - .24], [x1 - .22, y1 - .24]]) bxf(c, px, py, px + .08, py + .08, 0, 10, '#6d4423', 1);
+    case 'mesaC': { hfLegs(c, [[x0 + .22, y0 + .24], [x1 - .28, y0 + .24], [x0 + .22, y1 - .3], [x1 - .28, y1 - .3]], 10, '#6d4423'); bxf(c, x0 + .12, y0 + .16, x1 - .12, y1 - .16, 10, 17, '#a8703a');
       const p = S(mx - .2, my, 18); c.fillStyle = '#e0364a'; c.strokeStyle = P.ink; c.lineWidth = 1.2; rr(c, p.x - 8, p.y - 3, 16, 5, 1); c.fill(); c.stroke(); c.fillStyle = '#3b82f6'; rr(c, p.x - 4, p.y - 6, 14, 5, 1); c.fill(); c.stroke(); break; }
     case 'tv': {
       bxf(c, x0 + .06, y0 + .1, x1 - .06, y1 - .1, 0, 22, '#6d4423');
@@ -8497,10 +8545,10 @@ function drawHF(c, t, x0, y0, x1, y1, rot, w) {
       }
       break; }
     case 'lavadora': { bxf(c, x0 + .1, y0 + .1, x1 - .1, y1 - .1, 0, 42, '#f0f2f6'); const p = S(f === 'y' ? mx : front - .1, f === 'y' ? front - .1 : my, 22); c.fillStyle = '#7fb8d9'; c.strokeStyle = P.ink; c.lineWidth = 1.6; c.beginPath(); c.ellipse(p.x, p.y, 9, 9, 0, 0, 6.3); c.fill(); c.stroke(); c.fillStyle = 'rgba(255,255,255,.6)'; c.beginPath(); c.arc(p.x - 3, p.y - 3, 2.4, 0, 6.3); c.fill(); break; }
-    case 'comedor': { bxf(c, x0 + .1, y0 + .1, x1 - .1, y1 - .1, 22, 28, '#d9a066'); bxf(c, x0 + .3, y0 + .3, x1 - .3, y1 - .3, 28, 28.5, '#fff4e6', .8); for (const [px, py] of [[x0 + .16, y0 + .16], [x1 - .26, y0 + .16], [x0 + .16, y1 - .26], [x1 - .26, y1 - .26]]) bxf(c, px, py, px + .1, py + .1, 0, 22, '#8b5a2b', 1); const p = S(mx, my, 29); c.fillStyle = '#e0364a'; c.beginPath(); c.arc(p.x, p.y - 4, 4, 0, 6.3); c.fill(); c.fillStyle = '#2fbf71'; c.beginPath(); c.arc(p.x - 3, p.y - 7, 3, 0, 6.3); c.fill(); break; }
-    case 'silla': { const bk = rot ? [x0 + .16, y0 + .2, x0 + .26, y1 - .2] : [x0 + .2, y0 + .16, x1 - .2, y0 + .26]; bxf(c, x0 + .2, y0 + .2, x1 - .2, y1 - .2, 12, 18, '#d9a066'); bxf(c, bk[0], bk[1], bk[2], bk[3], 18, 40, '#a8703a'); for (const [px, py] of [[x0 + .22, y0 + .22], [x1 - .3, y0 + .22], [x0 + .22, y1 - .3], [x1 - .3, y1 - .3]]) bxf(c, px, py, px + .08, py + .08, 0, 12, '#6d4423', 1); break; }
+    case 'comedor': { hfLegs(c, [[x0 + .22, y0 + .22], [x1 - .3, y0 + .22], [x0 + .22, y1 - .3], [x1 - .3, y1 - .3]], 22, '#8b5a2b', .08); bxf(c, x0 + .1, y0 + .1, x1 - .1, y1 - .1, 22, 28, '#d9a066'); bxf(c, x0 + .3, y0 + .3, x1 - .3, y1 - .3, 28, 28.5, '#fff4e6', .8); const p = S(mx, my, 29); c.fillStyle = '#e0364a'; c.beginPath(); c.arc(p.x, p.y - 4, 4, 0, 6.3); c.fill(); c.fillStyle = '#2fbf71'; c.beginPath(); c.arc(p.x - 3, p.y - 7, 3, 0, 6.3); c.fill(); break; }
+    case 'silla': { const bk = rot ? [x0 + .16, y0 + .2, x0 + .26, y1 - .2] : [x0 + .2, y0 + .16, x1 - .2, y0 + .26]; hfLegs(c, [[x0 + .26, y0 + .26], [x1 - .33, y0 + .26], [x0 + .26, y1 - .33], [x1 - .33, y1 - .33]], 12, '#6d4423'); bxf(c, x0 + .2, y0 + .2, x1 - .2, y1 - .2, 12, 18, '#d9a066'); bxf(c, bk[0], bk[1], bk[2], bk[3], 18, 40, '#a8703a'); break; }
     case 'escritorio': {
-      bxf(c, x0 + .06, y0 + .1, x1 - .06, y1 - .1, 18, 24, '#b7794b'); for (const [px, py] of [[x0 + .1, y0 + .14], [x1 - .18, y0 + .14], [x0 + .1, y1 - .22], [x1 - .18, y1 - .22]]) bxf(c, px, py, px + .08, py + .08, 0, 18, '#8b5a2b', 1);
+      hfLegs(c, [[x0 + .14, y0 + .18], [x1 - .22, y0 + .18], [x0 + .14, y1 - .26], [x1 - .22, y1 - .26]], 18, '#8b5a2b', .08); bxf(c, x0 + .06, y0 + .1, x1 - .06, y1 - .1, 18, 24, '#b7794b');
       const L = rot ? y1 - y0 : x1 - x0, mb = rot ? [x0 + .16, y0 + L * .3, x0 + .3, y0 + L * .7] : [x0 + L * .3, y0 + .16, x0 + L * .7, y0 + .3];
       bxf(c, mb[0], mb[1], mb[2], mb[3], 24, 44, '#23252c'); const q = rot ? fq('x', mb[2], mb[1] + .03, mb[3] - .03, 28, 42) : fq('y', mb[3], mb[0] + .03, mb[2] - .03, 28, 42); polyFS(c, q, '#5fb0e8', P.ink, 1);
       const kb = rot ? [x0 + .5, y0 + L * .34, x0 + .78, y0 + L * .66] : [x0 + L * .34, y0 + .5, x0 + L * .66, y0 + .78]; bxf(c, kb[0], kb[1], kb[2], kb[3], 24, 26, '#d7dbe6', 1);
@@ -8560,7 +8608,7 @@ function roomStatic(id) {                                              // lo que
     [3, 7, 11, 12].forEach((s, i) => { const rw = Math.floor(s / 5), k = s % 5; person(3 + rw * 2 + .5, 3 + k + .5, Object.assign(randomLookSeed(i + 5), {}), true).seated = true; });
   } else if (id === 'tienda') {
     counter(5.2, 8.6, 'CAJA', { type: 'catalog' }); person(6.9, .5, CASH_LOOKS.tienda);
-    [[1.2, 3.4], [3.9, 6.1]].forEach(([a, b], i) => add({ k: 'shelf', x0: .15, y0: a, x1: .95, y1: b, h: 64, solid: true, act: { type: 'catalog' }, stand: [[1, Math.floor((a + b) / 2)]], draw: (c, w, o) => {
+    [].forEach(([a, b], i) => add({ k: 'shelf', x0: .15, y0: a, x1: .95, y1: b, h: 64, solid: true, act: { type: 'catalog' }, stand: [[1, Math.floor((a + b) / 2)]], draw: (c, w, o) => {
       bxf(c, o.x0, o.y0, o.x1, o.y1, 0, 64, '#c8ced8'); for (let z = 14; z < 60; z += 15) polyFS(c, fq('y', o.y1, o.x0 + .06, o.x1 - .06, z, z + 2), '#8d95a4', null);
       [['#e0527f', 20], ['#4a90d9', 35], ['#ffc83d', 50]].forEach(([col, z], j) => { const p = S(o.x0 + .5, o.y1, z); c.fillStyle = col; c.strokeStyle = P.ink; c.lineWidth = 1.2; rr(c, p.x - 9 + j * 3, p.y - 9, 16, 9, 2); c.fill(); c.stroke(); });
       const lp = S(o.x0 + .4, o.y0 + .5, 66); c.fillStyle = '#ffd24a'; c.strokeStyle = P.ink; c.beginPath(); c.moveTo(lp.x - 5, lp.y); c.lineTo(lp.x - 8, lp.y - 9); c.lineTo(lp.x + 8, lp.y - 9); c.lineTo(lp.x + 5, lp.y); c.closePath(); c.fill(); c.stroke(); } }));
@@ -8582,7 +8630,7 @@ function roomStatic(id) {                                              // lo que
       const col = q.side === 'B' ? '#c4272f' : '#2b4fb8';
       bxf(c, o.x0, o.y0, o.x1, o.y1, 0, q.h, { top: '#9aa0ae', left: '#767c8c', right: '#5a5f6e' }, 1.2);
       bxf(c, o.x0 + .1, o.y0 + .1, o.x1 - .1, o.y1 - .1, q.h, q.h + 3, { top: shade(col, .12), left: col, right: shade(col, -.2) }, 1); } }));
-    add({ k: 'ringbase', x0: 5, y0: 5, x1: 10, y1: 10, h: 14, solid: true, act: null, draw: (c, w) => drawRingBase(c, w) });
+    add({ k: 'ringbase', x0: 5, y0: 5, x1: 10, y1: 10, h: 14, solid: true, act: null, draw: (c, w) => { drawRingBase(c, w); arenaFighters(c, w); } });
     add({ k: 'ringfront', x0: 5, y0: 5, x1: 10, y1: 10, h: 74, solid: false, act: null, dd: 6, draw: (c, w) => drawRingFront(c, w) });
     add({ k: 'speaker', x0: .2, y0: .2, x1: 1.6, y1: 1.6, h: 64, solid: true, act: null, draw: (c, w, o) => { bxf(c, o.x0, o.y0, o.x1, o.y1, 0, 64, { top: '#3a3d48', left: '#2b2d36', right: '#1c1d24' }, 1.4); [[.5, 26], [.5, 48]].forEach(([u, z]) => { const p = S(o.x1 - .02, o.y0 + .7, z); c.fillStyle = '#14151b'; c.strokeStyle = P.ink; c.lineWidth = 1.2; c.beginPath(); c.ellipse(p.x, p.y, 13, 7, 0, 0, 6.3); c.fill(); c.stroke(); c.fillStyle = '#3a3d48'; c.beginPath(); c.ellipse(p.x, p.y, 6, 3.4, 0, 0, 6.3); c.fill(); }); } });
     const stan = [[10, .3], [10, 1.15], [10, 2], [10, 3], [11.1, 3], [12.2, 3], [13.3, 3], [13.9, 3]];
@@ -8605,6 +8653,7 @@ const rbox = o => ({ x0: S(o.x0, o.y1).x - 3, x1: S(o.x1, o.y0).x + 3, y0: S(o.x
 function roomBlocked(w, c, r) {
   const R = roomDef(w.inId); if (c < 0 || r < 0 || c >= R.cols || r >= R.rows) return true;
   if (w.inId === 'arena' && !(w.inn && w.inn.ticket) && !(c >= 10 && r <= 2)) return true;                 // sin boleto solo se pasa al vestíbulo
+  if (w.inId === 'arena' && arenaOccupied(c, r)) return true;                                               // un asiento con alguien sentado es sólido: el camino lo esquiva
   return roomItems(w, w.inId).some(o => o.solid && c + .5 > o.x0 && c + .5 < o.x1 && r + .5 > o.y0 && r + .5 < o.y1);
 }
 const roomStands = (w, o) => {                                         // desde dónde se usa una pieza: las losetas libres que la rodean
@@ -8665,12 +8714,11 @@ function drawRoomShell(c, w, id) {
   } else if (id === 'tienda') {
     onFace(c, 'x', 0, 6.7, 92, () => { c.fillStyle = '#8a5a32'; rr(c, 0, -22, 3.9 * U, 36, 5); c.fill(); c.lineWidth = 2; c.strokeStyle = P.ink; c.stroke(); txt(c, 'TIENDA', 1.95 * U, 5, { font: `400 ${fitDisplay(c, 'TIENDA', 3.4 * U, 28)}px ${FONT_DISPLAY}`, align: 'center', color: '#fff3d6', stroke: P.ink, sw: 5 }); });
     onFace(c, 'y', 0, 1.1, 104, () => { c.fillStyle = '#8a5a32'; rr(c, 0, -20, 4.4 * U, 40, 6); c.fill(); c.lineWidth = 2; c.strokeStyle = P.ink; c.stroke(); txt(c, 'MUEBLES', 2.2 * U, 8, { font: `400 ${fitDisplay(c, 'MUEBLES', 3.9 * U, 32)}px ${FONT_DISPLAY}`, align: 'center', color: '#fff3d6', stroke: P.ink, sw: 5 }); });
-    polyFS(c, fq('y', 0, 9.3, 10.4, 40, 80), '#a9d9ee', P.ink, 1);
   } else if (id === 'bou') {
     polyFS(c, fq('x', 0, .6, 6.4, 40, 92), '#ffe0ee', P.ink, 1.6);                                  // pared de máscaras
     ['ring', 'blue', 'black', 'pink', 'novato', 'gray'].forEach((mk, i) => { const col = i % 3, row = Math.floor(i / 3), p = S(0, 1.5 + col * 1.9, 50 + row * 24); drawMask(c, p.x, p.y, 8.5, MASKS[mk]); });
     onFace(c, 'y', 0, .6, 96, () => { txt(c, 'BOUTIQUE ENMASCARADA', 2.6 * U, 6, { font: `400 ${fitDisplay(c, 'BOUTIQUE ENMASCARADA', 4.8 * U, 20)}px ${FONT_DISPLAY}`, align: 'center', color: '#c4274a', stroke: '#fff', sw: 4 }); });
-    polyFS(c, fq('y', 0, 5.2, 6.3, 34, 84), '#cfe9f5', P.ink, 1.6);                                                                         // espejo
+    polyFS(c, fq('y', 0, 4.4, 5.5, 34, 84), '#cfe9f5', P.ink, 1.6);                                                                         // espejo
   }
   if (id === 'arena') {
     polyFS(c, [S(10, 0), S(14, 0), S(14, 3), S(10, 3)], 'rgba(150,20,35,.7)', null);
@@ -8695,6 +8743,7 @@ function drawRoomScene(c, w) {
     L.push({ x: I.x, y: I.y, d: I.x + I.y + .05, draw: () => drawRoomActor(c, w, I) });
     if (id === 'arena') arenaCast(c, w, I, L);
     flat.forEach(i => i.draw()); townSort(L).forEach(i => i.draw());
+    if (id === 'arena') arenaSigns(c, w);
     if (edit) drawHomeEditFloor(c, w);
     if (nightK(w) > .4 && !HOUSES[id]) { /* los interiores siempre están iluminados */ }
     c.restore();
@@ -8729,8 +8778,18 @@ const ARENA_LEG = [
 ];
 const ARENA_REF = { casual: true, gender: 'm', hairStyle: 'crop', hairColor: '#2b1a10', hoodie: '#f4f4f4', pants: '#17171c', shoes: 'negro', skin: '#e0ac69' };
 const ARENA_CYCLE = 20, ARENA_RING = { x0: 5, y0: 5, x1: 10, y1: 10, z: 14 };
-const arenaPrice = w => 80 + 4 * Math.min(w.level, 60);
-function arenaMatch(w) { const r = Math.floor(w.t / ARENA_CYCLE), a = ARENA_LEG[(r * 2) % 6], b = ARENA_LEG[(r * 2 + 1) % 6], sw = r % 2; return { a: sw ? b : a, b: sw ? a : b, ph: w.t % ARENA_CYCLE, r }; }
+const arenaPrice = w => 100;
+// Cada lucha (ronda r) es siempre la misma para todos: dos leyendas y, según su fuerza, un ganador. f1/f2 = en orden fijo (sin delatar quién gana) · a = el que gana · b = el que pierde
+const ARENA_POW = [6, 5, 5, 4, 4, 6];
+const arenaHash = r => { let x = (Math.imul(r + 1, 2654435761) + 12345) >>> 0; x ^= x >>> 15; x = Math.imul(x, 2246822519) >>> 0; x ^= x >>> 13; x = Math.imul(x, 3266489917) >>> 0; x ^= x >>> 16; return x >>> 0; };
+function arenaBout(r) {
+  const h = arenaHash(r), i = h % 6, j = (i + 1 + ((h >>> 8) % 5)) % 6, lo = Math.min(i, j), hi = Math.max(i, j);
+  const p1 = ARENA_POW[lo] / (ARENA_POW[lo] + ARENA_POW[hi]), w1 = ((h >>> 16) & 0xffff) / 65536 < p1, f1 = ARENA_LEG[lo], f2 = ARENA_LEG[hi];
+  return { f1, f2, p1, win: w1 ? 0 : 1, a: w1 ? f1 : f2, b: w1 ? f2 : f1 };
+}
+const arenaT = w => Math.max(0, w.t - ((w.inn && w.inn.t0) || 0));
+function arenaMatch(w) { const T = arenaT(w), r = Math.floor(T / ARENA_CYCLE) + ((w.inn && w.inn.r0) || 0); return Object.assign(arenaBout(r), { ph: T % ARENA_CYCLE, r }); }
+const betMult = (B, k) => Math.max(1.2, Math.round(.93 / (k ? 1 - B.p1 : B.p1) * 10) / 10);          // lo que paga la apuesta por el luchador k (0 = f1, 1 = f2)
 const ARENA_TIERS = (() => {                                               // gradas: tres escalones junto a la pared derecha (y = 0) y tres junto a la izquierda (x = 0)
   const out = [], H3 = [36, 24, 12];
   for (let cx = 3; cx < 10; cx++) for (let ty = 0; ty < 3; ty++) out.push({ c: cx, r: ty, h: H3[ty], dir: -1, side: 'B' });
@@ -8739,8 +8798,26 @@ const ARENA_TIERS = (() => {                                               // gr
 })();
 const ARENA_ELEV = (() => { const m = {}; ARENA_TIERS.forEach(q => { m[q.r * 20 + q.c] = q.h; }); return m; })();
 const roomElev = (w, x, y) => w.inId === 'arena' ? (ARENA_ELEV[Math.floor(y) * 20 + Math.floor(x)] || 0) : 0;
-let ARENA_CROWD = null;
-const arenaCrowd = () => ARENA_CROWD || (ARENA_CROWD = ARENA_TIERS.map((q, i) => ({ q, i, on: ((i * 37 + 11) % 100) < 66, look: randomLookSeed(i + 40) })).filter(o => o.on));
+let ARENA_CROWD = null, ARENA_OCC = null;
+function arenaBuildCrowd() {
+  const list = ARENA_TIERS.map((q, i) => ({ q, i, on: !(q.side === 'B' && q.c === 6) && !(q.side === 'L' && q.r === 7) && ((i * 37 + 11) % 100) < 72, look: randomLookSeed(i + 40) }));       // (dos pasillos de escalones siempre libres)
+  const key = (c, r) => r * 20 + c, occ = new Set(list.filter(o => o.on).map(o => key(o.q.c, o.q.r)));
+  const st = roomStatic('arena').filter(o => o.solid && o.k !== 'tier');
+  const solid = (c, r) => c < 0 || r < 0 || c >= 14 || r >= 12 || st.some(o => c + .5 > o.x0 && c + .5 < o.x1 && r + .5 > o.y0 && r + .5 < o.y1);
+  const flood = block => { const seen = new Map([[key(12, 6), 0]]), q = [[12, 6]]; for (let i = 0; i < q.length; i++) { const [c, r] = q[i], d = seen.get(key(c, r)); for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nc = c + dc, nr = r + dr, k = key(nc, nr); if (seen.has(k) || solid(nc, nr) || block(nc, nr)) continue; seen.set(k, d + 1); q.push([nc, nr]); } } return seen; };
+  const open = flood(() => false);
+  for (let guard = 0; guard < 80; guard++) {                                // ningún lugar libre debe quedar encerrado por gente sentada: si pasa, se levanta quien estorba
+    const reach = flood((c, r) => occ.has(key(c, r))), lost = list.filter(o => !occ.has(key(o.q.c, o.q.r)) && !reach.has(key(o.q.c, o.q.r)));
+    if (!lost.length) break;
+    let best = null, bd = 1e9;
+    lost.forEach(o => [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([dc, dr]) => { const k = key(o.q.c + dc, o.q.r + dr); if (occ.has(k) && (open.get(k) == null ? 99 : open.get(k)) < bd) { bd = open.get(k) == null ? 99 : open.get(k); best = k; } }));
+    if (best == null) break; occ.delete(best);
+  }
+  list.forEach(o => { o.on = occ.has(key(o.q.c, o.q.r)); });
+  ARENA_OCC = occ; ARENA_CROWD = list.filter(o => o.on);
+}
+const arenaCrowd = () => { if (!ARENA_CROWD) arenaBuildCrowd(); return ARENA_CROWD; };
+const arenaOccupied = (c, r) => { if (!ARENA_OCC) arenaBuildCrowd(); return ARENA_OCC.has(r * 20 + c); };
 // la pose de cada luchador en cada momento de la ronda (20 s): se estudian, llave, lanzamiento, vuelo desde la esquina, conteo y festejo
 function arenaPoses(w) {
   const M = arenaMatch(w), ph = M.ph, cx = 7.5, cy = 7.5, lerpv = (a, b, u) => a + (b - a) * clamp(u, 0, 1), sm = u => clamp(u, 0, 1) * clamp(u, 0, 1) * (3 - 2 * clamp(u, 0, 1));
@@ -8804,21 +8881,92 @@ function arenaCast(c, w, I, L) {                                           // el
       drawLuchador(c, p.x, p.y - q.h - 8, Object.assign({}, o.look, { state: 'eat', seated: true, tacosLeft: 0, t: w.t + o.i * .37, dir: q.dir, scale: .98, eatKey: 'elote', pose: (cheer && (o.i % 3 !== 0)) || Math.sin(w.t * 1.7 + o.i * 2.3) > .93 ? 'flex' : null }));
     } });
   });
-  const mid = (A, B) => ({ x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 });
-  [[P_.A, M.a, 0], [P_.B, M.b, 1.7]].forEach(([f, lg, off]) => L.push({ x: f.x, y: f.y, d: f.x + f.y + .8, draw: () => drawFighterAt(c, w, f, lg.look, { t: w.t * 2.4 + off }) }));
+}
+function arenaFighters(c, w) {                                             // los dos luchadores y el árbitro, de atrás hacia delante, sobre la lona
+  const P_ = arenaPoses(w), M = P_.M, ph = P_.ph, list = [{ f: P_.A, lg: M.a, off: 0 }, { f: P_.B, lg: M.b, off: 1.7 }];
   const rx = ph < 10.2 ? 8.9 + Math.sin(w.t * 1.3) * .4 : 9.2, ry = ph < 10.2 ? 6.2 : 8.7;
-  L.push({ x: rx, y: ry, d: rx + ry + .8, draw: () => drawFighterAt(c, w, { x: rx, y: ry, z: 0, rot: 0, dir: -1, state: ph > 10.2 && ph < 13.2 ? 'idle' : 'walk', pose: ph > 10.2 && ph < 13.2 ? 'hit' : null }, ARENA_REF, { ref: true, scale: .88, t: w.t * 2 }) });
-  L.push({ x: 7.5, y: 7.5, d: 40, draw: () => {                            // los letreros de la lucha (¡PUM!, el conteo del árbitro)
-    const at = (txt1, big, col, zz) => { const p = S(8.4, 8.2, ARENA_RING.z + zz); txt(c, txt1, p.x, p.y - Math.min(14, (ph % 1) * 10), { font: `400 ${big}px ${FONT_DISPLAY}`, align: 'center', color: col, stroke: P.ink, sw: 5 }); };
-    if (ph > 7.5 && ph < 8.2) at('¡PUM!', 30, '#ffd24a', 70); else if (ph > 10.2 && ph < 10.9) at('¡CRASH!', 34, '#ff6a78', 80);
-    else if (ph > 11.2 && ph < 11.9) at('¡UNO!', 30, '#fff', 80); else if (ph > 12 && ph < 12.7) at('¡DOS!', 30, '#fff', 80); else if (ph > 12.8 && ph < 13.6) at('¡TRES!', 34, '#9af0b8', 80);
-  } });
+  list.push({ f: { x: rx, y: ry, z: 0, rot: 0, dir: -1, state: ph > 10.2 && ph < 13.2 ? 'idle' : 'walk', pose: ph > 10.2 && ph < 13.2 ? 'hit' : null }, ref: true });
+  list.sort((a, b) => (a.f.x + a.f.y) - (b.f.x + b.f.y)).forEach(o => { if (o.ref) drawFighterAt(c, w, o.f, ARENA_REF, { ref: true, scale: .88, t: w.t * 2 }); else drawFighterAt(c, w, o.f, o.lg.look, { t: w.t * 2.4 + o.off }); });
+}
+function arenaSigns(c, w) {                                                // los letreros de la lucha (¡PUM!, el conteo del árbitro): encima de todo
+  const ph = arenaPoses(w).ph;
+  const at = (txt1, big, col, zz) => { const p = S(8.4, 8.2, ARENA_RING.z + zz); txt(c, txt1, p.x, p.y - Math.min(14, (ph % 1) * 10), { font: `400 ${big}px ${FONT_DISPLAY}`, align: 'center', color: col, stroke: P.ink, sw: 5 }); };
+  if (ph > 7.5 && ph < 8.2) at('¡PUM!', 30, '#ffd24a', 70); else if (ph > 10.2 && ph < 10.9) at('¡CRASH!', 34, '#ff6a78', 80);
+  else if (ph > 11.2 && ph < 11.9) at('¡UNO!', 30, '#fff', 80); else if (ph > 12 && ph < 12.7) at('¡DOS!', 30, '#fff', 80); else if (ph > 12.8 && ph < 13.6) at('¡TRES!', 34, '#9af0b8', 80);
 }
 function drawArenaBanner(c, w) {                                           // el cartel de la función, arriba, mientras estás en las gradas
   const I = w.inn; if (!I || !I.ticket || w.modal || w.shop) return;
   const M = arenaMatch(w), ph = M.ph, say = ph < 4 ? 'Se estudian en el centro…' : ph < 6 ? '¡Llave de agarre!' : ph < 8.8 ? '¡Lanzamiento por los aires!' : ph < 10.2 ? '¡Vuelo desde la esquina!' : ph < 13.2 ? 'El árbitro cuenta…' : ph < 16 ? `¡Ganó ${M.a.n}!` : 'Se preparan para la siguiente…';
   c.save(); rr(c, 480 - 190, 74, 380, 44, 12); c.fillStyle = 'rgba(17,16,20,.88)'; c.fill(); c.lineWidth = 2.2; c.strokeStyle = P.gold; c.stroke();
-  txt(c, `${M.a.n}  vs  ${M.b.n}`, 480, 94, { font: `700 15px ${FONT_UI}`, align: 'center', color: P.white, maxW: 352 }); txt(c, say, 480, 111, { font: `700 12px ${FONT_UI}`, align: 'center', color: '#ffd24a', maxW: 352 }); c.restore();
+  txt(c, `${M.f1.n}  vs  ${M.f2.n}`, 480, 94, { font: `700 15px ${FONT_UI}`, align: 'center', color: P.white, maxW: 352 }); txt(c, say, 480, 111, { font: `700 12px ${FONT_UI}`, align: 'center', color: '#ffd24a', maxW: 352 });
+  if (I.bet) { const lg = I.bet.pick ? M.f2 : M.f1; txt(c, `Tu apuesta: ${pesos(I.bet.amt)} por ${lg.n} (paga x${I.bet.mult.toFixed(1)})`, 480, 134, { font: `700 12px ${FONT_UI}`, align: 'center', color: '#9af0b8', stroke: P.ink, sw: 3, maxW: 420 }); }
+  c.restore();
+}
+/* ---------- Apuestas: antes de que empiece la lucha eliges a tu luchador y cuánto pones; si gana, cobras lo que paga ---------- */
+const BET = { x: 190, y: 96, w: 580, h: 392 }, BET_CHIPS = [50, 100, 250, 500, 1000];
+const betCard = k => ({ x: BET.x + 24 + k * 280, y: BET.y + 88, w: 252, h: 122 });
+const betChip = i => ({ x: BET.x + 24 + i * 108, y: BET.y + 250, w: 98, h: 38 });
+const betBtn = k => ({ x: BET.x + 24 + k * 280, y: BET.y + BET.h - 68, w: 252, h: 50 });
+function openBet(w, prize) {
+  const R = arenaMatch(w).r + 1, B = arenaBout(R);
+  w.dlg = { title: 'APUESTAS', lines: [], ok: '', no: '', bet: { r: R, f1: B.f1, f2: B.f2, p1: B.p1, pick: -1, amt: 100, prize }, fn: null }; w.modal = 'dlg'; sfx('click');
+}
+function startShow(w, prize, R) {                                          // la lucha que sigue empieza ahora mismo
+  const I = w.inn; if (!I) return;
+  I.t0 = w.t; I.r0 = R; I.ph = 0; I.anim = { type: 'show', t: 0, dur: 18, cancel: true, prize }; sfx('bell');
+  toast(w, prize ? (I.bet ? '¡Suena la campana! Tu apuesta está en juego' : 'Comienza tu función: ¡a gritar!') : 'Ya viste dos funciones hoy: puedes mirar, pero sin premio');
+}
+function betFinish(w, place) {
+  const D = w.dlg, B = D && D.bet, I = w.inn; w.dlg = null; if (w.modal === 'dlg') w.modal = null;
+  if (!B || !I) return;
+  if (place && B.pick >= 0 && w.money >= B.amt) { w.money -= B.amt; I.bet = { r: B.r, pick: B.pick, amt: B.amt, mult: betMult(B, B.pick) }; sfx('coin'); }
+  startShow(w, B.prize, B.r);
+}
+function betPointer(w, x, y) {
+  const D = w.dlg, B = D.bet, hit = b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
+  for (let k = 0; k < 2; k++) if (hit(betCard(k))) { B.pick = k; sfx('click'); return; }
+  for (let i = 0; i < BET_CHIPS.length; i++) if (hit(betChip(i))) { if (w.money >= BET_CHIPS[i]) { B.amt = BET_CHIPS[i]; sfx('click'); } else { sfx('nope'); toast(w, 'No te alcanza para esa cantidad'); } return; }
+  if (hit(betBtn(0))) { if (B.pick < 0) { sfx('nope'); toast(w, 'Primero toca a tu luchador'); return; } if (w.money < B.amt) { sfx('nope'); toast(w, 'No te alcanza'); return; } betFinish(w, true); return; }
+  if (hit(betBtn(1)) || !hit(BET)) { sfx('back'); betFinish(w, false); }
+}
+function betKey(w, e) {
+  const B = w.dlg.bet;
+  if (e.key === 'Escape') { sfx('back'); betFinish(w, false); return true; }
+  if (e.key === 'ArrowLeft' || e.key === '1') { B.pick = 0; sfx('click'); return true; } if (e.key === 'ArrowRight' || e.key === '2') { B.pick = 1; sfx('click'); return true; }
+  if (e.key === 'Enter' || e.key === ' ') { if (B.pick >= 0 && w.money >= B.amt) betFinish(w, true); else betFinish(w, false); return true; }
+  return false;
+}
+function drawBetDialog(c, w) {
+  const D = w.dlg, B = D.bet; c.fillStyle = 'rgba(12,11,15,.72)'; c.fillRect(-EX, -EY, CW, CH);
+  drawPanel(c, BET.x, BET.y, BET.w, BET.h, 'APUESTAS');
+  txt(c, '¿Quién gana la lucha? Apuesta antes de que suene la campana', BET.x + BET.w / 2, BET.y + 66, { font: `600 15px ${FONT_UI}`, align: 'center', color: P.cream, maxW: BET.w - 40 });
+  [B.f1, B.f2].forEach((lg, k) => {
+    const q = betCard(k), sel = B.pick === k, mult = betMult(B, k), fav = (k ? 1 - B.p1 : B.p1) > .5;
+    c.save(); rr(c, q.x, q.y, q.w, q.h, 12); c.fillStyle = sel ? 'rgba(255,200,61,.22)' : 'rgba(255,255,255,.07)'; c.fill(); c.lineWidth = sel ? 3.4 : 1.6; c.strokeStyle = sel ? P.gold : 'rgba(255,255,255,.28)'; c.stroke(); c.restore();
+    drawLuchador(c, q.x + 52, q.y + 112, Object.assign({}, lg.look, { state: 'idle', t: w.t, dir: 1, scale: .92 }));
+    txt(c, lg.n, q.x + 100, q.y + 38, { font: `700 16px ${FONT_UI}`, color: P.white, maxW: q.w - 108 });
+    txt(c, `Paga x${mult.toFixed(1)}`, q.x + 100, q.y + 66, { font: `700 20px ${FONT_UI}`, color: P.gold, maxW: q.w - 108 });
+    txt(c, fav ? 'FAVORITO' : 'SORPRESA', q.x + 100, q.y + 94, { font: `700 12px ${FONT_UI}`, color: fav ? '#9af0b8' : '#ff9fc4', ls: 1, maxW: q.w - 108 });
+    if (sel) txt(c, '✔ TU ELECCIÓN', q.x + 100, q.y + 112, { font: `700 11px ${FONT_UI}`, color: P.gold, maxW: q.w - 108 });
+  });
+  txt(c, 'Cantidad', BET.x + 24, BET.y + 238, { font: `700 13px ${FONT_UI}`, color: P.muted, ls: 1 });
+  BET_CHIPS.forEach((v, i) => {
+    const q = betChip(i), sel = B.amt === v, ok = w.money >= v;
+    rr(c, q.x, q.y, q.w, q.h, 10); c.fillStyle = sel ? P.gold : ok ? 'rgba(255,255,255,.1)' : 'rgba(255,90,100,.1)'; c.fill(); c.lineWidth = 1.6; c.strokeStyle = sel ? '#fff' : 'rgba(255,255,255,.3)'; c.stroke();
+    txt(c, '$' + v, q.x + q.w / 2, q.y + q.h / 2 + 6, { font: `700 17px ${FONT_UI}`, align: 'center', color: sel ? P.ink : ok ? P.white : '#ff8fa0' });
+  });
+  const msg = B.pick < 0 ? 'Toca a tu luchador para apostar (o entra sin apostar)' : `Pones ${pesos(B.amt)} · si gana cobras ${pesos(Math.round(B.amt * betMult(B, B.pick)))}`;
+  txt(c, msg, BET.x + BET.w / 2, BET.y + 318, { font: `700 15px ${FONT_UI}`, align: 'center', color: B.pick < 0 ? P.muted : '#9af0b8', maxW: BET.w - 40 });
+  drawButton(c, Object.assign({ label: 'APOSTAR ' + pesos(B.amt), style: B.pick >= 0 && w.money >= B.amt ? 'green' : 'dark', size: 18 }, betBtn(0)));
+  drawButton(c, Object.assign({ label: 'SIN APUESTA', style: 'dark', size: 18 }, betBtn(1)));
+}
+// resuelve la apuesta cuando el árbitro levanta la mano (o, si te fuiste, al terminar la ronda)
+function arenaBetCheck(w) {
+  const I = w.inn, B = I && I.bet; if (!B) return;
+  const M = arenaMatch(w); if (M.r === B.r && M.ph < 13.2) return;
+  const bt = arenaBout(B.r), win = bt.win === B.pick; I.bet = null;
+  if (win) { const pay = Math.round(B.amt * B.mult); w.money += pay; w.moneyFlash = .8; sfx('fanfare'); toast(w, `¡Ganó ${bt.a.n}! Cobras ${pesos(pay)} (+${pesos(pay - B.amt)})`); }
+  else { sfx('nope'); toast(w, `Ganó ${bt.a.n}: perdiste tu apuesta de ${pesos(B.amt)}`); }
 }
 function endShow(w) {
   const I = w.inn, n = w.novato, mx = maxStamina(w), prize = I.anim && I.anim.prize; I.anim = null; I.seat = null;
@@ -8834,7 +8982,7 @@ const ticketPrice = w => 30 + 2 * Math.min(w.level, 60);
 function updateRoom(w, dt) {
   const I = w.inn; if (!I) return; I.t += dt;
   const a = I.anim, n = w.novato, mx = maxStamina(w);
-  if (w.inId === 'arena') { const ph = w.t % ARENA_CYCLE; arenaEvents(w, I.ph == null ? ph : I.ph, ph); I.ph = ph; I.el = (I.el || 0) + (roomElev(w, I.x, I.y) - (I.el || 0)) * Math.min(1, dt * 10); }
+  if (w.inId === 'arena') { const ph = arenaT(w) % ARENA_CYCLE; arenaEvents(w, I.ph == null ? ph : I.ph, ph); I.ph = ph; arenaBetCheck(w); I.el = (I.el || 0) + (roomElev(w, I.x, I.y) - (I.el || 0)) * Math.min(1, dt * 10); }
   if (a) {
     a.t += dt;
     if (a.type === 'show' && a.t >= a.dur) endShow(w);
@@ -8891,7 +9039,7 @@ function roomAct(w, o) {
     if (w.town.shows >= 2) { toast(w, 'Hoy ya viste dos funciones: ¡mañana hay más!'); sfx('nope'); return; }
     if (I.ticket) { toast(w, 'Ya tienes boleto: sube a las gradas y toca un lugar'); sfx('nope'); return; }
     const pr = arenaPrice(w), M = arenaMatch(w);
-    w.dlg = { title: 'TAQUILLA', lines: [`Hoy: ${M.a.n} vs ${M.b.n}`, `Boleto: ${pesos(pr)}`, 'Pasas a las gradas, ves la lucha y ganas experiencia y energía'], ok: `COMPRAR ${pesos(pr)}`, no: 'NO, GRACIAS', fn: () => { if (w.money < pr) { sfx('nope'); w.moneyFlash = .8; toast(w, `Faltan ${pesos(pr - w.money)}`); return; } w.money -= pr; I.ticket = true; w.modal = null; sfx('coin'); toast(w, 'Boleto comprado: sube a las gradas y toca un lugar'); } }; w.modal = 'dlg'; sfx('click'); return;
+    w.dlg = { title: 'TAQUILLA', lines: [`Hoy: ${M.f1.n} vs ${M.f2.n}`, `Boleto: ${pesos(pr)}`, 'Gradas, función y apuestas: ganas energía y experiencia'], ok: `COMPRAR ${pesos(pr)}`, no: 'NO, GRACIAS', fn: () => { if (w.money < pr) { sfx('nope'); w.moneyFlash = .8; toast(w, `Faltan ${pesos(pr - w.money)}`); return; } w.money -= pr; I.ticket = true; w.modal = null; sfx('coin'); toast(w, 'Boleto comprado: sube a las gradas y toca un lugar'); } }; w.modal = 'dlg'; sfx('click'); return;
   }
   if (a.type === 'ticket') {
     if (w.town.movies >= 3) { toast(w, 'Hoy ya viste tres películas: ¡mañana hay más!'); sfx('nope'); return; }
@@ -8902,8 +9050,9 @@ function roomAct(w, o) {
     if (I.popcorn) { toast(w, 'Ya tienes tus palomitas'); sfx('nope'); return; }
     w.dlg = { title: 'PALOMITAS', lines: ['Un bote grande de palomitas', 'Te dan un poco de energía'], ok: 'COMPRAR $30', no: 'NO', fn: () => { if (w.money < 30) { sfx('nope'); toast(w, `Faltan ${pesos(30 - w.money)}`); return; } w.money -= 30; I.popcorn = true; w.novato.stamina = Math.min(maxStamina(w), w.novato.stamina + 8); w.modal = null; sfx('coin'); toast(w, '¡Palomitas!'); } }; w.modal = 'dlg'; sfx('click');
   } else if (a.type === 'seat' && w.inId === 'arena') {
+    if (arenaOccupied(o.c, o.r)) { toast(w, 'Ese lugar está ocupado'); sfx('nope'); return; }
     I.seat = { c: o.c, r: o.r, dir: o.dir }; I.x = o.c + .5; I.y = o.r + .5; I.dir = o.dir; I.path = [];
-    const prize = w.town.shows < 2; I.anim = { type: 'show', t: 0, dur: 21, cancel: true, prize }; sfx('bell'); toast(w, prize ? 'Comienza tu función: ¡a gritar!' : 'Ya viste dos funciones hoy: puedes mirar, pero sin premio');
+    openBet(w, w.town.shows < 2);
   } else if (a.type === 'seat') {
     I.seat = { c: o.c, r: o.r, dir: -1 }; I.x = o.c + .5; I.y = o.r + .5; I.dir = -1; I.path = [];
     if (I.ticket) { I.ticket = false; I.anim = { type: 'movie', t: 0, dur: 16, cancel: true }; sfx('door'); toast(w, 'Comienza la película…'); } else { I.seat = null; }
@@ -8927,6 +9076,7 @@ const DLG = { x: 270, y: 190, w: 420, h: 230 };
 const dlgBtn = k => ({ x: DLG.x + (k ? 218 : 24), y: DLG.y + DLG.h - 68, w: 178, h: 48 });
 function drawDialog(c, w) {
   const D = w.dlg; if (!D) return;
+  if (D.bet) { drawBetDialog(c, w); return; }
   c.fillStyle = 'rgba(12,11,15,.7)'; c.fillRect(-EX, -EY, CW, CH);
   drawPanel(c, DLG.x, DLG.y, DLG.w, DLG.h, D.title);
   D.lines.forEach((l, i) => txt(c, l, DLG.x + DLG.w / 2, DLG.y + 66 + i * 26, { font: `${i ? 600 : 700} ${i ? 16 : 19}px ${FONT_UI}`, align: 'center', color: i ? P.cream : P.gold, maxW: DLG.w - 40 }));
@@ -8935,10 +9085,12 @@ function drawDialog(c, w) {
 function dlgPointer(w, x, y) {
   const hit = b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h, D = w.dlg;
   if (!D) { w.modal = null; return; }
+  if (D.bet) { betPointer(w, x, y); return; }
   if (hit(dlgBtn(0))) { sfx('click'); const f = D.fn; w.dlg = null; if (w.modal === 'dlg') w.modal = null; f && f(); return; }
   if (hit(dlgBtn(1)) || !hit(DLG)) { sfx('back'); w.dlg = null; w.modal = null; }
 }
 function dlgKey(w, e) {
+  if (w.dlg && w.dlg.bet) return betKey(w, e);
   if (e.key === 'Escape') { sfx('back'); w.dlg = null; w.modal = null; return true; }
   if (e.key === 'Enter' || e.key === ' ') { dlgPointer(w, dlgBtn(0).x + 5, dlgBtn(0).y + 5); return true; }
   return false;
@@ -9199,6 +9351,119 @@ function drawPenal(c, w) {
   }
 }
 
+/* ---------- Tiros en la cancha de básquet ----------
+   Cinco tiros por tanda y hasta tres tandas al día. Una barra va y viene: toca (o pulsa ESPACIO) cuando la raya blanca pase por la zona verde.
+   En el centro dorado es ¡SWISH! (2 puntos); en la zona verde el balón rebota en el aro y entra (1 punto); si te pasas o te quedas corto, falla.
+   Cada punto paga (5 + la mitad de tu nivel) monedas y 3 de experiencia; con los 5 swishes ganas además una gema. */
+const HBX = { x: 100, y: 74, w: 760, h: 456 };
+const HOOP = { x: 480, y: 252 }, HFLOOR = 346;
+const hoopClose = { x: HBX.x + HBX.w - 40, y: HBX.y + 8, w: 30, h: 30 };
+const HM = { x: HBX.x + 140, y: HBX.y + HBX.h - 64, w: HBX.w - 280, h: 26 };
+const hoopSpeed = n => .7 + .1 * n;
+const triWave = u => 1 - Math.abs(1 - (u % 2));
+function openHoops(w, cid) {
+  const T = w.town;
+  if ((T.hoopN || 0) >= 3) { toast(w, 'Hoy ya jugaste tus tres tandas de básquet: ¡mañana hay más!'); sfx('nope'); return; }
+  w.hoops = { state: 'aim', shot: 0, pts: 0, swishes: 0, t: 0, mt: rand(0, 1.4), target: rand(.3, .78), p: 0, res: '', side: 1, played: false, cid };
+  w.modal = 'hoops'; sfx('bell');
+}
+function hoopsShoot(w) {
+  const H = w.hoops; if (!H || H.state !== 'aim') return;
+  H.p = triWave(H.mt * hoopSpeed(H.shot)); const e = H.p - H.target, a = Math.abs(e);
+  H.res = a <= .05 ? 'swish' : a <= .13 ? 'in' : e < 0 ? 'short' : a <= .2 ? 'rimout' : 'long';
+  H.side = Math.random() < .5 ? -1 : 1; H.state = 'fly'; H.t = 0; H.played = true; sfx('whoosh');
+}
+function updateHoops(w, dt) {
+  const H = w.hoops; if (!H) return; H.t += dt;
+  if (H.state === 'aim') H.mt += dt;
+  else if (H.state === 'fly' && H.t >= .75) {
+    H.state = 'res'; H.t = 0; H.shot++;
+    if (H.res === 'swish') { H.pts += 2; H.swishes++; sfx('fanfare'); } else if (H.res === 'in') { H.pts += 1; sfx('serve'); } else sfx('nope');
+  } else if (H.state === 'res' && H.t >= 1.3) {
+    if (H.shot >= 5) { H.state = 'end'; H.t = 0; hoopsPay(w); } else { H.state = 'aim'; H.t = 0; H.mt = rand(0, 1.4); H.target = rand(.3, .78); }
+  }
+}
+function hoopsPay(w) {
+  const H = w.hoops, T = w.town, per = 5 + Math.round(w.level / 2), coins = H.pts * per, xp = H.pts * 3; H.coins = coins; H.xp = xp; H.gem = H.swishes === 5;
+  w.money += coins; if (xp) addXp(w, xp); if (H.gem) { w.gems++; w.gemsSeen = true; } T.hoopN = (T.hoopN || 0) + 1;
+}
+function hoopsClosePanel(w) { const H = w.hoops; if (H && H.played && H.state !== 'end') { w.town.hoopN = (w.town.hoopN || 0) + 1; toast(w, 'Dejaste la tanda a medias: no hay premio'); } w.hoops = null; w.modal = null; sfx('back'); }
+function hoopsPointer(w, x, y) {
+  const H = w.hoops, hit = b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
+  if (!H) { w.modal = null; return; }
+  if (hit(hoopClose)) { hoopsClosePanel(w); return; }
+  if (H.state === 'end') { if (hit({ x: HBX.x + HBX.w / 2 - 110, y: HBX.y + HBX.h - 78, w: 220, h: 52 })) { w.hoops = null; w.modal = null; sfx('click'); Game.save(); } return; }
+  if (H.state === 'aim' && hit(HBX)) hoopsShoot(w);
+}
+function hoopsKey(w, e) {
+  const H = w.hoops; if (!H) { w.modal = null; return true; }
+  if (e.key === 'Escape') { hoopsClosePanel(w); return true; }
+  if (e.key === ' ' || e.key === 'Enter' || e.key === 'ArrowUp' || e.key === 'ArrowDown') { if (H.state === 'aim') hoopsShoot(w); else if (H.state === 'end' && e.key !== 'ArrowUp' && e.key !== 'ArrowDown') { w.hoops = null; w.modal = null; sfx('click'); Game.save(); } return true; }
+  return false;
+}
+function hoopBall(c, x, y, r, rot) {
+  c.save(); c.translate(x, y); c.rotate(rot); c.fillStyle = '#ff8a2a'; c.strokeStyle = P.ink; c.lineWidth = 2.2; c.beginPath(); c.arc(0, 0, r, 0, 6.3); c.fill(); c.stroke();
+  c.lineWidth = 1.5; c.beginPath(); c.moveTo(-r, 0); c.lineTo(r, 0); c.moveTo(0, -r); c.lineTo(0, r); c.stroke(); c.beginPath(); c.arc(-r * 1.15, 0, r * .85, -1, 1); c.stroke(); c.beginPath(); c.arc(r * 1.15, 0, r * .85, Math.PI - 1, Math.PI + 1); c.stroke(); c.restore();
+}
+function hoopBallPos(H) {                                                    // dónde está el balón (x, y, tamaño) según el tiro
+  const S0 = { x: HBX.x + HBX.w / 2, y: HBX.y + HBX.h - 112 }, side = H.side, t = H.t;
+  const P1 = { swish: { x: HOOP.x, y: HOOP.y + 4 }, in: { x: HOOP.x + side * 15, y: HOOP.y - 2 }, rimout: { x: HOOP.x + side * 24, y: HOOP.y - 4 }, short: { x: HOOP.x - side * 10, y: HOOP.y + 66 }, long: { x: HOOP.x, y: HOOP.y - 52 } }[H.res || 'short'];
+  if (H.state === 'aim') return { x: S0.x, y: S0.y, s: 1 };
+  if (H.state === 'fly') { const k = clamp(t / .75, 0, 1); return { x: lerp(S0.x, P1.x, k), y: lerp(S0.y, P1.y, k) - Math.sin(k * Math.PI) * 120, s: 1 - .42 * k }; }
+  const bounce = (u, base, amp) => base - Math.abs(Math.sin(u * 9)) * amp * Math.exp(-u * 3.4);
+  if (H.res === 'swish') { const u = clamp(t / .5, 0, 1); return t < .5 ? { x: P1.x, y: lerp(P1.y, HFLOOR + 40, u * u), s: .58 + .1 * u } : { x: P1.x, y: bounce(t - .5, HFLOOR + 40, 26), s: .68 }; }
+  if (H.res === 'in') { if (t < .4) return { x: HOOP.x + side * 15 * Math.cos(t * 16) * (1 - t / .4), y: HOOP.y - 2 + Math.sin(t * 20) * 4, s: .58 }; const u = clamp((t - .4) / .45, 0, 1); return t < .85 ? { x: HOOP.x, y: lerp(HOOP.y, HFLOOR + 40, u * u), s: .6 + .08 * u } : { x: HOOP.x, y: bounce(t - .85, HFLOOR + 40, 22), s: .68 }; }
+  if (H.res === 'rimout') { const u = clamp(t / .9, 0, 1); return { x: P1.x + side * 110 * u, y: t < .9 ? lerp(P1.y - 40, HFLOOR + 50, u * u) - Math.sin(Math.min(1, u * 1.6) * Math.PI) * 40 : bounce(t - .9, HFLOOR + 50, 18), s: .6 + .1 * u }; }
+  if (H.res === 'short') { const u = clamp(t / .6, 0, 1); return { x: P1.x - side * 30 * u, y: t < .6 ? lerp(P1.y, HFLOOR + 60, u * u) : bounce(t - .6, HFLOOR + 60, 24), s: .62 + .1 * u }; }
+  const u = clamp(t / .8, 0, 1); return { x: P1.x - side * 60 * u, y: t < .8 ? lerp(P1.y, HFLOOR + 80, u * u) - Math.sin(Math.min(1, u * 1.4) * Math.PI) * 50 : bounce(t - .8, HFLOOR + 80, 22), s: .6 + .25 * u };
+}
+function drawHoops(c, w) {
+  const H = w.hoops; if (!H) return; const B = HBX, t = H.t;
+  c.fillStyle = 'rgba(12,11,15,.8)'; c.fillRect(-EX, -EY, CW, CH);
+  drawPanel(c, B.x, B.y, B.w, B.h, 'CANCHA DE BÁSQUET');
+  c.save(); rr(c, B.x + 12, B.y + 44, B.w - 24, B.h - 56, 14); c.clip();
+  const sky = c.createLinearGradient(0, B.y + 44, 0, HFLOOR); sky.addColorStop(0, '#2b3a8f'); sky.addColorStop(.62, '#e0527f'); sky.addColorStop(1, '#ffb36b'); c.fillStyle = sky; c.fillRect(B.x, B.y + 44, B.w, HFLOOR - B.y - 44);
+  for (let i = 0; i < 12; i++) { const bx = B.x + 12 + i * 63, bh = 44 + (i * 37 % 60); c.fillStyle = i & 1 ? '#3a3158' : '#2f2850'; c.fillRect(bx, HFLOOR - bh, 58, bh); c.fillStyle = 'rgba(255,220,140,.7)'; for (let k = 0; k < 6; k++) if ((i + k * 3) % 3 === 0) c.fillRect(bx + 8 + (k % 3) * 16, HFLOOR - bh + 8 + Math.floor(k / 3) * 16, 8, 8); }
+  c.fillStyle = '#c8643a'; c.fillRect(B.x, HFLOOR, B.w, B.h);                                                    // el piso de la cancha
+  const fl = c.createLinearGradient(0, HFLOOR, 0, B.y + B.h); fl.addColorStop(0, 'rgba(0,0,0,.28)'); fl.addColorStop(1, 'rgba(255,200,120,.12)'); c.fillStyle = fl; c.fillRect(B.x, HFLOOR, B.w, B.h);
+  c.fillStyle = '#2f6fd0'; c.beginPath(); c.moveTo(HOOP.x - 90, HFLOOR); c.lineTo(HOOP.x + 90, HFLOOR); c.lineTo(HOOP.x + 190, B.y + B.h - 6); c.lineTo(HOOP.x - 190, B.y + B.h - 6); c.closePath(); c.fill();
+  c.strokeStyle = 'rgba(255,255,255,.9)'; c.lineWidth = 4; c.beginPath(); c.moveTo(HOOP.x - 90, HFLOOR); c.lineTo(HOOP.x - 190, B.y + B.h - 6); c.moveTo(HOOP.x + 90, HFLOOR); c.lineTo(HOOP.x + 190, B.y + B.h - 6); c.moveTo(B.x + 12, HFLOOR + 1); c.lineTo(B.x + B.w - 12, HFLOOR + 1); c.stroke();
+  c.beginPath(); c.ellipse(HOOP.x, HFLOOR + 118, 130, 34, 0, 0, 6.3); c.stroke();
+  // poste, tablero y aro
+  c.fillStyle = '#7a8090'; c.fillRect(HOOP.x - 7, HOOP.y - 40, 14, HFLOOR - HOOP.y + 40); c.strokeStyle = P.ink; c.lineWidth = 2; c.strokeRect(HOOP.x - 7, HOOP.y - 40, 14, HFLOOR - HOOP.y + 40);
+  rr(c, HOOP.x - 82, HOOP.y - 118, 164, 100, 8); c.fillStyle = '#f4f6fb'; c.fill(); c.lineWidth = 4; c.strokeStyle = P.ink; c.stroke(); c.lineWidth = 3; c.strokeStyle = '#e0364a'; c.strokeRect(HOOP.x - 34, HOOP.y - 86, 68, 46);
+  c.strokeStyle = 'rgba(255,255,255,.78)'; c.lineWidth = 1.6; c.beginPath(); for (let k = -4; k <= 4; k++) { c.moveTo(HOOP.x + k * 6.5, HOOP.y + 2); c.lineTo(HOOP.x + k * 3.6, HOOP.y + 48); } for (let k = 1; k < 4; k++) { c.moveTo(HOOP.x - 27 + k * 3, HOOP.y + k * 12); c.lineTo(HOOP.x + 27 - k * 3, HOOP.y + k * 12); } c.stroke();
+  // el jugador
+  const px = B.x + B.w / 2, py = B.y + B.h - 96;
+  c.save(); drawLuchador(c, px, py, Object.assign({}, playerLook(w), { state: 'idle', t: w.t, dir: 1, scale: 1.8, pose: H.state === 'fly' && t < .3 ? 'flex' : 'guard' })); c.restore();
+  // el balón (cae por delante del aro; la red lo cubre un poco)
+  const bp = hoopBallPos(H); c.fillStyle = 'rgba(0,0,0,.22)'; c.beginPath(); const sh = H.state === 'aim' ? 0 : clamp((bp.y - HOOP.y) / 140, 0, 1); if (H.state !== 'aim') { c.ellipse(bp.x, HFLOOR + 60, 20 * bp.s, 6 * bp.s, 0, 0, 6.3); c.fill(); }
+  hoopBall(c, bp.x, bp.y, 21 * bp.s, (H.state === 'aim' ? 0 : t * 12 * H.side));
+  c.strokeStyle = '#ff7a2a'; c.lineWidth = 4.5; c.beginPath(); c.ellipse(HOOP.x, HOOP.y, 30, 8, 0, 0, 6.3); c.stroke(); c.lineWidth = 1.2; c.strokeStyle = P.ink; c.stroke();
+  c.restore();
+  txt(c, `PUNTOS ${H.pts}`, B.x + 28, B.y + 72, { font: `400 26px ${FONT_DISPLAY}`, color: P.gold, stroke: P.ink, sw: 5 });
+  txt(c, `TIRO ${Math.min(5, H.shot + (H.state === 'aim' || H.state === 'fly' ? 1 : 0))} DE 5`, B.x + B.w - 70, B.y + 72, { font: `400 22px ${FONT_DISPLAY}`, align: 'right', color: P.white, stroke: P.ink, sw: 5 });
+  // la barra de tiro
+  if (H.state === 'aim' || H.state === 'fly') {
+    const M = HM, pos = H.state === 'aim' ? triWave(H.mt * hoopSpeed(H.shot)) : H.p;
+    rr(c, M.x - 4, M.y - 4, M.w + 8, M.h + 8, 10); c.fillStyle = 'rgba(12,11,15,.85)'; c.fill(); c.lineWidth = 2; c.strokeStyle = 'rgba(255,255,255,.4)'; c.stroke();
+    c.fillStyle = '#34394a'; rr(c, M.x, M.y, M.w, M.h, 6); c.fill();
+    c.fillStyle = '#2fbf71'; c.fillRect(M.x + (H.target - .13) * M.w, M.y, .26 * M.w, M.h); c.fillStyle = '#ffd24a'; c.fillRect(M.x + (H.target - .05) * M.w, M.y, .1 * M.w, M.h);
+    c.fillStyle = '#fff'; c.fillRect(M.x + pos * M.w - 3, M.y - 8, 6, M.h + 16); c.strokeStyle = P.ink; c.lineWidth = 1.4; c.strokeRect(M.x + pos * M.w - 3, M.y - 8, 6, M.h + 16);
+    if (H.state === 'aim') txt(c, 'Toca (o pulsa ESPACIO) cuando la raya pase por la zona verde', B.x + B.w / 2, M.y - 14, { font: `700 16px ${FONT_UI}`, align: 'center', color: P.cream, stroke: P.ink, sw: 4 });
+  }
+  const cl = hoopClose, ch = UI.hit(cl); if (ch) UI.cursor = true; rr(c, cl.x, cl.y, cl.w, cl.h, 8); c.fillStyle = ch ? '#5a3a8a' : '#2f2c37'; c.fill(); c.lineWidth = 1.6; c.strokeStyle = 'rgba(255,255,255,.35)'; c.stroke();
+  c.strokeStyle = P.white; c.lineWidth = 2.4; c.lineCap = 'round'; c.beginPath(); c.moveTo(cl.x + 10, cl.y + 10); c.lineTo(cl.x + 20, cl.y + 20); c.moveTo(cl.x + 20, cl.y + 10); c.lineTo(cl.x + 10, cl.y + 20); c.stroke();
+  if (H.state === 'res') { const m = { swish: ['¡SWISH! +2', '#ffd24a'], in: ['¡ENTRÓ! +1', '#9af0b8'], short: ['¡CORTO!', '#ff8fa0'], long: ['¡AL TABLERO!', '#ff8fa0'], rimout: ['¡SE SALIÓ!', '#ff8fa0'] }[H.res]; txt(c, m[0], B.x + B.w / 2, B.y + 150, { font: `400 ${50 + Math.sin(H.t * 9) * 3}px ${FONT_DISPLAY}`, align: 'center', color: m[1], stroke: P.ink, sw: 8 }); }
+  if (H.state === 'end') {
+    c.fillStyle = 'rgba(12,11,15,.78)'; rr(c, B.x + 120, B.y + 120, B.w - 240, 240, 18); c.fill(); c.lineWidth = 3; c.strokeStyle = P.gold; c.stroke();
+    txt(c, H.swishes === 5 ? '¡TANDA PERFECTA!' : H.pts >= 6 ? '¡BUENA TANDA!' : 'SE ACABÓ LA TANDA', B.x + B.w / 2, B.y + 176, { font: `400 34px ${FONT_DISPLAY}`, align: 'center', color: P.gold, stroke: P.ink, sw: 6, maxW: B.w - 280 });
+    txt(c, `${H.pts} punto${H.pts === 1 ? '' : 's'} · ${H.swishes} swish${H.swishes === 1 ? '' : 'es'}`, B.x + B.w / 2, B.y + 214, { font: `700 22px ${FONT_UI}`, align: 'center', color: P.white });
+    txt(c, H.coins ? `+${pesos(H.coins)} · +${H.xp} XP${H.gem ? ' · +1 gema' : ''}` : 'Sin premio esta vez', B.x + B.w / 2, B.y + 248, { font: `700 22px ${FONT_UI}`, align: 'center', color: H.coins ? '#9af0b8' : P.muted });
+    drawButton(c, { x: B.x + B.w / 2 - 110, y: B.y + B.h - 78, w: 220, h: 52, label: 'LISTO', style: 'green', size: 24 });
+  }
+}
+
 /* ---------- Botones y enlaces del pueblo con el resto del juego ---------- */
 const TOWN_LEVEL = 4;
 const townBtn = () => ({ x: 12 - EX + SL, y: 104, w: 80, h: 30 });
@@ -9332,7 +9597,6 @@ function drawRestScene(c, w) {
   w.staff.forEach(wt => (wt.y < .15 && !wt.resting ? outside : inside).push({ d: wt.resting ? wt.x + wt.y + .15 : wt.x + wt.y, draw: () => drawNovatoActor(c, w, wt, LUCHADORES[wt.look]) }));
   w.guards.forEach(g => outside.push({ d: g.x + g.y, draw: () => drawGuard(c, w, g) }));
   w.chefs.forEach(ch => (ch.y < .15 ? outside : inside).push({ d: ch.x + ch.y, draw: () => drawChef(c, w, ch) }));
-  if (DECO.arena) { const g = ARENA.ring; inside.push({ d: g.c + g.w / 2 + g.r + g.h / 2 - .2, draw: () => drawRing(c, w) }); }
 
   outside.sort((a, b) => a.d - b.d).forEach(i => i.draw());
   drawNight(c, w);                                                 // la calle se oscurece con la hora (el local sigue iluminado)
@@ -9391,13 +9655,13 @@ function drawWorldOverlays(c, w) {
     if (w.shop) drawShop(c, w);
     if (w.edit) drawEditPanel(c, w);
     if (w.hedit) drawHomeEditPanel(c, w);
-    if (w.modal === 'sign') drawSignEditor(c, w); else if (w.modal === 'claw') drawClaw(c, w); else if (w.modal === 'cal') drawCalendar(c, w); else if (w.modal === 'lvl') drawLevelUp(c, w); else if (w.modal === 'map') drawMap(c, w); else if (w.modal === 'fight') drawFight(c, w); else if (w.modal === 'dlg') drawDialog(c, w); else if (w.modal === 'catalog') drawCatalog(c, w); else if (w.modal === 'paint') drawPaint(c, w); else if (w.modal === 'penal') drawPenal(c, w);
+    if (w.modal === 'sign') drawSignEditor(c, w); else if (w.modal === 'claw') drawClaw(c, w); else if (w.modal === 'cal') drawCalendar(c, w); else if (w.modal === 'lvl') drawLevelUp(c, w); else if (w.modal === 'map') drawMap(c, w); else if (w.modal === 'fight') drawFight(c, w); else if (w.modal === 'dlg') drawDialog(c, w); else if (w.modal === 'catalog') drawCatalog(c, w); else if (w.modal === 'paint') drawPaint(c, w); else if (w.modal === 'penal') drawPenal(c, w); else if (w.modal === 'hoops') drawHoops(c, w);
   }
 
   drawFaint(c, w);
   // pistas y avisos (con el tutorial en curso, la guía es el cuadro del tutorial)
   if (w.tut && w.phase === 'play') drawTutorial(c, w);
-  const clawScene = (w.modal === 'claw' && w.claw && w.claw.phase !== 'menu') || w.modal === 'lvl' || w.modal === 'cal' || w.modal === 'map' || w.modal === 'fight' || w.modal === 'dlg' || w.modal === 'catalog' || w.modal === 'paint' || w.modal === 'penal';      // (sin pistas ni avisos encima de esas ventanas)
+  const clawScene = (w.modal === 'claw' && w.claw && w.claw.phase !== 'menu') || w.modal === 'lvl' || w.modal === 'cal' || w.modal === 'map' || w.modal === 'fight' || w.modal === 'dlg' || w.modal === 'catalog' || w.modal === 'paint' || w.modal === 'penal' || w.modal === 'hoops';      // (sin pistas ni avisos encima de esas ventanas)
   const hint = w.tut || clawScene || w.shop ? null : getHint(w);
   // los textos largos se encogen para caber en el lienzo; el aviso sube sobre la pista para que nunca se tapen
   const fitSize = (s, weight, size, room = 56) => { c.font = `${weight} ${size}px ${FONT_UI}`; const mw = c.measureText(s).width; return mw > W - room ? Math.max(11, Math.floor(size * (W - room) / mw * 10) / 10) : size; };
@@ -9531,7 +9795,7 @@ function getHint(w) {
   const hire = HIRE_IDS.find(id => w.level >= STAFF[id].level && !w.staff.some(m => m.id === id) && w.money >= STAFF[id].price);
   if (hire) return `Ya puedes contratar a ${STAFF[hire].name} en la TIENDA (${pesos(STAFF[hire].price)})`;
   { const rv = RIVALS.find(r => rivalState(w, r) === 'ok'); if (rv && !w.tut) return `Ya puedes atacar ${rv.name}: abre el MAPA (botón de la izquierda o tecla M)`; }
-  if (w.level >= ARENA.level && DECO.remodeled && !DECO.arena && w.money >= ARENA.price) return `Ya puedes construir la Mega Ampliación: Arena en la TIENDA (${pesos(ARENA.price)})`;
+  if (w.level >= ARENA.level && extOf(DECO) >= 3 && !DECO.arena && w.money >= ARENA.price) return `Ya puedes construir la Ampliación IV (Arena) en la TIENDA (${pesos(ARENA.price)})`;
   return 'Pulsa el comal para preparar comida antes de que lleguen';
 }
 
