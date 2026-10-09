@@ -41,6 +41,7 @@ const STAFF = {
 const STAFF_IDS = Object.keys(STAFF);
 const HIRE_IDS = STAFF_IDS.filter(id => STAFF[id].tab);          // los que se compran en la tienda (los meseros robados a los rivales no)
 /* =========================================================
+   VERSIÓN 1.6: cocineros, 10 ampliaciones de inventario, estacionamiento grande con coches reales y faroles con luz de verdad
    VERSIÓN 1.5: manos (cuadros de carga abajo, desbloqueables por nivel) y OBRAS con inventario y estacionamiento
    VERSIÓN 1.4: sueldos semanales, cadeneros, Estrellas de Sabor, técnicas de lucha y restaurantes rivales
    ========================================================= */
@@ -53,6 +54,86 @@ const GUARDS = {
     desc: 'Enorme y de pocas pulgas: la fila espera 4 veces más y casi no hay pleitos · $450 por semana' }
 };
 const GUARD_IDS = Object.keys(GUARDS);
+// Cocineros (v1.5): cocinan solos. Se paran junto al comal, ven qué piden los clientes y qué falta en la barra, y arrancan una tanda cuando hay lugar libre.
+// maxCost = tanda más cara que se atreven a cocinar · timeMul / costMul = lo que tardan y gastan en comparación con cocinar tú (1 = igual) · react = cada cuántos segundos deciden algo
+// wage = sueldo por semana (0 = solo pagas una vez al contratarlo). El comienzo es barato pero cobra; los mejores se pagan una sola vez
+const CHEFS = {
+  chef1: { name: 'Doña Chuy, la Cocinera', tag: 'COCINERA', price: 1500, level: 8, wage: 100, look: 'cocinera', speed: 2.6, react: 2.6, maxCost: 60, drinks: false, timeMul: 1, costMul: 1,
+    desc: 'Cocina sola lo sencillo del comal (tandas de hasta $60) · $100 por semana' },
+  chef2: { name: 'Chef Ramiro', tag: 'CHEF', price: 9000, level: 20, wage: 0, look: 'chefmedio', speed: 3.0, react: 1.5, maxCost: 150, drinks: true, timeMul: .85, costMul: .92,
+    desc: 'Comal, antojitos y bebidas: 15 % más rápido y gasta 8 % menos · pago único' },
+  chef3: { name: 'Gran Chef Ibarra', tag: 'GRAN CHEF', price: 28000, level: 35, wage: 0, look: 'chefgran', speed: 3.4, react: .8, maxCost: 999, drinks: true, timeMul: .7, costMul: .8,
+    desc: 'Domina todo el menú: 30 % más rápido y gasta 20 % menos · pago único' }
+};
+const CHEF_IDS = Object.keys(CHEFS);
+const chefDef = id => STAFF[id] || GUARDS[id] || CHEFS[id];
+function chefHome(i) {                                              // dónde espera: junto al comal (o en una loseta libre si todavía no hay)
+  const it = LAYOUT.comals && LAYOUT.comals[0];
+  if (it) { const g = neighborCells(it); if (g.length) { const n = g[i % g.length]; return Grid.pt(n.c, n.r); } }
+  return nearestFree(2.5 + i * .8, 1.5);
+}
+function makeChef(id, entering, idx = 0) {
+  const d = CHEFS[id], sp = chefHome(idx);
+  const m = { id, x: entering ? SPAWN_X : sp.x, y: entering ? SIDE_Y : sp.y, dir: -1, phase: 0, moving: false, speed: d.speed, path: [], t: Math.random() * 6, think: 1.2 + idx * .4, job: null, jobT: 0, work: false, entering: !!entering };
+  if (entering) {                                                    // llega por la banqueta y cruza la puerta
+    m.path = [{ x: DOOR.ix, y: SIDE_Y }, { x: DOOR.ix, y: -.3 }, Grid.pt(5, 0)];
+    const cells = Grid.path({ c: 5, r: 0 }, [{ c: Math.floor(sp.x), r: Math.floor(sp.y) }]) || [];
+    cells.forEach(n => m.path.push(Grid.pt(n.c, n.r)));
+  }
+  return m;
+}
+const chefCost = (D, r) => Math.max(1, Math.round(r.cost * D.costMul));
+const chefTime = (w, D, r) => Math.round(r.time * D.timeMul * (perkOn(w, 'cook') ? .9 : 1) * 10) / 10;
+function chefPick(w, ch) {                                          // qué cocinar: primero lo que piden y no hay; si no, lo que se está acabando
+  const D = CHEFS[ch.id], want = {};
+  w.customers.forEach(cu => { if (cu.state === 'wait') pending(cu).forEach(i => { want[i.key] = (want[i.key] || 0) + 1; w.chefSeen[i.key] = true; }); });
+  const busy = new Set(allSlots(w).filter(s => s.state === 'cook').map(s => s.dish));
+  let best = null, bs = 0;
+  for (const key of MENU) {
+    const r = RECIPES[key];
+    if (r.level > w.level || r.cost > D.maxCost || (r.drink && !D.drinks) || busy.has(key) || !shelfItem(key)) continue;
+    const idx = r.station === 'fridge' ? (LAYOUT.fridge ? w.dslots.findIndex(s => s.state === 'empty') : -1) : w.slots.findIndex(s => s.state === 'empty');
+    if (idx < 0) continue;
+    const cost = chefCost(D, r);
+    if (w.money < cost + 25 || w.dayTime < r.time * D.timeMul + 20) continue;
+    const short = (want[key] || 0) - w.stock[key];
+    let score = 0;
+    if (short > 0) score = 100 + short * 5 + r.price;                // hay clientes esperando eso
+    else if (w.stock[key] < 2 && (w.chefSeen[key] || FOODS.indexOf(key) < 2)) score = (2 - w.stock[key]) * 10 + r.price / 10;   // se está acabando algo que sí se vende
+    if (score > bs) { bs = score; best = { key, idx, station: r.station, item: r.station === 'fridge' ? LAYOUT.fridge : LAYOUT.comals[idx], slot: r.station === 'fridge' ? w.dslots[idx] : w.slots[idx] }; }
+  }
+  return best;
+}
+function chefStart(w, ch) {                                         // llegó y preparó: arranca la tanda (si el lugar sigue libre y alcanza el dinero)
+  const job = ch.job, D = CHEFS[ch.id], r = RECIPES[job.key], cost = chefCost(D, r);
+  if (job.slot.state !== 'empty' || w.money < cost || r.level > w.level) return false;
+  Object.assign(job.slot, { state: 'cook', dish: job.key, t: 0, n: r.yield, dur: chefTime(w, D, r), snd: .5 });
+  w.money -= cost; w.dayCost += cost;
+  const p = r.station === 'fridge' ? fridgeRingPos(0) : comalPos(job.idx);
+  addPart(w, { type: 'text', text: '-' + pesos(cost), x: p.x, y: p.y - 30, vy: -34, life: 1.2, color: '#ff8fa0' });
+  sfx(r.drink ? 'drinkStart' : 'cookStart');
+  return true;
+}
+function updateChefs(w, dt) {
+  for (const ch of w.chefs) {
+    const D = CHEFS[ch.id];
+    ch.t += dt; step(ch, dt);
+    if (ch.entering) { if (!ch.path.length) ch.entering = false; continue; }
+    if (ch.path.length) { ch.work = false; continue; }
+    if (ch.job) {                                                    // ya está junto a la estación: prepara y arranca
+      ch.work = true; ch.jobT -= dt;
+      if (ch.jobT <= 0) { chefStart(w, ch); ch.job = null; ch.work = false; ch.think = D.react; }
+      continue;
+    }
+    ch.work = false;
+    if ((ch.think -= dt) > 0 || w.dayTime <= 0 || w.tut || w.phase !== 'play') continue;
+    ch.think = D.react;
+    const job = chefPick(w, ch); if (!job || !job.item) continue;
+    const goals = neighborCells(job.item), cells = goals.length ? Grid.path(Grid.cell(ch.x, ch.y), goals) : null;
+    if (!cells) { ch.think = 4; continue; }
+    ch.job = job; ch.jobT = .5 + D.react * .4; ch.path = cells.map(n => Grid.pt(n.c, n.r));
+  }
+}
 const guardSpot = i => ({ x: DOOR.ix + 1.0 + i * 1.3, y: -2.15 });
 const queueDrain = w => {                                          // qué tan rápido se les acaba la paciencia a los de la fila (1 = normal)
   const g = (w.guards || []).filter(q => !q.path.length); if (!g.length) return 1;
@@ -69,13 +150,14 @@ const weekOf = day => Math.floor((day - 1) * CAL_STEP / 7);
 const payDay = day => weekOf(day + 1) > weekOf(day);               // ¿al cerrar este día termina la semana?
 const daysToPay = day => { for (let k = 0; k < 9; k++) if (payDay(day + k)) return k; return 8; };
 const crewOf = w => w.staff.filter(m => STAFF[m.id].wage).map(m => ({ kind: 'staff', ref: m, id: m.id, name: STAFF[m.id].name, wage: STAFF[m.id].wage }))
-  .concat((w.guards || []).map(g => ({ kind: 'guard', ref: g, id: g.id, name: GUARDS[g.id].name, wage: GUARDS[g.id].wage })));
+  .concat((w.guards || []).map(g => ({ kind: 'guard', ref: g, id: g.id, name: GUARDS[g.id].name, wage: GUARDS[g.id].wage })))
+  .concat((w.chefs || []).filter(m => CHEFS[m.id].wage).map(m => ({ kind: 'chef', ref: m, id: m.id, name: CHEFS[m.id].name, wage: CHEFS[m.id].wage })));
 const weeklyWage = w => crewOf(w).reduce((s, q) => s + q.wage, 0);
 function payCrew(w) {
   const out = { total: 0, paid: [], quit: [] };
   crewOf(w).sort((a, b) => a.wage - b.wage).forEach(q => {
     if (w.money >= q.wage) { w.money -= q.wage; out.total += q.wage; out.paid.push(q.name); }
-    else { out.quit.push(q.name); if (q.kind === 'guard') w.guards = w.guards.filter(g => g !== q.ref); else { releaseBench(w, q.ref); w.staff = w.staff.filter(m => m !== q.ref); } }
+    else { out.quit.push(q.name); if (q.kind === 'guard') w.guards = w.guards.filter(g => g !== q.ref); else if (q.kind === 'chef') w.chefs = w.chefs.filter(m => m !== q.ref); else { releaseBench(w, q.ref); w.staff = w.staff.filter(m => m !== q.ref); } }
   });
   return out;
 }
@@ -125,7 +207,8 @@ const MAP_LEVEL = RIVALS[0].level;                                  // desde est
 const ARENA = { price: 40000, level: 40, bonus: 1, ring: { c: 4, r: 3, w: 3, h: 3 }, maxTables: 6, maxComals: 3 };
 // Inventario ("cajita") para guardar muebles sin colocar: empieza con 5 lugares y se amplía por niveles
 const INV_BASE = 5;
-const INV_TIERS = [{ cap: 7, level: 10, price: 2500 }, { cap: 10, level: 30, price: 9000 }, { cap: 14, level: 50, price: 25000 }, { cap: 20, level: 70, price: 60000 }];
+const INV_TIERS = [{ cap: 6, level: 5, price: 600 }, { cap: 7, level: 10, price: 2500 }, { cap: 8, level: 16, price: 4500 }, { cap: 9, level: 22, price: 7000 }, { cap: 10, level: 30, price: 9000 },
+  { cap: 12, level: 38, price: 15000 }, { cap: 14, level: 50, price: 25000 }, { cap: 16, level: 58, price: 38000 }, { cap: 18, level: 64, price: 50000 }, { cap: 20, level: 70, price: 60000 }];
 // Horario: abre a las 8:00 AM y cierra a las 11:00 PM; un día dura DAY_SEC segundos reales (14 s por hora de juego, como antes)
 const DAY_SEC = 210, START_H = 8, END_H = 23;
 // Remodelación (nivel 15) y decoración: cada mejora estética suma media máscara de reputación
@@ -1164,7 +1247,8 @@ const FURN = {
   storage: { fw: 1, fh: 1, h: 66, name: 'Refri de sobrantes' },
   garra:  { fw: 1, fh: 1, h: 124, name: 'Máquina de garra' },
   chairs: { fw: 2, fh: 1, h: 40,  name: 'Juego de sillas' },                 // (solo en el inventario: se pone sobre una mesa)
-  cartel: { fw: 1, fh: 1, h: 196, name: 'Cartel de tacos', out: true },       // (se coloca afuera, en el pasto)
+  cartel: { fw: 1, fh: 1, h: 196, name: 'Cartel de tacos', out: true },
+  farol: { fw: 1, fh: 1, h: 100, name: 'Farol de calle', out: true },       // (se coloca afuera, en el pasto)
   parking: { fw: 4, fh: 3, h: 0, name: 'Estacionamiento', out: true },         // (se coloca afuera, en el frente del local)
   bench:  { fw: 2, fh: 1, h: 58,  name: 'Banca con suero' },
   plant:  { fw: 1, fh: 1, h: 70,  name: 'Planta' },
@@ -1879,7 +1963,11 @@ const LUCHADORES = {
   sheriff:   { casual: true, gender: 'm', hairStyle: 'crop', hairColor: '#2b2018', hoodie: '#7a4a2b', pants: '#2d3550', shoes: 'bota', skin: '#e0ac69', hat: 'vaquero', hatCol: '#5a3a1e', stache: true, scale: 1.1, label: ['SHERIFF', 'CUERVO'] },
   gallo:     { casual: true, gender: 'm', hairStyle: 'crop', hairColor: '#17171c', hoodie: '#17171c', pants: '#17171c', shoes: 'negro', skin: '#c68642', hat: 'charro', hatCol: '#17171c', stache: true, scale: 1.1, label: ['DON', 'GALLO'] },
   flaco:     { casual: true, gender: 'm', hairStyle: 'crop', hairColor: '#17171c', hoodie: '#8b5cf6', pants: '#2d3550', shoes: 'blanco', skin: '#8d5524', hat: 'cholo', shades: true, scale: 1.1, label: ['EL', 'FLACO'] },
-  kenji:     { casual: true, gender: 'm', hairStyle: 'spiky', hairColor: '#17171c', hoodie: '#b7233a', pants: '#17171c', shoes: 'negro', skin: '#f1c27d', hat: 'japones', scale: 1.1, label: ['MAESTRO', 'KENJI'] }
+  kenji:     { casual: true, gender: 'm', hairStyle: 'spiky', hairColor: '#17171c', hoodie: '#b7233a', pants: '#17171c', shoes: 'negro', skin: '#f1c27d', hat: 'japones', scale: 1.1, label: ['MAESTRO', 'KENJI'] },
+  // v1.5 · cocineros (gente normal, con gorro)
+  cocinera:  { casual: true, gender: 'f', hairStyle: 'pony', hairColor: '#2b1a10', hoodie: '#f4efe2', pants: '#8b3a2a', shoes: 'negro', skin: '#c68642', hat: 'cocinera', hatCol: '#e0364a', label: ['DOÑA', 'CHUY'] },
+  chefmedio: { casual: true, gender: 'm', hairStyle: 'crop', hairColor: '#2b2018', hoodie: '#ffffff', pants: '#2d3550', shoes: 'negro', skin: '#e0ac69', hat: 'chef', stache: true, scale: 1.03, label: ['CHEF', 'RAMIRO'] },
+  chefgran:  { casual: true, gender: 'm', hairStyle: 'spiky', hairColor: '#9a9aa6', hoodie: '#17171c', pants: '#17171c', shoes: 'negro', skin: '#f1c27d', hat: 'chefalto', stache: true, stacheCol: '#9a9aa6', scale: 1.08, label: ['GRAN', 'CHEF'] }
 };
 function randomLook() {
   const r = Math.random();
@@ -2177,6 +2265,19 @@ function drawHat(c, kind, dir, o) {
     c.fillStyle = '#e0364a'; c.beginPath(); c.arc(0, -14.2, 3.4, 0, 6.3); c.fill();
     c.fillStyle = '#fff8ea'; c.beginPath(); c.moveTo(-dir * 14, -8); c.lineTo(-dir * 25, -3); c.lineTo(-dir * 22, -11); c.closePath(); c.fill(); c.stroke();
     c.beginPath(); c.moveTo(-dir * 14, -8); c.lineTo(-dir * 24, -13); c.lineTo(-dir * 18, -16); c.closePath(); c.fill(); c.stroke();
+  } else if (kind === 'chef' || kind === 'chefalto') {                              // gorro de cocinero: banda y nubes blancas (el gran chef lo lleva altísimo y con cinta dorada)
+    const tall = kind === 'chefalto', top = tall ? -48 : -36;
+    const puffs = tall ? [[-10, top + 17, 9], [0, top + 10, 11], [10, top + 17, 9], [-5, top + 22, 8], [5, top + 22, 8]] : [[-9.5, top + 15, 9], [0, top + 9, 10.5], [9.5, top + 15, 9]];
+    c.fillStyle = '#fffdf6'; puffs.forEach(([px, py, pr]) => { c.beginPath(); c.arc(px, py, pr, 0, 6.3); c.fill(); c.stroke(); });
+    c.fillRect(-12.5, top + 19, 25, -9 - (top + 19));
+    c.beginPath(); c.moveTo(-12.5, top + 19); c.lineTo(-12.5, -9); c.moveTo(12.5, top + 19); c.lineTo(12.5, -9); c.stroke();
+    c.fillStyle = tall ? '#ffc83d' : '#e8e2d0'; c.fillRect(-12.5, -15, 25, 6); c.strokeRect(-12.5, -15, 25, 6);
+  } else if (kind === 'cocinera') {                                                 // pañuelo rojo con puntitos y un nudo a un lado
+    const b = col || '#e0364a';
+    c.fillStyle = b; c.beginPath(); c.moveTo(-16.5, -2); c.quadraticCurveTo(-18, -22, 0, -23); c.quadraticCurveTo(18, -22, 16.5, -2); c.quadraticCurveTo(0, -11, -16.5, -2); c.closePath(); c.fill(); c.stroke();
+    c.fillStyle = '#fff'; for (const [px, py] of [[-9, -12], [-2, -17], [6, -14], [11, -8], [-12, -6], [1, -9]]) { c.beginPath(); c.arc(px, py, 1.3, 0, 6.3); c.fill(); }
+    c.fillStyle = b; c.beginPath(); c.moveTo(dir * 15, -11); c.lineTo(dir * 25, -18); c.lineTo(dir * 24, -7); c.closePath(); c.fill(); c.stroke();
+    c.beginPath(); c.moveTo(dir * 15, -11); c.lineTo(dir * 24, -3); c.lineTo(dir * 17, -2); c.closePath(); c.fill(); c.stroke();
   }
   c.restore();
 }
@@ -2268,6 +2369,24 @@ function drawGuard(c, w, g) {
   const o = Object.assign({}, L, { state: g.path.length ? 'walk' : 'idle', t: g.path.length ? g.phase : g.t, dir: g.dir, scale: (L.scale || 1), pose: 'bat', handT, holdFn: (cc, aa) => { cc.rotate(-aa); drawBat(cc, D.bat, ang); } });
   drawLuchador(c, p.x, p.y, o);
   const tp = p.y - 76 * (L.scale || 1) - 8;
+  txt(c, D.tag, p.x, tp, { font: `700 11px ${FONT_UI}`, align: 'center', color: '#ffe0a0', stroke: P.ink, sw: 4, ls: 1.5 });
+}
+/* ---------- Cocineros: espátula, gorro y el personaje ---------- */
+function drawSpatula(c, ang) {                                       // espátula: se dibuja desde la mano, apuntando hacia arriba y girada ang
+  c.save(); c.rotate(ang); c.lineJoin = 'round'; c.lineWidth = 1.5; c.strokeStyle = P.ink;
+  c.fillStyle = '#8a5a2b'; rr(c, -1.7, -17, 3.4, 22, 1.6); c.fill(); c.stroke();                       // mango de madera
+  c.fillStyle = '#c9ced8'; rr(c, -6, -32, 12, 16, 2.5); c.fill(); c.stroke();                           // hoja de acero
+  c.strokeStyle = 'rgba(60,64,80,.7)'; c.lineWidth = 1; for (const sx of [-2.4, 0, 2.4]) { c.beginPath(); c.moveTo(sx, -29); c.lineTo(sx, -20); c.stroke(); }
+  c.restore();
+}
+function drawChef(c, w, ch) {
+  const D = CHEFS[ch.id], L = LUCHADORES[D.look], p = S(ch.x, ch.y), sc = L.scale || 1;
+  const moving = ch.path.length > 0, k = Math.sin(ch.t * 9), ang = ch.dir * (ch.work ? .55 + .35 * k : .45);
+  const o = Object.assign({}, L, { state: moving ? 'walk' : 'idle', t: moving ? ch.phase : ch.t, dir: ch.dir, scale: sc, pose: 'bat',
+    handT: ch.work ? { x: ch.dir * 15, y: -32 + k * 5 } : null, holdFn: (cc, aa) => { cc.rotate(-aa); drawSpatula(cc, ang); } });
+  c.fillStyle = 'rgba(0,0,0,.2)'; c.beginPath(); c.ellipse(p.x, p.y + 2, 17, 6, 0, 0, 6.3); c.fill();
+  drawLuchador(c, p.x, p.y, o);
+  const tp = p.y - 76 * sc - (L.hat === 'chefalto' ? 52 : L.hat === 'chef' ? 42 : 24);
   txt(c, D.tag, p.x, tp, { font: `700 11px ${FONT_UI}`, align: 'center', color: '#ffe0a0', stroke: P.ink, sw: 4, ls: 1.5 });
 }
 /* ---------- Letrero de Estrellas de Sabor (en la pared de la puerta) ---------- */
@@ -2408,7 +2527,7 @@ const Game = {
     const midDay = w.phase === 'play', pocket = w.coins.reduce((s, co) => s + co.v, 0);   // las monedas sin cobrar también cuentan
     const grab = it => ({ type: it.type, c: it.c, r: it.r, rot: it.rot || 0, style: it.style, chair: it.type === 'table' ? it.chair : undefined, slot: it.slot ? { state: it.slot.state, dish: it.slot.dish, t: it.slot.t, n: it.slot.n, dur: it.slot.dur } : undefined,
       slots: it.slots ? it.slots.map(s => ({ state: s.state, dish: s.dish, t: s.t, n: s.n, dur: s.dur })) : undefined });
-    Store.write(Store.key(this.slot), { v: 12, stars: w.stars, moves: w.moves, conq: w.conq, flock: w.fightLock, guards: w.guards.map(g => g.id), cookN: w.cookN || 0, at: Date.now(), gems: w.gems, char: w.char, outs: w.outs.map(o => ({ type: o.type, c: o.c, r: o.r })), lot: w.lot ? { c: w.lot.c, r: w.lot.r } : null, clawN: w.clawN, clawDay: w.clawDay, tut: w.tut ? w.tut.s : null, day: w.phase === 'summary' ? w.day + 1 : w.day, money: w.money + pocket, rep: w.rep, totalServed: w.totalServed, stock: stockSaved(w), hands: w.nHands, level: w.level, xp: w.xp,
+    Store.write(Store.key(this.slot), { v: 12, stars: w.stars, moves: w.moves, conq: w.conq, flock: w.fightLock, guards: w.guards.map(g => g.id), chefs: w.chefs.map(m => m.id), cookN: w.cookN || 0, at: Date.now(), gems: w.gems, char: w.char, outs: w.outs.map(o => ({ type: o.type, c: o.c, r: o.r })), lot: w.lot ? { c: w.lot.c, r: w.lot.r } : null, clawN: w.clawN, clawDay: w.clawDay, tut: w.tut ? w.tut.s : null, day: w.phase === 'summary' ? w.day + 1 : w.day, money: w.money + pocket, rep: w.rep, totalServed: w.totalServed, stock: stockSaved(w), hands: w.nHands, level: w.level, xp: w.xp,
       furn: w.furn.map(grab), inv: w.inv.concat(held).map(f => ({ type: f.type, style: f.style, chair: f.type === 'table' ? f.chair : undefined })), invCap: w.invCap, staff: w.staff.map(m => m.id), deco: w.deco,
       resume: midDay ? { dayTime: w.dayTime, dayServed: w.dayServed, dayEarned: w.dayEarned, dayCost: w.dayCost, dayAngry: w.dayAngry, repTemp: w.repTemp, vips: w.vips,
         stam: w.novato.stamina, staffStam: w.staff.map(m => m.stamina) } : null });
@@ -2473,7 +2592,7 @@ function createWorld(save) {
   const money = save ? save.money : START_MONEY;
   const w = {
     t: 0, day: save ? save.day : 1, money, shownMoney: money, moneyFlash: 0,
-    rep: save ? clamp(save.rep, 0, 5) : 1, repTemp: 0, vips: [], staff: [], shopView: 'main', shopTab: 'furn', decCat: 'floor', decPage: 0, totalServed: save ? (save.totalServed || 0) : 0,
+    rep: save ? clamp(save.rep, 0, 5) : 1, repTemp: 0, vips: [], staff: [], chefs: [], chefSeen: {}, shopView: 'main', shopTab: 'furn', decCat: 'floor', decPage: 0, totalServed: save ? (save.totalServed || 0) : 0,
     stock: MENU.reduce((o, k) => (o[k] = save && save.stock && save.stock[k] || 0, o), {}),   // porciones listas en la barra
     level: save && save.level ? save.level : 1, xp: save && save.xp ? save.xp : 0, levelFlash: 0, shake: 0, fx: [],
     shop: false, edit: null, bench: [null, null], panelIdx: 0, furn: [], inv: [], invCap: INV_BASE, slots: [], dslots: [],
@@ -2498,6 +2617,7 @@ function createWorld(save) {
   const hired = save ? (Array.isArray(save.staff) ? save.staff : save.waiter ? ['waiter1'] : []).filter(id => STAFF[id]) : [];
   w.staff = hired.map(id => makeStaff(id, false));
   w.guards = ((save && save.guards) || []).filter(id => GUARDS[id]).map(id => makeGuard(id, false));
+  w.chefs = ((save && save.chefs) || []).filter(id => CHEFS[id]).map((id, i) => makeChef(id, false, i));
   w.stars = save && Number.isFinite(save.stars) ? clamp(Math.round(save.stars * 2) / 2, STAR_START, STAR_MAX) : STAR_START;
   w.moves = Object.assign({}, save && save.moves); w.conq = Object.assign({}, save && save.conq); w.fightLock = Object.assign({}, save && save.flock);
   w.pay = null; w.fight = null; w.map = null; w.fireAsk = null;
@@ -2770,6 +2890,8 @@ function startDay(w, rs) {
   w.bench = [null, null]; w.shop = false;
   const ns = nearestFree(2.5, 2.5); n.x = ns.x; n.y = ns.y;                  // cada mañana empiezan en una loseta libre
   w.staff.forEach((m, i) => { const ws = nearestFree(6.5 + i * .8, 1.5 + (i % 2)); Object.assign(m, { x: ws.x, y: ws.y, carrying: null, task: null, path: [], stamina: 100, resting: false, needsRest: false, entering: false, think: 1 + i * .3, stun: 0 }); });
+  w.chefs.forEach((m, i) => { const sp = chefHome(i); Object.assign(m, { x: sp.x, y: sp.y, path: [], job: null, work: false, entering: false, think: 1 + i * .4 }); });
+  w.chefSeen = {};
   w.guards.forEach(g => { const sp = guardSpot(GUARDS[g.id].spot); Object.assign(g, { x: sp.x, y: sp.y, path: [], moving: false, swing: 0, cd: 1.2 }); });
   w.pay = null;
   w.fx = [];
@@ -2818,7 +2940,7 @@ function addXp(w, amt) {
     w.xp -= xpNeed(w.level); w.level++; w.levelFlash = 1.6;
     const n = w.novato; n.stamina = Math.min(maxStamina(w), n.stamina + 30); n.zeroWarned = false;     // sube el máximo y recupera un poco
     const unlocked = MENU.filter(k => RECIPES[k].level === w.level && w.level > 1).map(k => RECIPES[k].name);
-    const hire = HIRE_IDS.filter(id => STAFF[id].level === w.level).map(id => STAFF[id].name).concat(GUARD_IDS.filter(id => GUARDS[id].level === w.level).map(id => GUARDS[id].name));
+    const hire = HIRE_IDS.filter(id => STAFF[id].level === w.level).map(id => STAFF[id].name).concat(GUARD_IDS.filter(id => GUARDS[id].level === w.level).map(id => GUARDS[id].name)).concat(CHEF_IDS.filter(id => CHEFS[id].level === w.level).map(id => CHEFS[id].name));
     const extra = hire.length ? ` ¡Ya puedes contratar: ${hire.join(' y ')}!` : unlocked.length ? ` Nuevo platillo: ${unlocked.join(' y ')}`
       : w.level === 2 ? ' ¡Ya puedes DECORAR el changarro desde la TIENDA!' : w.level === SPOIL_LEVEL ? ' ¡Ojo! La comida que sobra se echa a perder: compra el Refri de sobrantes' : w.level === 3 ? ' Nueva bebida: Agua de Horchata' : w.level === 13 ? ' ¡Ya puedes comprar la Máquina de garra!'
       : w.level === REMODEL.level ? ' ¡Ya puedes remodelar el changarro!' : w.level === ARENA.level ? ' ¡Ya puedes construir la Arena!' : '';
@@ -2903,7 +3025,8 @@ const effRep = w => Math.max(0, w.rep - w.repTemp);               // máscaras q
    Quien llega en coche deja un 40 % más de propina. Con 4 cajones nunca hay más de 4 coches al mismo tiempo.
    Economía: cuesta $6,000 y trae ~12 clientes extra al día (≈ +$230 de ganancia neta al día en el nivel 20): se paga en ~26 días de juego.
    ========================================================= */
-const PARKING_LEVEL = 20, PARKING_PRICE = 6000, LOT_MOVE = 450, LOT_W = 4, LOT_H = 3, CAR_X = -3.5;
+// v1.5: cajones de 1.3 losetas, carril de 1.5 y fondo de 2.5 (los coches miden ≈ 2.2 x 1): 5.2 x 4 losetas en total (antes 4 x 3)
+const PARKING_LEVEL = 20, PARKING_PRICE = 6000, LOT_MOVE = 450, LOT_W = 5.2, LOT_H = 4, LOT_LANE = 1.5, BAY_W = 1.3, CAR_X = -3.5;
 const CAR_COLS = [['#e0364a', '#a92a3a'], ['#3b82f6', '#1f4a9c'], ['#ffd23a', '#c9a31a'], ['#2fbf71', '#1f8f52'], ['#f2f2f5', '#bcbcc8'], ['#8b5cf6', '#5b3aa6'], ['#ff8a3d', '#c46a22'], ['#2b2540', '#1a191e']];
 function inWallBand(p) {                                            // ¿ese punto de la pantalla queda tapado por una de las dos paredes del local?
   const A = S(0, 0), B = S(COLS, 0), Cc = S(0, ROWS);
@@ -2916,9 +3039,9 @@ function inWallBand(p) {                                            // ¿ese pun
 function lotCan(w, c, r) {                                          // null si el estacionamiento cabe con su esquina en (c, r)
   if (r < ROWS) return 'El estacionamiento va al frente del local: por ahí no pueden entrar los coches';
   const pts = []; for (let i = 0; i <= LOT_W; i += LOT_W / 2) for (let j = 0; j <= LOT_H; j += LOT_H / 2) pts.push(S(c + i, r + j));
-  if (pts.some(p => p.x < 24 || p.x > W - 24 || p.y < HUD + 14 || p.y > H - 12)) return 'Ahí se saldría de la pantalla';
+  if (pts.some(p => p.x < -50 || p.x > W - 16 || p.y < HUD + 14 || p.y > H + 30)) return 'Ahí se saldría de la pantalla';
   if (pts.some(inWallBand)) return 'Ahí lo taparía el local';
-  if ((w.outs || []).some(o => o.c >= c && o.c < c + LOT_W && o.r >= r && o.r < r + LOT_H)) return 'Ahí está el cartel';
+  if ((w.outs || []).some(o => o.c >= c && o.c < c + LOT_W && o.r >= r && o.r < r + LOT_H)) return 'Ahí está un cartel o un farol';
   return null;
 }
 function bestLot(w, c0 = 3, r0 = 8) {                               // el lugar válido más cercano a (c0, r0)
@@ -2932,7 +3055,7 @@ function fixLot(w) {                                                // tras ensa
   if (b) { w.lot.c = b.c; w.lot.r = b.r; } else { w.inv.push(w.lot); w.lot = null; }
   clearCars(w);
 }
-const lotInfo = lot => ({ inY: lot.r + .38, outY: lot.r + .72, walkY: lot.r + 1.02, bayY: lot.r + 2.05, bx: k => lot.c + .5 + k });
+const lotInfo = lot => ({ inY: lot.r + .42, outY: lot.r + 1.08, walkY: lot.r + 1.4, bayY: lot.r + LOT_LANE + 1.25, bx: k => lot.c + BAY_W * (k + .5) });
 function clearCars(w) { (w.cars || []).forEach(cr => { cr.state = 'gone'; }); w.customers.forEach(cu => { if (cu.car) cu.car = null; }); w.cars = []; }
 function carWalkBack(car) {                                         // de la banqueta de vuelta a su coche
   if (!car || car.state === 'gone' || !car.lot) return [];
@@ -2944,7 +3067,7 @@ function spawnCar(w) {
   const used = new Set((w.cars || []).filter(cr => cr.state !== 'gone').map(cr => cr.bay)), free = [0, 1, 2, 3].filter(k => !used.has(k));
   if (!free.length) return false;
   const I = lotInfo(lot), bay = pick(free), r = Math.random(), party = r < .35 ? 1 : r < .75 ? 2 : 3;
-  const car = { id: furnId++, lot, bay, col: Math.floor(Math.random() * CAR_COLS.length), x: -9.5, y: I.inY, o: 'x', fx: 1, fy: 0, state: 'in', speed: 3.6, moving: true, phase: 0, dir: 1,
+  const car = { id: furnId++, lot, bay, col: Math.floor(Math.random() * CAR_COLS.length), model: pick(CAR_KEYS), x: -9.5, y: I.inY, o: 'x', fx: 1, fy: 0, state: 'in', speed: 3.6, moving: true, phase: 0, dir: 1,
     path: [{ x: I.bx(bay), y: I.inY }, { x: I.bx(bay), y: I.bayY }], party, pend: party, alive: 0, t: 0, tries: 0, brake: 0, hornT: 0 };
   w.cars.push(car); sfx('carArrive');
   return true;
@@ -2983,39 +3106,105 @@ function updateCars(w, dt) {
   }
   w.cars = w.cars.filter(cr => cr.state !== 'gone');
 }
+/* Coches (v1.5): del tamaño de verdad frente a los personajes: ≈ 2 a 2.4 losetas de largo, 1 de ancho y casi tan altos como un luchador.
+   Cuatro modelos (sedán, hatchback, pickup y van) con llantas, ventanas, faros, luces de freno y, de noche, los faros alumbran el piso. */
+const CAR_MODELS = {
+  sedan:  { L: 1.1,  W: .46, zh: 25, cz: 45, c0: -.5,  c1: .32 },
+  hatch:  { L: .98,  W: .45, zh: 26, cz: 47, c0: -.74, c1: .5 },
+  pickup: { L: 1.2,  W: .48, zh: 28, cz: 49, c0: -.02, c1: .62, bed: true },
+  van:    { L: 1.15, W: .5,  zh: 54, cz: 54, van: true }
+};
+const CAR_KEYS = ['sedan', 'sedan', 'hatch', 'hatch', 'pickup', 'van'];
+const nightK = w => clamp((hourOf(w) - 17.5) / 2.5, 0, 1);               // 0 de día, 1 ya de noche
 function drawCar(c, car, w) {
-  const x = car.x, y = car.y, along = car.o === 'x', L = .66, Wd = .31, col = CAR_COLS[car.col];
-  const x0 = along ? x - L : x - Wd, x1 = along ? x + L : x + Wd, y0 = along ? y - Wd : y - L, y1 = along ? y + Wd : y + L;
-  groundQuad(c, x0 - .06, y0 - .06, x1 + .06, y1 + .06); c.fillStyle = 'rgba(0,0,0,.28)'; c.fill();
-  c.fillStyle = '#1a191e';
-  for (const [wx, wy] of along ? [[x - L * .62, y0], [x + L * .62, y0], [x - L * .62, y1], [x + L * .62, y1]] : [[x0, y - L * .62], [x1, y - L * .62], [x0, y + L * .62], [x1, y + L * .62]]) { isoEllipse(c, wx, wy, 1, .1); c.fill(); }
-  const body = { top: col[0], left: shade(col[0], -.14), right: col[1] };
-  isoBox(c, x0, y0, x1, y1, 3.5, 13, body, 1.5);
-  const cx0 = along ? x - L * .46 : x0 + .04, cx1 = along ? x + L * .4 : x1 - .04, cy0 = along ? y0 + .04 : y - L * .46, cy1 = along ? y1 - .04 : y + L * .4;
-  isoBox(c, cx0, cy0, cx1, cy1, 13, 22, { top: col[0], left: '#8fd0f0', right: '#5aa6d0' }, 1.5);
-  const night = hourOf(w) > 18.3, fx = car.fx, fy = car.fy;                                         // faros delanteros y luces de freno
-  const front = along ? [[x + fx * L, y - Wd * .6], [x + fx * L, y + Wd * .6]] : [[x - Wd * .6, y + fy * L], [x + Wd * .6, y + fy * L]];
-  const back = along ? [[x - fx * L, y - Wd * .6], [x - fx * L, y + Wd * .6]] : [[x - Wd * .6, y - fy * L], [x + Wd * .6, y - fy * L]];
-  const braking = car.brake > 0 || car.state === 'park';
-  for (const [hx, hy] of front) { const p = S(hx, hy, 8.5); c.fillStyle = night ? '#fff6c0' : '#fffbe6'; c.beginPath(); c.arc(p.x, p.y, 2.2, 0, 6.3); c.fill(); if (night) { c.save(); c.globalCompositeOperation = 'lighter'; const g = c.createRadialGradient(p.x, p.y, 1, p.x, p.y, 24); g.addColorStop(0, 'rgba(255,240,170,.5)'); g.addColorStop(1, 'rgba(255,240,170,0)'); c.fillStyle = g; c.beginPath(); c.arc(p.x, p.y, 24, 0, 6.3); c.fill(); c.restore(); } }
-  for (const [hx, hy] of back) { const p = S(hx, hy, 8.5); c.fillStyle = braking ? '#ff3a3a' : '#a01820'; c.beginPath(); c.arc(p.x, p.y, 2, 0, 6.3); c.fill(); }
+  const M = CAR_MODELS[car.model] || CAR_MODELS.sedan, x = car.x, y = car.y, along = car.o === 'x', f = (along ? car.fx : car.fy) || 1;
+  const L = M.L, Wd = M.W, base = CAR_COLS[car.col] || CAR_COLS[0], nk = nightK(w), ZB = 7, zh = M.zh;
+  const dim = col => nk > 0 ? shade(col, -.22 * nk) : col;
+  const body = { top: dim(base[0]), left: dim(shade(base[0], -.14)), right: dim(base[1]) };
+  const roof = { top: dim(shade(base[0], .1)), left: dim(shade(base[0], -.12)), right: dim(shade(base[1], -.04)) };
+  const dark = { top: '#2b2d36', left: '#1c1d24', right: '#14151b' };
+  const Rc = (t0, t1, u0, u1) => {                                       // caja (t = a lo largo del coche, positivo hacia la nariz; u = de lado)
+    const a = Math.min(f * t0, f * t1), b = Math.max(f * t0, f * t1);
+    return along ? { x0: x + a, x1: x + b, y0: y + u0, y1: y + u1 } : { x0: x + u0, x1: x + u1, y0: y + a, y1: y + b };
+  };
+  const bx = (b, z0, z1, col, lw = 1.5) => isoBox(c, b.x0, b.y0, b.x1, b.y1, z0, z1, col, lw);
+  const faceQ = (kind, v, a0, a1, z0, z1) => kind === 'y' ? [S(a0, v, z0), S(a1, v, z0), S(a1, v, z1), S(a0, v, z1)] : [S(v, a0, z0), S(v, a1, z0), S(v, a1, z1), S(v, a0, z1)];
+  const sideK = along ? 'y' : 'x', endK = along ? 'x' : 'y';
+  const glass = nk > .35 ? '#1d364d' : '#8ccbe8', glass2 = nk > .35 ? '#2a4d6c' : '#c9edfa';
+  const pane = (pts) => { isoPoly(c, pts); c.fillStyle = glass; c.fill(); c.lineWidth = 1; c.strokeStyle = P.ink; c.stroke(); const m = pts[0], n = pts[1]; c.strokeStyle = glass2; c.lineWidth = 1.4; c.beginPath(); c.moveTo(m.x + (n.x - m.x) * .15, m.y + (n.y - m.y) * .15 - 3); c.lineTo(m.x + (n.x - m.x) * .45, m.y + (n.y - m.y) * .45 - 3); c.stroke(); };
+  const all = Rc(-L, L, -Wd, Wd);
+  groundQuad(c, all.x0 - .08, all.y0 - .08, all.x1 + .2, all.y1 + .2); c.fillStyle = 'rgba(0,0,0,' + (.3 - .1 * nk).toFixed(2) + ')'; c.fill();     // sombra
+  // luz de los faros sobre el piso (de noche, mientras se mueve o recién llega)
+  const lightsOn = nk > .12 && (car.state === 'in' || car.state === 'out' || (car.state === 'park' && car.t < 1.6));
+  const nose = f * L, pn = (t, u) => along ? S(x + t, y + u, 0) : S(x + u, y + t, 0);
+  if (lightsOn) {
+    const a0 = pn(f * (L - .05), -Wd * .6), a1 = pn(f * (L - .05), Wd * .6), b0 = pn(f * (L + 2.6), -Wd * 1.7), b1 = pn(f * (L + 2.6), Wd * 1.7), mid = pn(f * (L + 2.4), 0);
+    c.save(); c.globalCompositeOperation = 'lighter';
+    const g = c.createLinearGradient(a0.x, a0.y, mid.x, mid.y); g.addColorStop(0, `rgba(255,240,170,${.42 * nk})`); g.addColorStop(1, 'rgba(255,240,170,0)');
+    c.fillStyle = g; c.beginPath(); c.moveTo(a0.x, a0.y); c.lineTo(b0.x, b0.y); c.lineTo(b1.x, b1.y); c.lineTo(a1.x, a1.y); c.closePath(); c.fill(); c.restore();
+  }
+  // llantas de los dos lados que no se ven (apenas asoman por abajo) y carrocería
+  if (M.van) {
+    bx(all, ZB, zh, body, 1.6);
+    bx(Rc(-L, L, -Wd, Wd), zh, zh + 1, roof, 1.2);
+  } else if (M.bed) {                                                     // pickup: cabina al frente y caja abierta atrás
+    bx(all, ZB, zh - 6, body);
+    const bedB = Rc(-L, M.c0 * L, -Wd, Wd), rims = [Rc(-L, M.c0 * L, -Wd, -Wd + .1), Rc(-L, -L + .1, -Wd, Wd), Rc(-L, M.c0 * L, Wd - .1, Wd)];
+    isoPoly(c, [S(bedB.x0, bedB.y0, zh - 5), S(bedB.x1, bedB.y0, zh - 5), S(bedB.x1, bedB.y1, zh - 5), S(bedB.x0, bedB.y1, zh - 5)]); c.fillStyle = '#2b2d36'; c.fill(); c.lineWidth = 1; c.strokeStyle = P.ink; c.stroke();
+    rims.sort((p, q) => (p.x0 + p.x1 + p.y0 + p.y1) - (q.x0 + q.x1 + q.y0 + q.y1)).forEach(rm => bx(rm, zh - 6, zh, body, 1.2));
+    const cabB = Rc(M.c0 * L, M.c1 * L + .12, -Wd, Wd); bx(cabB, zh - 6, zh + 2, body);
+  } else {
+    bx(all, ZB, zh - 4, body);                                            // capó, cajuela y costados
+    bx(Rc(M.c0 * L - .12, M.c1 * L + .12, -Wd, Wd), zh - 4, zh, body);     // base de la cabina
+  }
+  // llantas del lado que se ve
+  const wheel = tc => {
+    const rt = .25, rz = 10.5, zc = 10.5, v = (dd, zz) => along ? S(x + f * tc + dd, y + Wd + .01, zz) : S(x + Wd + .01, y + f * tc + dd, zz);
+    for (const [k, col] of [[1, '#15141a'], [.56, '#b4bac8']]) {
+      const pts = []; for (let a = 0; a < 6.3; a += .55) pts.push(v(Math.cos(a) * rt * k, zc + Math.sin(a) * rz * k));
+      isoPoly(c, pts); c.fillStyle = col; c.fill(); c.lineWidth = k === 1 ? 1.6 : 1; c.strokeStyle = P.ink; c.stroke();
+    }
+  };
+  wheel(L * .6); wheel(-L * .6);
+  // cabina y ventanas
+  if (M.van) {
+    const sp0 = along ? all.x0 : all.y0, sp1 = along ? all.x1 : all.y1, sv = along ? all.y1 : all.x1, ev = along ? all.x1 : all.y1;
+    [[.05, .3], [.36, .62], [.68, .94]].forEach(([a, b]) => pane(faceQ(sideK, sv, sp0 + (sp1 - sp0) * a, sp0 + (sp1 - sp0) * b, 33, 46)));
+    const u0 = (along ? all.y0 : all.x0) + .07, u1 = (along ? all.y1 : all.x1) - .07; pane(faceQ(endK, ev, u0, u1, 31, 47));
+  } else {
+    const cb = M.bed ? Rc(M.c0 * L, M.c1 * L, -Wd * .9, Wd * .9) : Rc(M.c0 * L, M.c1 * L, -Wd * .88, Wd * .88), z0 = M.bed ? zh + 2 : zh, z1 = M.cz;
+    bx(cb, z0, z1, roof);
+    const sp0 = along ? cb.x0 : cb.y0, sp1 = along ? cb.x1 : cb.y1, sv = along ? cb.y1 : cb.x1, ev = along ? cb.x1 : cb.y1, sl = sp1 - sp0;
+    [[.07, .47], [.55, .93]].forEach(([a, b]) => pane(faceQ(sideK, sv, sp0 + sl * a, sp0 + sl * b, z0 + 3, z1 - 3)));
+    const u0 = (along ? cb.y0 : cb.x0) + .07, u1 = (along ? cb.y1 : cb.x1) - .07; pane(faceQ(endK, ev, u0, u1, z0 + 3, z1 - 3.5));
+  }
+  // frente / cola (la cara de ese extremo que se ve es la de coordenada mayor)
+  const evv = along ? all.x1 : all.y1, isNose = f > 0, braking = car.brake > 0 || car.state === 'park';
+  const lamp = (u, col) => { const a = (along ? y : x) + u * Wd - .09, b = (along ? y : x) + u * Wd + .09; isoPoly(c, faceQ(endK, evv, a, b, 14, 19.5)); c.fillStyle = col; c.fill(); c.lineWidth = 1; c.strokeStyle = P.ink; c.stroke(); };
+  isoPoly(c, faceQ(endK, evv, (along ? y : x) - Wd + .02, (along ? y : x) + Wd - .02, ZB, 12.5)); c.fillStyle = '#2a2c35'; c.fill(); c.lineWidth = 1; c.strokeStyle = P.ink; c.stroke();     // defensa
+  if (isNose) { const hl = lightsOn || nk > .5 ? '#fff6c0' : '#fffdf0'; lamp(-.62, hl); lamp(.62, hl); }
+  else { const tl = braking ? '#ff3a3a' : '#b01822'; lamp(-.62, tl); lamp(.62, tl); }
+  // brillo de los faros y de las luces de freno
+  const glow = (t, u, col, r, a) => { const p = along ? S(x + t, y + u, 16) : S(x + u, y + t, 16); c.save(); c.globalCompositeOperation = 'lighter'; const g = c.createRadialGradient(p.x, p.y, 1, p.x, p.y, r); g.addColorStop(0, col.replace('A', a)); g.addColorStop(1, col.replace('A', 0)); c.fillStyle = g; c.beginPath(); c.arc(p.x, p.y, r, 0, 6.3); c.fill(); c.restore(); };
+  if (isNose && lightsOn) { glow(nose, -Wd * .62, 'rgba(255,240,170,A)', 22, .55 * nk); glow(nose, Wd * .62, 'rgba(255,240,170,A)', 22, .55 * nk); }
+  if (braking && nk > .05) { glow(-nose, -Wd * .62, 'rgba(255,50,50,A)', 18, .5 * nk); glow(-nose, Wd * .62, 'rgba(255,50,50,A)', 18, .5 * nk); }
 }
-function drawLotGround(c, lot, alpha, w) {                           // asfalto, calle de acceso, líneas, topes y letrero
-  const I = lotInfo(lot), a = lot.c, b = lot.r;
+function drawLotGround(c, lot, alpha, w) {                           // asfalto, carriles, líneas, topes y letrero
+  const I = lotInfo(lot), a = lot.c, b = lot.r, N = 4;
   c.save(); c.globalAlpha = alpha == null ? 1 : alpha;
-  groundQuad(c, -24, b, a + LOT_W, b + 1.1); c.fillStyle = '#4a4c5c'; c.fill();                     // calle de acceso (viene de la izquierda)
-  groundQuad(c, a, b + 1.1, a + LOT_W, b + LOT_H); c.fillStyle = '#54566a'; c.fill();                // cajones
+  groundQuad(c, -24, b, a + LOT_W, b + LOT_LANE); c.fillStyle = '#4a4c5c'; c.fill();                 // calle de acceso (viene de la izquierda): dos carriles
+  groundQuad(c, a, b + LOT_LANE, a + LOT_W, b + LOT_H); c.fillStyle = '#54566a'; c.fill();           // cajones
   groundQuad(c, -24, b - .14, a + LOT_W, b); c.fillStyle = '#8d8779'; c.fill();                      // bordillo
-  groundQuad(c, -24, b + 1.1, a, b + 1.24); c.fillStyle = '#8d8779'; c.fill();
-  c.fillStyle = '#f2d45c'; for (let x = -24; x < a; x += 1.6) { groundQuad(c, x, b + .52, x + .8, b + .58); c.fill(); }
+  groundQuad(c, -24, b + LOT_LANE, a, b + LOT_LANE + .14); c.fillStyle = '#8d8779'; c.fill();
+  c.fillStyle = '#f2d45c'; for (let x = -24; x < a + LOT_W; x += 1.6) { groundQuad(c, x, b + LOT_LANE / 2 - .03, x + .8, b + LOT_LANE / 2 + .03); c.fill(); }     // raya central
   c.strokeStyle = 'rgba(255,255,255,.85)'; c.lineWidth = 2; c.beginPath();
-  for (let k = 0; k <= 4; k++) { const p = S(a + k, b + 1.1), q = S(a + k, b + LOT_H); c.moveTo(p.x, p.y); c.lineTo(q.x, q.y); }
+  for (let k = 0; k <= N; k++) { const p = S(a + k * BAY_W, b + LOT_LANE), q = S(a + k * BAY_W, b + LOT_H); c.moveTo(p.x, p.y); c.lineTo(q.x, q.y); }
   const p0 = S(a, b + LOT_H), p1 = S(a + LOT_W, b + LOT_H); c.moveTo(p0.x, p0.y); c.lineTo(p1.x, p1.y); c.stroke();
-  c.fillStyle = '#9a9aa8'; for (let k = 0; k < 4; k++) { groundQuad(c, a + k + .3, b + 2.82, a + k + .7, b + 2.92); c.fill(); }
+  c.fillStyle = '#9a9aa8'; for (let k = 0; k < N; k++) { groundQuad(c, a + k * BAY_W + .38, b + LOT_H - .3, a + k * BAY_W + .92, b + LOT_H - .18); c.fill(); }      // topes
   c.restore();
 }
 function drawLotSign(c, lot, w) {                                    // letrero azul con la P
-  const p = S(lot.c + LOT_W + .15, lot.r + 1.35);
+  const p = S(lot.c + LOT_W + .15, lot.r + LOT_LANE * .9);
   c.save(); c.lineJoin = 'round'; c.lineWidth = 2; c.strokeStyle = P.ink;
   c.fillStyle = 'rgba(0,0,0,.2)'; c.beginPath(); c.ellipse(p.x, p.y + 2, 9, 3.5, 0, 0, 6.3); c.fill();
   c.fillStyle = '#6b7080'; c.fillRect(p.x - 1.5, p.y - 42, 3, 44); c.strokeRect(p.x - 1.5, p.y - 42, 3, 44);
@@ -3098,11 +3287,14 @@ function unlocksFor(L) {
   CLAW_TIERS.forEach((T, i) => { if (i && T.level === L) feat(L, 'Garra ' + T.name, 'Un precio más alto con mejores premios, más gemas y más ropa exclusiva', 'garra'); });
   feat(PARKING_LEVEL, 'Estacionamiento', 'Llegan coches con clientes: se compra en TIENDA › OBRAS y se coloca en el frente del local', 'parking', 'furn');
   HIRE_IDS.forEach(id => { if (STAFF[id].level === L) out.push({ kind: 'staff', icon: id, name: STAFF[id].name, desc: STAFF[id].desc + ' · ' + pesos(STAFF[id].price) }); });
+  CHEF_IDS.forEach(id => { if (CHEFS[id].level === L) out.push({ kind: 'staff', icon: id, name: CHEFS[id].name, desc: CHEFS[id].desc.split(' · ')[0] + ' · ' + pesos(CHEFS[id].price) }); });
   GUARD_IDS.forEach(id => { if (GUARDS[id].level === L) out.push({ kind: 'staff', icon: id, name: GUARDS[id].name, desc: GUARDS[id].desc.split(' · ')[0] + ' · ' + pesos(GUARDS[id].price) }); });
   feat(MOVES_LEVEL, 'Técnicas de lucha', 'Aprende llaves y vuelos en la TIENDA › TÉCNICAS: sirven para atacar a los restaurantes rivales', 'mv_punetazo', 'move');
   MOVE_BUY.forEach(k => { const M = MOVES[k]; if (M.level === L && L !== MOVES_LEVEL) out.push({ kind: 'move', icon: 'mv_' + k, name: M.name, desc: M.desc + '. Daño ' + M.dmg + ', gasta ' + M.cost + ' de energía' }); });
   feat(MAP_LEVEL, 'Mapa de rivales', 'Toca el botón del mapa (o la tecla M): ataca restaurantes rivales para robar estrellas, dinero y meseros', 'mapa');
   RIVALS.forEach(r => { if (r.level === L) out.push({ kind: 'rival', icon: 'rv_' + r.id, name: r.name, desc: r.sub + '. Ya puedes retarlo desde el MAPA si tienes sus técnicas' }); });
+  feat(FAROL_TIERS[0].level, 'Faroles de calle', 'Compra faroles en TIENDA › OBRAS y plántalos en la calle: de noche alumbran el piso de verdad', 'farol');
+  feat(FAROL_TIERS[3].level, 'Más faroles', 'Ya puedes poner más faroles en la calle (hasta ' + FAROL_MAX + ')', 'farol');
   HANDS.forEach((d, k) => { if (k && d.level === L) out.push({ kind: 'feat', icon: 'hand' + (k + 1), name: HAND_NAMES[k], desc: `Otro cuadro de carga abajo: lleva más pedidos a la vez. Se compra en TIENDA › OBRAS por ${pesos(d.price)}` }); });
   INV_TIERS.forEach(t => { if (t.level === L) out.push({ kind: 'furn', icon: 'inv', name: 'Cajita más grande', desc: `Ya puedes ampliar el inventario a ${t.cap} lugares (${pesos(t.price)})` }); });
   feat(ARENA.level, 'Mega Ampliación: Arena', 'Cuadrilátero central, hasta 6 mesas y 3 comales. Llegan VIPs nuevos', 'arena');
@@ -3192,8 +3384,8 @@ function drawUnlockArt(c, it, cx, cy, t, w) {
     c.fillStyle = '#2f6fd0'; rr(c, cx + 56, cy - 46, 28, 28, 5); c.fill(); c.strokeStyle = P.ink; c.lineWidth = 2.4; c.stroke(); txt(c, 'P', cx + 70, cy - 24, { font: `700 22px ${FONT_UI}`, align: 'center', color: '#fff' });
   } else {                                                           // cualquier mueble o personal con su ícono de la tienda
     const sc = 1.7 + Math.sin(t * 3) * .05; c.save(); c.translate(cx, cy + bob); c.scale(sc, sc);
-    const sdef = STAFF[it.icon] || GUARDS[it.icon];
-    if (sdef) drawLuchador(c, 0, 24, Object.assign({}, LUCHADORES[sdef.look], { state: Math.sin(t * 2) > 0 ? 'walk' : 'idle', t: t * 2, dir: 1, scale: .95 })); else drawShopIcon(c, it.icon, 0, 0, w);
+    const sdef = STAFF[it.icon] || GUARDS[it.icon] || CHEFS[it.icon];
+    if (sdef) drawLuchador(c, 0, 24, Object.assign({}, LUCHADORES[sdef.look], { state: Math.sin(t * 2) > 0 ? 'walk' : 'idle', t: t * 2, dir: 1, scale: CHEFS[it.icon] ? .8 : .95 })); else drawShopIcon(c, it.icon, 0, 0, w);
     c.restore();
     for (let k = 0; k < 4; k++) { const ph = (t * .8 + k * .25) % 1, a = k * 1.57 + t, r = 38 + ph * 14; c.globalAlpha = Math.sin(ph * Math.PI); c.fillStyle = '#fff3b0'; star(c, cx + Math.cos(a) * r, cy + Math.sin(a) * r * .75, 5 * (1 - ph * .4), 2); c.fill(); }
     c.globalAlpha = 1;
@@ -4335,6 +4527,7 @@ function shopItems(w) {
   const comals = cnt('comal'), tables = cnt('table'), fridges = cnt('fridge'), mc = maxOf(w, 'comal'), mt = maxOf(w, 'table');
   const staff = id => { const d = STAFF[id], hired = w.staff.some(m => m.id === id); return { id, tab: d.tab, name: d.name, desc: d.desc, price: d.price, wage: d.wage || 0, done: hired && !d.wage, fire: hired && !!d.wage, need: w.level < d.level ? `Requiere nivel ${d.level}` : null }; };
   const guard = id => { const d = GUARDS[id], hired = w.guards.some(g => g.id === id); return { id, tab: 'staff', name: d.name, desc: d.desc, price: d.price, wage: d.wage, done: false, fire: hired, need: w.level < d.level ? `Requiere nivel ${d.level}` : null }; };
+  const chef = id => { const d = CHEFS[id], hired = w.chefs.some(m => m.id === id); return { id, tab: 'staff', name: d.name, desc: d.desc, price: d.price, wage: d.wage, done: hired && !d.wage, fire: hired && !!d.wage, need: w.level < d.level ? `Requiere nivel ${d.level}` : null }; };
   const arenaNeed = !DECO.remodeled ? 'Primero remodela el changarro' : w.level < ARENA.level ? `Requiere nivel ${ARENA.level}` : null;
   const one = (id, name, desc, price, level, extra = {}) => Object.assign({ id, tab: 'furn', name, desc, price, done: cnt(id) >= 1, need: lvl(level) || fullMsg }, extra);
   const rows = [
@@ -4355,9 +4548,11 @@ function shopItems(w) {
     const C = CHAIRS[k];
     rows.push({ id: 'chairs_' + k, tab: 'chairs', name: C.name, desc: C.desc + ' · juego de 2', price: C.gems ? 0 : C.price, gems: C.gems || 0, done: false, need: lvl(C.level) || fullMsg });
   });
-  rows.push(staff('waiter1'), staff('waiter2'), staff('payaso'), guard('cadenero1'), guard('cadenero2'), staff('mistico'), staff('anil'),
+  rows.push(staff('waiter1'), staff('waiter2'), staff('payaso'), guard('cadenero1'), guard('cadenero2'), chef('chef1'), chef('chef2'), chef('chef3'), staff('mistico'), staff('anil'),
     { id: 'inv', tab: 'works', hide: w.level < 5, name: 'Ampliar inventario', desc: tier ? `La cajita pasa de ${w.invCap} a ${tier.cap} lugares` : `Inventario al máximo (${w.invCap} lugares)`, price: tier ? tier.price : 0, done: !tier, need: tier && w.level < tier.level ? `Requiere nivel ${tier.level}` : null });
   HANDS.forEach((d, k) => { if (k) rows.push({ id: 'hand' + (k + 1), tab: 'works', name: HAND_NAMES[k], desc: k === 1 ? 'Un cuadro más abajo: carga otro platillo mientras atiendes (teclas 1 a 4)' : 'Otro cuadro de carga para tener más pedidos a la mano', price: d.price, done: w.nHands > k, need: lvl(d.level) || (w.nHands < k ? `Primero compra la ${HAND_NAMES[k - 1].toLowerCase()}` : null) }); });
+  const fn = cnt('farol'), ft = FAROL_TIERS[Math.min(fn, FAROL_TIERS.length - 1)];
+  rows.push({ id: 'farol', tab: 'works', name: 'Farol de calle', desc: `De noche deja un círculo de luz en el piso (${fn} de ${FAROL_MAX}). Va en la calle, junto a la banqueta`, price: ft.price, done: fn >= FAROL_MAX, need: fn >= FAROL_MAX ? null : (lvl(ft.level) || fullMsg) });
   rows.push(one('parking', 'Estacionamiento', `Coches con clientes llegan al frente del local (4 cajones). Moverlo después cuesta ${pesos(LOT_MOVE)}`, PARKING_PRICE, PARKING_LEVEL, { tab: 'works' }),
     { id: 'remodel', tab: 'works', name: 'Remodelar Changarro', desc: 'El local se ensancha (más lugar para mesas). Suma ½ máscara', price: REMODEL.price, done: !!DECO.remodeled, need: w.level < REMODEL.level ? `Requiere nivel ${REMODEL.level}` : null },
     { id: 'arena', tab: 'works', name: 'Mega Ampliación: Arena', desc: 'Cuadrilátero central, hasta 6 mesas y 3 comales. Llegan VIPs nuevos', price: ARENA.price, done: !!DECO.arena, need: arenaNeed });
@@ -4399,13 +4594,14 @@ function buy(w, id) {
   else if (/^hand\d$/.test(id)) { w.nHands = parseInt(id.slice(4), 10); toast(w, `¡${HAND_NAMES[w.nHands - 1]} lista! Cambia de mano con los cuadros de abajo o las teclas 1 a 4`); }
   else if (id === 'arena') doArena(w);
   else if (STAFF[id]) { const m = makeStaff(id, true, w.staff.length); w.staff.push(m); w.shop = false; toast(w, `¡Contrataste a ${STAFF[id].name}!${STAFF[id].wage ? ' Cobra ' + pesos(STAFF[id].wage) + ' por semana' : ''}`); }
+  else if (CHEFS[id]) { w.chefs.push(makeChef(id, true, w.chefs.length)); w.shop = false; toast(w, `¡Contrataste a ${CHEFS[id].name}! ${CHEFS[id].wage ? 'Cobra ' + pesos(CHEFS[id].wage) + ' por semana' : 'Pago único: no cobra sueldo'}`); }
   else if (GUARDS[id]) { w.guards.push(makeGuard(id, true)); w.shop = false; toast(w, `¡Contrataste a ${GUARDS[id].name}! Cobra ${pesos(GUARDS[id].wage)} por semana`); }
   else if (id.startsWith('mv_')) { w.moves[id.slice(3)] = true; toast(w, `¡Aprendiste ${MOVES[id.slice(3)].name}! Ya puedes usarla en las peleas`); }
   else {                                                         // mueble nuevo: entra al inventario y se pasa directo a colocarlo
     let piece, msg = 'Toca una loseta del piso para colocarlo (o guárdalo en la cajita)';
     if (id === 'table' || id.startsWith('table_')) piece = makeFurn('table', 0, 0, 0, { style: id === 'table' ? 'mantel' : id.slice(6), chair: w.tut ? 'plastico' : null });   // en el tutorial la primera mesa ya trae sillas
     else if (id.startsWith('chairs_')) { piece = makeFurn('chairs', 0, 0, 0, { style: id.slice(7) }); msg = 'Toca la mesa a la que quieres ponerle estas sillas'; }
-    else { piece = makeFurn(id); if (id === 'cartel') msg = 'Toca una loseta de pasto afuera del local para plantar el cartel'; else if (id === 'parking') msg = 'Toca el pasto del frente del local para poner el estacionamiento'; }
+    else { piece = makeFurn(id); if (id === 'farol') msg = 'Toca la calle (la orilla junto a la banqueta) para instalar el farol'; else if (id === 'cartel') msg = 'Toca una loseta de pasto afuera del local para plantar el cartel'; else if (id === 'parking') msg = 'Toca el pasto del frente del local para poner el estacionamiento'; }
     w.inv.push(piece); w.shop = false; enterEdit(w); editPick(w, piece, 'inv');
     toast(w, msg);
   }
@@ -4413,9 +4609,10 @@ function buy(w, id) {
   return true;
 }
 function fireStaff(w, id) {                                          // despedir: pide confirmación (se toca dos veces)
-  const nm = (STAFF[id] || GUARDS[id]).name;
+  const nm = chefDef(id).name;
   if (w.fireAsk && w.fireAsk.id === id && clock - w.fireAsk.at < 3.5) {
     if (GUARDS[id]) w.guards = w.guards.filter(g => g.id !== id);
+    else if (CHEFS[id]) w.chefs = w.chefs.filter(m => m.id !== id);
     else { const m = w.staff.find(q => q.id === id); if (m) { if (m.carrying) w.stock[m.carrying]++; releaseBench(w, m); w.staff = w.staff.filter(q => q !== m); } }
     w.fireAsk = null; sfx('back'); toast(w, `Despediste a ${nm}`); Game.save();
   } else { w.fireAsk = { id, at: clock }; sfx('nope'); toast(w, `¿Despedir a ${nm}? Toca DESPEDIR otra vez para confirmar`); }
@@ -4610,8 +4807,9 @@ function exitEdit(w) {
   return true;
 }
 /* ---------- Afuera: el cartel se planta en el pasto (no en la banqueta, ni dentro del local, ni sobre un árbol o un farol) ---------- */
-const outBox = o => { const p = S(o.c + .5, o.r + .5); return { x0: p.x - 42, x1: p.x + 42, y0: p.y - FURN.cartel.h - 14, y1: p.y + 14 }; };
+const outBox = o => { const p = S(o.c + .5, o.r + .5), wd = o.type === 'farol' ? 14 : 42; return { x0: p.x - wd, x1: p.x + wd, y0: p.y - FURN[o.type].h - (o.type === 'farol' ? 0 : 14), y1: p.y + 14 }; };
 function outCanPlace(w, c, r, self) {
+  if (self && self.type === 'farol') return farolCan(w, c, r, self);
   if (c >= 0 && c < COLS && r >= 0 && r < ROWS) return 'Eso es dentro del local: el cartel va afuera, en el pasto';
   const zone = (c >= COLS && c <= COLS + 5 && r >= -1 && r <= ROWS + 3) || (r >= ROWS && r <= ROWS + 4 && c >= -3 && c <= COLS + 5);
   if (!zone) return 'Ahí no hay pasto: usa la zona verde al frente o al costado';
@@ -4626,7 +4824,7 @@ function fixOuts(w) {                                              // al ensanch
   (w.outs || []).forEach(o => {
     if (!outCanPlace(w, o.c, o.r, o)) { keep.push(o); return; }
     let best = null, bd = 1e9;
-    for (let r = -1; r <= ROWS + 4; r++) for (let c = -3; c <= COLS + 5; c++) if (!outCanPlace(w, c, r, o) && !keep.some(k => k.c === c && k.r === r)) { const d = Math.abs(c - o.c) + Math.abs(r - o.r); if (d < bd) { bd = d; best = { c, r }; } }
+    const oR = outRange(o.type); for (let r = oR.r0; r <= oR.r1; r++) for (let c = oR.c0; c <= oR.c1; c++) if (!outCanPlace(w, c, r, o) && !keep.some(k => k.c === c && k.r === r)) { const d = Math.abs(c - o.c) + Math.abs(r - o.r); if (d < bd) { bd = d; best = { c, r }; } }
     if (best) { o.c = best.c; o.r = best.r; keep.push(o); } else w.inv.push(makeFurn(o.type));
   });
   w.outs = keep;
@@ -4678,7 +4876,7 @@ const anchorFor = (it, hov) => { const d = dimsOf(it); return { c: hov.c - Math.
 function editRotate(w) {
   const e = w.edit; if (!e) return false;
   if (e.held) {
-    if (e.held.it.type === 'chairs' || isOut(e.held.it)) { toast(w, e.held.it.type === 'chairs' ? 'Las sillas no se giran: tócalas sobre una mesa' : e.held.it.type === 'parking' ? 'El estacionamiento no se gira' : 'El cartel no se gira'); sfx('nope'); return false; }
+    if (e.held.it.type === 'chairs' || isOut(e.held.it)) { toast(w, e.held.it.type === 'chairs' ? 'Las sillas no se giran: tócalas sobre una mesa' : e.held.it.type === 'parking' ? 'El estacionamiento no se gira' : e.held.it.type === 'farol' ? 'El farol no se gira' : 'El cartel no se gira'); sfx('nope'); return false; }
     e.held.it.rot = e.held.it.rot ? 0 : 1; if (e.held.it.type === 'table') placeSeats(e.held.it);
     e.armed = null; toast(w, 'Girado: toca una loseta verde para soltarlo'); sfx('click'); return true;
   }
@@ -4742,7 +4940,7 @@ function editPlace(w) {
     const hv = e.hoverOut; if (!hv) return false;
     const why = outCanPlace(w, hv.c, hv.r, h.it);
     if (why) { toast(w, why); sfx('nope'); return false; }
-    h.it.c = hv.c; h.it.r = hv.r; w.outs.push(h.it); e.held = null; e.armed = null; sfx('serve'); toast(w, '¡Cartel plantado! Tócalo (fuera del modo edición) para ponerle tu nombre'); Game.save();
+    h.it.c = hv.c; h.it.r = hv.r; w.outs.push(h.it); e.held = null; e.armed = null; sfx('serve'); toast(w, h.it.type === 'farol' ? '¡Farol instalado! De noche alumbra la calle' : '¡Cartel plantado! Tócalo (fuera del modo edición) para ponerle tu nombre'); Game.save();
     return true;
   }
   if (!e.hover) return false;
@@ -5041,7 +5239,7 @@ function worldPointer(w, x, y) {
   if (restHit(x, y)) { restClick(w); return; }
   const sk = stockAt(w, x, y);                                    // pilas de la barra de comida lista y del mostrador de bebidas
   if (sk) { barClick(w, sk); return; }
-  if ((w.outs || []).some(o => inBox(outBox(o), x, y))) { openSign(w); return; }               // el cartel: se le pone nombre
+  if ((w.outs || []).some(o => o.type === 'cartel' && inBox(outBox(o), x, y))) { openSign(w); return; }               // el cartel: se le pone nombre
   if (LAYOUT.claw && inBox(itemBox(LAYOUT.claw, 16), x, y)) { openClaw(w); return; }          // la máquina de garra
   // el Novato y los clientes sentados: recibe el clic el que está más cerca de la cámara (mayor isoX+isoY)
   const nov = w.novato;
@@ -5111,7 +5309,7 @@ function updateWorld(w, dt) {
       w.spawnT -= dt;
       if (w.spawnT <= 0) {
         const h = hourOf(w), rush = h >= 13 && h < 15.5 ? .6 : h < 9 ? 1.35 : h >= 18 && h < 21 ? .85 : h >= 21 ? 1.3 : 1;      // hora de la comida: más gente; temprano y de noche, menos
-        const base = clamp(9.5 - (w.day - 1) * .9, 4.2, 9.5) * rush * (w.outs && w.outs.length ? .94 : 1) / (CUR_EVENT ? CUR_EVENT.arr : 1) / (1 + .025 * starBonus(w));       // el cartel de afuera atrae ~6 % más clientes
+        const base = clamp(9.5 - (w.day - 1) * .9, 4.2, 9.5) * rush * ((w.outs || []).some(o => o.type === 'cartel') ? .94 : 1) / (CUR_EVENT ? CUR_EVENT.arr : 1) / (1 + .025 * starBonus(w));       // el cartel de afuera atrae ~6 % más clientes
         w.spawnT = spawnCustomer(w) ? rand(base * .7, base * 1.3) : 1;
       }
     } else if (!w.closedWarned) { w.closedWarned = true; toast(w, '¡Son las 11:00 PM! Cerramos: atiende a los últimos clientes'); sfx('door'); }
@@ -5162,6 +5360,7 @@ function updateWorld(w, dt) {
     }
     updateStaff(w, dt);
     updateGuards(w, dt);
+    updateChefs(w, dt);
 
     // monedas
     w.coins.forEach(c => c.t += dt);
@@ -5280,15 +5479,13 @@ function drawBush(c, x, y) {
   c.fillStyle = '#ff5fa2'; [[-8, -14], [6, -8], [2, -22]].forEach(([dx, dy]) => { c.beginPath(); c.arc(p.x + dx, p.y + dy, 2.2, 0, 6.3); c.fill(); });
 }
 function drawLamp(c, x, y, t) {
-  const p = S(x, y);
+  const p = S(x, y), nk = Game.w ? nightK(Game.w) : 0;
   c.fillStyle = 'rgba(0,0,0,.2)'; c.beginPath(); c.ellipse(p.x, p.y + 2, 12, 4.5, 0, 0, 6.3); c.fill();
-  const g = c.createRadialGradient(p.x, p.y - 80, 2, p.x, p.y - 80, 46);
-  g.addColorStop(0, 'rgba(255,230,140,.55)'); g.addColorStop(1, 'rgba(255,230,140,0)');
-  c.fillStyle = g; c.beginPath(); c.arc(p.x, p.y - 80, 46, 0, 6.3); c.fill();
   c.lineWidth = 2; c.strokeStyle = P.ink; c.fillStyle = '#2b2540';
   rr(c, p.x - 2.5, p.y - 78, 5, 80, 2); c.fill(); c.stroke();
   rr(c, p.x - 7, p.y - 4, 14, 6, 2); c.fill(); c.stroke();
-  c.fillStyle = '#ffe58a'; rr(c, p.x - 7, p.y - 90, 14, 12, 4); c.fill(); c.stroke();
+  c.fillStyle = nk > .1 ? '#fff6c8' : '#ffe58a'; rr(c, p.x - 7, p.y - 90, 14, 12, 4); c.fill(); c.stroke();
+  c.fillStyle = '#2b2540'; rr(c, p.x - 9, p.y - 94, 18, 5, 2); c.fill(); c.stroke();                  // sombrerito del foco
 }
 const EXT_PROPS = [
   { x: 10.9, y: -1.1, draw: drawTree }, { x: -2.6, y: 2.8, draw: drawTree }, { x: -1.7, y: 6.9, draw: drawBush },
@@ -6153,8 +6350,8 @@ function drawShopIcon(c, id, x, y, w) {
     c.beginPath(); c.moveTo(x - 12, y + 14); c.lineTo(x - 12, y - 18); c.lineTo(x + 12, y - 18); c.lineTo(x + 12, y + 14); c.closePath(); c.fillStyle = '#5d8be6'; c.fill(); c.stroke();
     c.fillStyle = '#bfe3ff'; rr(c, x - 9, y - 14, 18, 24, 2); c.fill(); c.stroke();
     ['#e0364a', '#ffc83d', '#2fbf71'].forEach((col, k) => { c.fillStyle = col; c.fillRect(x - 7 + k * 5.4, y - 11, 3.6, 8); c.fillRect(x - 7 + k * 5.4, y + 1, 3.6, 8); });
-  } else if (STAFF[id] || GUARDS[id]) {
-    drawLuchador(c, x, y + 26, Object.assign({}, LUCHADORES[(STAFF[id] || GUARDS[id]).look], { state: 'idle', t: w.t, dir: 1, scale: .62 }));
+  } else if (STAFF[id] || GUARDS[id] || CHEFS[id]) {
+    drawLuchador(c, x, y + (CHEFS[id] ? 25 : 26), Object.assign({}, LUCHADORES[chefDef(id).look], { state: 'idle', t: w.t, dir: 1, scale: CHEFS[id] ? .5 : .62 }));
   } else if (id === 'arena') {                                  // cuadrilátero con sus cuatro postes y cuerdas
     c.beginPath(); c.moveTo(x - 24, y + 4); c.lineTo(x, y - 8); c.lineTo(x + 24, y + 4); c.lineTo(x, y + 16); c.closePath(); c.fillStyle = '#2f56c9'; c.fill(); c.stroke();
     c.beginPath(); c.moveTo(x - 24, y + 4); c.lineTo(x, y + 16); c.lineTo(x, y + 21); c.lineTo(x - 24, y + 9); c.closePath(); c.fillStyle = '#c4272f'; c.fill(); c.stroke();
@@ -6184,6 +6381,11 @@ function drawShopIcon(c, id, x, y, w) {
     c.strokeStyle = 'rgba(255,255,255,.85)'; c.lineWidth = 1.6; c.beginPath(); for (let k = -1; k <= 1; k++) { c.moveTo(x + k * 10 - 6, y - 2 - k * 5 + 3); c.lineTo(x + k * 10 + 1, y + 2 - k * 5 + 7); } c.stroke(); c.strokeStyle = P.ink; c.lineWidth = 1.6;
     c.fillStyle = '#e0364a'; rr(c, x - 10, y - 8, 20, 10, 3); c.fill(); c.stroke(); c.fillStyle = '#8fd0f0'; rr(c, x - 5, y - 13, 10, 6, 2); c.fill(); c.stroke();
     c.fillStyle = '#2f6fd0'; rr(c, x + 12, y - 24, 12, 12, 2.5); c.fill(); c.stroke(); txt(c, 'P', x + 18, y - 14.5, { font: `700 11px ${FONT_UI}`, align: 'center', color: '#fff' });
+  } else if (id === 'farol') {                                   // poste con foco y su círculo de luz
+    c.fillStyle = 'rgba(255,226,140,.3)'; c.beginPath(); c.ellipse(x, y + 17, 22, 8, 0, 0, 6.3); c.fill();
+    c.fillStyle = '#2b2540'; rr(c, x - 2, y - 18, 4, 36, 1.5); c.fill(); c.stroke(); rr(c, x - 6, y + 14, 12, 5, 2); c.fill(); c.stroke();
+    c.fillStyle = '#ffe58a'; rr(c, x - 6, y - 26, 12, 10, 3); c.fill(); c.stroke();
+    c.fillStyle = '#2b2540'; rr(c, x - 8, y - 29, 16, 4, 2); c.fill(); c.stroke();
   } else if (id === 'cartel') {                                  // cartel de tacos: poste, tablero y aro con máscara de neón
     c.strokeStyle = '#6b7080'; c.lineWidth = 3; c.beginPath(); c.moveTo(x, y + 20); c.lineTo(x, y - 6); c.stroke(); c.strokeStyle = P.ink; c.lineWidth = 1.6;
     c.fillStyle = '#1d3b3a'; rr(c, x - 21, y - 14, 42, 17, 4); c.fill(); c.stroke();
@@ -6361,7 +6563,7 @@ function drawShop(c, w) {
     txt(c, it.name, B.x + 96, y + 21, { font: `700 ${fitFont(c, it.name, tw, 21, 700)}px ${FONT_UI}`, color: dim ? '#9d96b4' : P.cream });
     txt(c, it.desc, B.x + 96, y + 37, { font: `600 ${fitFont(c, it.desc, tw, 13.5)}px ${FONT_UI}`, color: P.muted });
     if (it.fire) txt(c, `Contratado · cobra ${pesos(it.wage)} por semana`, B.x + 96, y + 54, { font: `700 17px ${FONT_UI}`, color: '#9af0b8', ls: .5, maxW: tw });
-    else if (it.open || it.done) txt(c, it.open ? 'Ya remodelado' : it.id === 'inv' ? 'Al máximo' : /^hand\d$/.test(it.id) ? 'Desbloqueada' : it.id.startsWith('mv_') ? 'Aprendida' : STAFF[it.id] ? 'Contratado' : it.id === 'arena' ? 'Construida' : it.id === 'remodel' ? 'Ya remodelado' : 'En tu taquería', B.x + 96, y + 54, { font: `700 17px ${FONT_UI}`, color: '#9af0b8', ls: .5 });
+    else if (it.open || it.done) txt(c, it.open ? 'Ya remodelado' : it.id === 'inv' ? 'Al máximo' : /^hand\d$/.test(it.id) ? 'Desbloqueada' : it.id === 'farol' ? 'Todos los faroles puestos' : it.id.startsWith('mv_') ? 'Aprendida' : (STAFF[it.id] || CHEFS[it.id]) ? 'Contratado' : it.id === 'arena' ? 'Construida' : it.id === 'remodel' ? 'Ya remodelado' : 'En tu taquería', B.x + 96, y + 54, { font: `700 17px ${FONT_UI}`, color: '#9af0b8', ls: .5 });
     else if (it.gems) { drawGem(c, B.x + 106, y + 49, 7); txt(c, `${it.gems} gemas`, B.x + 118, y + 55, { font: `700 17px ${FONT_UI}`, color: w.gems >= it.gems ? '#9ff0ff' : '#ff8fa0', ls: .5 }); }
     else txt(c, pesos(it.price) + (it.wage ? ` · ${pesos(it.wage)} por semana` : ''), B.x + 96, y + 54, { font: `700 17px ${FONT_UI}`, color: dim ? '#8a7a50' : P.gold, ls: .5, maxW: tw });
     drawButton(c, Object.assign({ label: it.fire ? 'DESPEDIR' : it.open ? 'DECORAR' : it.done ? (it.id.startsWith('mv_') ? 'APRENDIDA' : 'COMPRADO') : it.need ? 'BLOQUEADO' : 'COMPRAR', style: it.fire ? 'red' : it.open ? 'teal' : 'green', size: 18 }, b, { disabled: !chk.ok }));
@@ -6495,6 +6697,12 @@ function drawTooltips(c, w) {
     const gp = S(g.x, g.y), D = GUARDS[g.id];
     if (!g.path.length && mx > gp.x - 25 && mx < gp.x + 25 && my > gp.y - 90 && my < gp.y + 12) {
       UI.cursor = true; tip(gp.x - 150, gp.y - 100, [D.name, `La fila espera ${(1 / D.drain).toFixed(1).replace('.0', '')} veces más`, `Cobra ${pesos(D.wage)} por semana`]); return;
+    }
+  }
+  for (const ch of w.chefs) {
+    const cp2 = S(ch.x, ch.y), D = CHEFS[ch.id];
+    if (!ch.entering && mx > cp2.x - 25 && mx < cp2.x + 25 && my > cp2.y - 100 && my < cp2.y + 12) {
+      UI.cursor = true; tip(cp2.x + 30, cp2.y - 130, [D.name, ch.job ? 'Preparando ' + RECIPES[ch.job.key].name : 'Cocina solo lo que falta', D.wage ? `Cobra ${pesos(D.wage)} por semana` : 'Pago único: no cobra sueldo']); return;
     }
   }
   if (restHit(mx, my)) { UI.cursor = true; const bp = TS(LAYOUT.bench, 1, .4, 70); tip(bp.x - 150, bp.y - 20, ['Vestidor con suero', 'Banca de dos lugares: toca para que el Novato descanse']); return; }
@@ -6958,6 +7166,64 @@ function drawClawItem(c, w, it) {
   const cp = S(x0 + .12, y1, 30); c.fillStyle = '#e0364a'; c.beginPath(); c.arc(cp.x + 4, cp.y, 2.4, 0, 6.3); c.fill(); c.fillStyle = '#7c3aed'; c.beginPath(); c.arc(cp.x + 12, cp.y + 4, 2.4, 0, 6.3); c.fill();
 }
 
+/* ---------- Faroles y luces de la calle (v1.5) ----------
+   De noche cada farol deja un círculo de luz de verdad sobre el piso (banqueta, calle y quien camine por ahí, incluidos los clientes y los coches del estacionamiento),
+   con un cono de luz que baja desde el foco. Los tres de siempre vienen con la calle; los demás se compran en TIENDA › OBRAS y se plantan en la calle.
+   El estacionamiento trae sus propios postes. */
+const FAROL_MAX = 6, FAROL_R = 2.45;
+const FAROL_TIERS = [{ level: 6, price: 300 }, { level: 6, price: 450 }, { level: 6, price: 650 }, { level: 16, price: 900 }, { level: 16, price: 1300 }, { level: 16, price: 1800 }];
+function farolCan(w, c, r, self) {
+  if (r < -6 || r > -5 || c < -6 || c > COLS + 9) return 'Los faroles van en la calle, junto a la banqueta';
+  const p = S(c + .5, r + .5);
+  if (p.x < -60 || p.x > W + 250 || p.y < HUD - 10) return 'Ahí queda demasiado lejos (se vería solo alejando la cámara)';
+  const cx = c + .5, cy = r + .5;
+  if (EXT_PROPS.some(q => Math.hypot(q.x - cx, q.y - cy) < (q.draw === drawLamp ? 1.9 : 1.05))) return 'Ahí ya hay un farol o un árbol';
+  if ((w.outs || []).some(o => o !== self && o.type === 'farol' && Math.hypot(o.c - c, o.r - r) < 1.9)) return 'Muy cerca de otro farol: deja una loseta libre entre ellos';
+  return null;
+}
+const outRange = type => type === 'farol' ? { r0: -7, r1: -4, c0: -6, c1: COLS + 9 } : { r0: -1, r1: ROWS + 4, c0: -3, c1: COLS + 5 };
+const lotLamps = lot => [{ x: lot.c - .5, y: lot.r + LOT_H - .4 }, { x: lot.c + LOT_W + .5, y: lot.r + .5 }, { x: lot.c + LOT_W + .5, y: lot.r + LOT_H - .4 }];
+function lampSpots(w) {                                              // dónde hay luz: los postes de la calle, los faroles comprados y los del estacionamiento
+  const out = [];
+  EXT_PROPS.forEach(p => {
+    if (p.draw !== drawLamp) return;
+    if (w.lot && p.x >= w.lot.c - .6 && p.x <= w.lot.c + LOT_W + .6 && p.y >= w.lot.r - .6 && p.y <= w.lot.r + LOT_H + .6) return;
+    out.push({ x: p.x, y: p.y });
+  });
+  (w.outs || []).forEach(o => { if (o.type === 'farol') out.push({ x: o.c + .5, y: o.r + .5 }); });
+  if (w.lot) lotLamps(w.lot).forEach(q => out.push(q));
+  return out;
+}
+function drawLights(c, w) {                                          // se dibuja al final de todo, para que alumbre también a la gente y a los coches
+  const nk = nightK(w); if (nk < .04) return;
+  const spots = lampSpots(w); if (!spots.length) return;
+  c.save();
+  c.beginPath(); c.rect(-1500, -1000, 4000, 2800);                    // el interior del local y sus paredes ya tienen su propia luz
+  polyPath(c, [S(0, 0, 0), S(COLS, 0, 0), S(COLS, ROWS, 0), S(0, ROWS, 0)]);
+  polyPath(c, [S(0, 0, 0), S(COLS, 0, 0), S(COLS, 0, WALL_H), S(0, 0, WALL_H)]);
+  polyPath(c, [S(0, 0, 0), S(0, ROWS, 0), S(0, ROWS, WALL_H), S(0, 0, WALL_H)]);
+  polyPath(c, [S(COLS, 0, 0), S(COLS, ROWS, 0), S(COLS, ROWS, -16), S(COLS, 0, -16)]);
+  polyPath(c, [S(0, ROWS, 0), S(COLS, ROWS, 0), S(COLS, ROWS, -16), S(0, ROWS, -16)]);
+  c.clip('evenodd');
+  c.globalCompositeOperation = 'lighter';
+  const R = FAROL_R * TW * .7071;
+  spots.forEach(sp => {
+    const q = S(sp.x, sp.y), hx = q.x, hy = q.y - 84;
+    const cg = c.createLinearGradient(hx, hy, hx, q.y);                 // cono de luz del foco al piso
+    cg.addColorStop(0, `rgba(255,240,170,${.26 * nk})`); cg.addColorStop(1, `rgba(255,224,130,${.08 * nk})`);
+    c.fillStyle = cg; c.beginPath(); c.moveTo(hx - 5, hy); c.lineTo(hx + 5, hy); c.lineTo(q.x + R * .6, q.y); c.ellipse(q.x, q.y, R * .6, R * .3, 0, 0, Math.PI, false); c.closePath(); c.fill();
+    c.save(); c.translate(q.x, q.y); c.scale(1, .5);                     // círculo de luz sobre el piso (la elipse isométrica)
+    const g = c.createRadialGradient(0, 0, 0, 0, 0, R);
+    g.addColorStop(0, `rgba(255,228,150,${.5 * nk})`); g.addColorStop(.5, `rgba(255,216,124,${.36 * nk})`); g.addColorStop(.84, `rgba(255,202,104,${.17 * nk})`); g.addColorStop(1, 'rgba(255,200,100,0)');
+    c.fillStyle = g; c.beginPath(); c.arc(0, 0, R, 0, 6.3); c.fill();
+    c.lineWidth = 3; c.strokeStyle = `rgba(255,232,170,${.13 * nk})`; c.beginPath(); c.arc(0, 0, R * .88, 0, 6.3); c.stroke();
+    c.restore();
+    const hg = c.createRadialGradient(hx, hy + 4, 1, hx, hy + 4, 30);   // el foco
+    hg.addColorStop(0, `rgba(255,244,190,${.6 * nk})`); hg.addColorStop(1, 'rgba(255,230,150,0)');
+    c.fillStyle = hg; c.beginPath(); c.arc(hx, hy + 4, 30, 0, 6.3); c.fill();
+  });
+  c.restore();
+}
 /* ---------- De día a noche: la calle se va oscureciendo ---------- */
 function skyTint(h) {                                           // [hora, r, g, b, alfa]
   const K = [[8, 255, 190, 110, .14], [10, 255, 230, 170, 0], [16.5, 255, 230, 170, 0], [18, 255, 130, 70, .22], [19, 90, 50, 120, .46], [20.5, 14, 14, 62, .64], [23, 6, 8, 40, .72]];
@@ -6979,7 +7245,7 @@ function drawNight(c, w) {
     c.fillStyle = `rgba(${Math.round(k[1])},${Math.round(k[2])},${Math.round(k[3])},${k[4].toFixed(3)})`; c.fill('evenodd');
     c.restore();
   }
-  if (dark > .05) {                                             // faroles encendidos
+  if (false) {                                                  // (las luces de los faroles ahora se dibujan en drawLights, al final)
     c.save(); c.globalCompositeOperation = 'lighter';
     EXT_PROPS.forEach(p => {
       if (p.draw !== drawLamp) return;
@@ -6991,7 +7257,7 @@ function drawNight(c, w) {
     c.restore();
   }
   const gl = nightGlow(w);                                          // el cartel de afuera brilla más de noche
-  (w.outs || []).forEach(o => {
+  (w.outs || []).filter(o => o.type === 'cartel').forEach(o => {
     const ST = SIGN_STYLES[signOf().st] || SIGN_STYLES[0], p = S(o.c + .5, o.r + .5), k = .18 + .82 * gl;
     c.save(); c.globalCompositeOperation = 'lighter';
     for (const [hx, hy, hr, ha] of [[0, -178, 78, .55], [0, -100, 105, .42], [0, 0, 80, .18]]) { const rg = c.createRadialGradient(p.x + hx, p.y + hy, 3, p.x + hx, p.y + hy, hr); rg.addColorStop(0, `rgba(${ST.halo},${ha * k})`); rg.addColorStop(1, `rgba(${ST.halo},0)`); c.fillStyle = rg; c.beginPath(); c.arc(p.x + hx, p.y + hy, hr, 0, 6.3); c.fill(); }
@@ -7018,7 +7284,7 @@ function drawEditFloor(c, w) {
     if (e.hoverOut) { const a = { c: e.hoverOut.c - 1, r: e.hoverOut.r - 1 }, why = lotCan(w, a.c, a.r); e.why = why; groundQuad(c, a.c, a.r, a.c + LOT_W, a.r + LOT_H); c.fillStyle = why ? 'rgba(255,70,90,.42)' : 'rgba(80,230,140,.5)'; c.fill(); c.lineWidth = 2; c.strokeStyle = why ? '#ff8fa0' : '#9af0b8'; c.stroke(); }
     UI.cursor = true;
   } else if (held && isOut(held.it)) {                                              // cartel en la mano: se marca el pasto donde sí cabe
-    for (let r = -1; r <= ROWS + 4; r++) for (let cc = -3; cc <= COLS + 5; cc++) if (!outCanPlace(w, cc, r, held.it)) { groundQuad(c, cc, r, cc + 1, r + 1); c.fillStyle = 'rgba(80,230,140,.2)'; c.fill(); c.strokeStyle = 'rgba(150,255,190,.45)'; c.stroke(); }
+    const oR = outRange(held.it.type); for (let r = oR.r0; r <= oR.r1; r++) for (let cc = oR.c0; cc <= oR.c1; cc++) if (!outCanPlace(w, cc, r, held.it)) { groundQuad(c, cc, r, cc + 1, r + 1); c.fillStyle = 'rgba(80,230,140,.2)'; c.fill(); c.strokeStyle = 'rgba(150,255,190,.45)'; c.stroke(); }
     if (e.hoverOut) { const why = outCanPlace(w, e.hoverOut.c, e.hoverOut.r, held.it); e.why = why; groundQuad(c, e.hoverOut.c, e.hoverOut.r, e.hoverOut.c + 1, e.hoverOut.r + 1); c.fillStyle = why ? 'rgba(255,70,90,.5)' : 'rgba(80,230,140,.6)'; c.fill(); }
     UI.cursor = true;
   } else if (held && e.hover) {
@@ -7038,7 +7304,7 @@ function drawEditGhost(c, w) {                                      // lo que ll
     return;
   }
   if (h.it.type === 'parking') { if (e.hoverOut) { const a = { c: e.hoverOut.c - 1, r: e.hoverOut.r - 1 }; if (!lotCan(w, a.c, a.r)) { c.save(); c.globalAlpha = .8; drawLotGround(c, a, 1, w); drawLotSign(c, a, w); c.restore(); } } return; }
-  if (isOut(h.it)) { if (e.hoverOut) { c.save(); c.globalAlpha = .78; drawCartel(c, w, e.hoverOut.c, e.hoverOut.r); c.restore(); } return; }
+  if (isOut(h.it)) { if (e.hoverOut) { c.save(); c.globalAlpha = .78; if (h.it.type === 'farol') drawLamp(c, e.hoverOut.c + .5, e.hoverOut.r + .5, w.t); else drawCartel(c, w, e.hoverOut.c, e.hoverOut.r); c.restore(); } return; }
   if (e.hover) { const a = anchorFor(h.it, e.hover); c.save(); c.globalAlpha = .72; drawGhost(c, w, h.it, a.c, a.r); c.restore(); }
 }
 function drawGhost(c, w, it, cc, rr_) {
@@ -7055,12 +7321,12 @@ const ICON_COL = {
   plant: ['#c4492a', '#2f8f4e', '#2a7d44', 'Planta'], trompo: ['#b23d1f', '#d2602d', '#a63a1f', 'Trompo'], caja: ['#e8dcc0', '#cdbf9c', '#a99a78', 'Caja'],
   estatua: ['#ffe27a', '#e3b53a', '#b88a1f', 'Estatua'], vitrina: ['#d7f0ff', '#6ea6d6', '#4d82b0', 'Vitrina'],
   bar2: ['#e0b070', '#1f8f94', '#17707a', 'Antojos'], storage: ['#eef4fa', '#b9c9d8', '#8fa3b8', 'Sobrantes'], garra: ['#ffd23a', '#2f6fd0', '#c4272f', 'Garra'],
-  chairs: ['#ffc43a', '#ffb21e', '#d98f00', 'Sillas'], cartel: ['#ff7ab8', '#7c3aed', '#2a2733', 'Cartel'], parking: ['#6b6d80', '#4a4c5c', '#34364a', 'Estac.']
+  chairs: ['#ffc43a', '#ffb21e', '#d98f00', 'Sillas'], cartel: ['#ff7ab8', '#7c3aed', '#2a2733', 'Cartel'], farol: ['#ffe58a', '#2b2540', '#1a1730', 'Farol'], parking: ['#6b6d80', '#4a4c5c', '#34364a', 'Estac.']
 };
 function drawFurnIcon(c, type, x, y) {                           // cubito isométrico con el color de cada pieza
   const k = ICON_COL[type];
   c.save(); c.lineJoin = 'round'; c.lineWidth = 1.6; c.strokeStyle = P.ink;
-  const tall = ['fridge', 'plant', 'trompo', 'estatua', 'vitrina', 'storage', 'garra', 'cartel'].includes(type) ? 8 : 0;
+  const tall = ['fridge', 'plant', 'trompo', 'estatua', 'vitrina', 'storage', 'garra', 'cartel', 'farol'].includes(type) ? 8 : 0;
   c.beginPath(); c.moveTo(x - 17, y - 4 - tall); c.lineTo(x, y - 12 - tall); c.lineTo(x + 17, y - 4 - tall); c.lineTo(x, y + 4 - tall); c.closePath(); c.fillStyle = k[0]; c.fill(); c.stroke();
   c.beginPath(); c.moveTo(x - 17, y - 4 - tall); c.lineTo(x, y + 4 - tall); c.lineTo(x, y + 16); c.lineTo(x - 17, y + 8); c.closePath(); c.fillStyle = k[1]; c.fill(); c.stroke();
   c.beginPath(); c.moveTo(x + 17, y - 4 - tall); c.lineTo(x, y + 4 - tall); c.lineTo(x, y + 16); c.lineTo(x + 17, y + 8); c.closePath(); c.fillStyle = k[2]; c.fill(); c.stroke();
@@ -7130,7 +7396,8 @@ function drawWorld(c, w) {
     } else inside.push({ d: furnDepth(it), draw: () => drawFurn(c, w, it) });
   });
   inside.push({ d: DOOR.ix + .3, draw: () => drawDoorLeaves(c, w.doorA) });
-  (w.outs || []).forEach(o => inside.push({ d: o.c + o.r + 1.2, draw: () => drawCartel(c, w, o.c, o.r) }));
+  (w.outs || []).forEach(o => { if (o.type === 'farol') outside.push({ d: o.c + o.r + .5, draw: () => drawLamp(c, o.c + .5, o.r + .5, w.t) }); else inside.push({ d: o.c + o.r + 1.2, draw: () => drawCartel(c, w, o.c, o.r) }); });
+  if (w.lot) lotLamps(w.lot).forEach(q => inside.push({ d: q.x + q.y, draw: () => drawLamp(c, q.x, q.y, w.t) }));
   w.customers.forEach(cu => {
     if (cu.held) return;                                            // su mesa está en la mano del jugador
     let d = cu.x + cu.y;
@@ -7145,6 +7412,7 @@ function drawWorld(c, w) {
   inside.push({ d: nv.resting ? nv.x + nv.y + .15 : nv.x + nv.y, draw: () => drawNovatoActor(c, w) });
   w.staff.forEach(wt => (wt.y < .15 && !wt.resting ? outside : inside).push({ d: wt.resting ? wt.x + wt.y + .15 : wt.x + wt.y, draw: () => drawNovatoActor(c, w, wt, LUCHADORES[wt.look]) }));
   w.guards.forEach(g => outside.push({ d: g.x + g.y, draw: () => drawGuard(c, w, g) }));
+  w.chefs.forEach(ch => (ch.y < .15 ? outside : inside).push({ d: ch.x + ch.y, draw: () => drawChef(c, w, ch) }));
   if (DECO.arena) { const g = ARENA.ring; inside.push({ d: g.c + g.w / 2 + g.r + g.h / 2 - .2, draw: () => drawRing(c, w) }); }
 
   outside.sort((a, b) => a.d - b.d).forEach(i => i.draw());
@@ -7152,6 +7420,7 @@ function drawWorld(c, w) {
   drawEventSky(c, w);
   drawWalls(c, w);
   inside.sort((a, b) => a.d - b.d).forEach(i => i.draw());
+  drawLights(c, w);                                                // las luces de los faroles, sobre el piso y la gente
   drawEditGhost(c, w);
 
   // globos de pedido, estamina y carteles
