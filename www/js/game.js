@@ -41,6 +41,7 @@ const STAFF = {
 const STAFF_IDS = Object.keys(STAFF);
 const HIRE_IDS = STAFF_IDS.filter(id => STAFF[id].tab);          // los que se compran en la tienda (los meseros robados a los rivales no)
 /* =========================================================
+   VERSIÓN 1.8.1: el pueblo sólido (edificios y casas separados, nadie atraviesa paredes), mapa que se mueve y se acerca, madrugada hasta la 1 AM, interiores ordenados
    VERSIÓN 1.8: el pueblo (calles, cine, boutique, tienda de muebles, casas, parque y canchas)
    VERSIÓN 1.7: llegada de clientes por mesas y fiestas, más paciencia, sueldos de $10, abrir y cerrar el local, comales de 2/4 lugares, parrilla de 8, vitrina de máscaras y 2 ampliaciones del local
    VERSIÓN 1.6: cocineros, 10 ampliaciones de inventario, estacionamiento grande con coches reales y faroles con luz de verdad
@@ -1201,6 +1202,7 @@ const S = (gx, gy, z = 0) => { const p = isoToScreen(gx, gy); return { x: p.x, y
    Solo se mueve el escenario; la interfaz (HUD, paneles, botones) se queda fija. camWorld convierte un punto de la pantalla
    al mundo del diorama y camScreen hace lo contrario. */
 const Cam = { z: 1, px: 0, py: 0, MIN: .6, MAX: 2.4, def: 1 };
+const inTown = () => { let gw = null; try { gw = Game.w; } catch (e) {} return !!(gw && gw.loc === 'town' && gw.town); };
 const CAMC = { x: 480, y: 330 };
 const camWorld = (x, y) => ({ x: (x - CAMC.x - Cam.px) / Cam.z + CAMC.x, y: (y - CAMC.y - Cam.py) / Cam.z + CAMC.y });
 const camScreen = (x, y) => ({ x: (x - CAMC.x) * Cam.z + CAMC.x + Cam.px, y: (y - CAMC.y) * Cam.z + CAMC.y + Cam.py });
@@ -1210,10 +1212,11 @@ function camClamp() {
   Cam.px = clamp(Cam.px, -mx, mx); Cam.py = clamp(Cam.py, -my, my);
 }
 function camZoomAt(f, sx, sy) {                                        // acerca o aleja manteniendo fijo el punto (sx, sy) de la pantalla
+  if (inTown()) { townZoomAt(Game.w, f, sx, sy); return; }
   const p = camWorld(sx, sy); Cam.z = clamp(Cam.z * f, Cam.MIN, Cam.MAX);
   Cam.px = sx - CAMC.x - (p.x - CAMC.x) * Cam.z; Cam.py = sy - CAMC.y - (p.y - CAMC.y) * Cam.z; camClamp();
 }
-function camReset() { Cam.z = Cam.def || 1; Cam.px = 0; Cam.py = 0; }
+function camReset() { const tw = inTown(); Cam.MIN = tw ? .3 : .6; Cam.z = tw ? Math.min(Cam.def || 1, .8) : (Cam.def || 1); Cam.px = 0; Cam.py = 0; if (tw) Game.w.town.free = false; }
 function camApply(c) { c.translate(CAMC.x + Cam.px, CAMC.y + Cam.py); c.scale(Cam.z, Cam.z); c.translate(-CAMC.x, -CAMC.y); }
 
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -2555,7 +2558,7 @@ const Game = {
   w: null,
   slot: 0,                                                          // ranura (1–3) donde se guarda la partida en curso; 0 = ninguna
   autoT: 0,                                                         // el progreso se guarda solo cada 15 segundos
-  newGame(save, slot) { camReset(); this.w = createWorld(save); this.slot = slot || 0; this.autoT = 0; if (this.slot && !save) this.save(); },
+  newGame(save, slot) { this.w = null; camReset(); this.w = createWorld(save); this.slot = slot || 0; this.autoT = 0; if (this.slot && !save) this.save(); },
   save() {
     const w = this.w; if (!w || !this.slot) return;
     const held = w.edit && w.edit.held ? [w.edit.held.it] : [];
@@ -2593,14 +2596,14 @@ const Game = {
   pointerDown(x, y) {
     const w = this.w;
     if (Pinch.active) return;
-    if (clickDeferrable(w, x, y)) { this.pend = { x, y, sx: x, sy: y, px: Cam.px, py: Cam.py, drag: false }; return; }
+    if (clickDeferrable(w, x, y)) { this.pend = { x, y, sx: x, sy: y, px: Cam.px, py: Cam.py, drag: false, cx: w.town ? w.town.cx : null, cy: w.town ? w.town.cy : null }; return; }
     worldPointer(w, x, y);
   },
   pointerMove(x, y) {
     const w = this.w, p = this.pend;
     if (p && !Pinch.active) {
       if (!p.drag && Math.hypot(x - p.sx, y - p.sy) > (UI.touch ? 12 : 8)) p.drag = true;
-      if (p.drag) { Cam.px = p.px + (x - p.sx); Cam.py = p.py + (y - p.sy); camClamp(); }
+      if (p.drag) { if (w.loc === 'town' && w.town && p.cx != null) { const T = w.town; T.free = true; T.cx = p.cx - (x - p.sx) / Cam.z; T.cy = p.cy - (y - p.sy) / Cam.z; townClampView(T); } else { Cam.px = p.px + (x - p.sx); Cam.py = p.py + (y - p.sy); camClamp(); } }
     }
     if (w.edit) editHover(w, x, y);
     if (w.hedit) homeEditHover(w, x, y);
@@ -2716,9 +2719,10 @@ function fixLayout(w) {
   w.furn = keep; w.invCap = Math.max(w.invCap, w.inv.length);
 }
 // Reloj del día: abre a las 8:00 AM y cierra a las 11:00 PM
-const hourOf = w => START_H + (END_H - START_H) * (1 - clamp(w.dayTime / w.dayLen, 0, 1));
+const LATE_H = 2, lateSec = w => LATE_H * w.dayLen / (END_H - START_H);          // pasadas las 11 PM, quien sigue en el pueblo tiene hasta la 1 AM
+const hourOf = w => w.dayTime > 0 ? START_H + (END_H - START_H) * (1 - clamp(w.dayTime / w.dayLen, 0, 1)) : END_H + clamp((w.late || 0) / (w.dayLen / (END_H - START_H)), 0, LATE_H);
 function fmtHour(h) {
-  const hh = Math.floor(h), mm = Math.floor((h - hh) * 60 / 5) * 5, ap = hh >= 12 ? 'PM' : 'AM', h12 = ((hh + 11) % 12) + 1;
+  h = ((h % 24) + 24) % 24; const hh = Math.floor(h), mm = Math.floor((h - hh) * 60 / 5) * 5, ap = hh >= 12 ? 'PM' : 'AM', h12 = ((hh + 11) % 12) + 1;
   return `${h12}:${String(mm).padStart(2, '0')} ${ap}`;
 }
 /* =========================================================
@@ -2919,7 +2923,7 @@ function startDay(w, rs) {
   w.phase = 'play';
   w.dayLen = DAY_SEC;
   w.event = eventFor(w.day); CUR_EVENT = w.event; if (w.event) BUNTINGS.ev.cols = w.event.cols;
-  w.dayTime = w.dayLen; w.closedWarned = false; w.edit = null; w.repTemp = 0;
+  w.dayTime = w.dayLen; w.closedWarned = false; w.late = 0; w.lateWarned = false; w.edit = null; w.repTemp = 0;
   w.vips = []; if (!rs) { planVips(w, START_H); planGemmer(w); }
   w.furn.forEach(it => { if (it.type === 'table') { it.down = 0; it.downT = 0; } });
   w.dayServed = 0; w.dayEarned = 0; w.dayCost = 0; w.dayAngry = 0; w.perfect = false; w.loanT = 0;
@@ -5472,8 +5476,12 @@ function updateWorld(w, dt) {
     w.coins.forEach(c => c.t += dt);
 
     // fin del día / fin de partida
+    if (w.dayTime <= 0 && w.loc !== 'rest' && w.phase === 'play') {                                                                     // ya cerró el día y sigues fuera: corre la madrugada (hasta la 1 AM)
+      w.late = Math.min(lateSec(w), (w.late || 0) + dt);
+      if (!w.lateWarned) { w.lateWarned = true; const hs = Object.keys(HOUSES).some(id => houseOf(w, id).own); toast(w, hs ? 'Ya es de noche: todo cerró. Duerme en tu cama o regresa a la taquería' : 'Ya es de noche: todo cerró. Regresa a la taquería para dormir'); sfx('door'); }
+    }
     if (w.overT > 0) { w.overT += dt; if (w.overT > 1.4) endGame(w); }
-    else if (w.dayTime <= 0 && w.customers.length === 0 && !w.cars.length) { w.endT += dt; if (w.endT > 1) finishDay(w); }
+    else if (w.dayTime <= 0 && w.customers.length === 0 && !w.cars.length && (w.loc === 'rest' || (w.late || 0) >= lateSec(w))) { w.endT += dt; if (w.endT > 1) finishDay(w); }
   }
 
   for (const p of w.parts) {
@@ -7616,16 +7624,18 @@ function drawEditPanel(c, w) {
    Los edificios se ven cerrados desde la calle; al entrar se ve su interior (como el local). Mientras no estás, tu personal sigue atendiendo.
    w.loc: 'rest' (la taquería) · 'town' (la calle) · 'in' (dentro de un edificio: w.inId). El mapa usa sus propios ejes isométricos.
    ========================================================= */
-const TOWN_X0 = -8, TOWN_Y0 = -2, TOWN_NX = 50, TOWN_NY = 42;          // el mapa va de x -8 a 42 y de y -2 a 40
+const TOWN_X0 = -8, TOWN_Y0 = -2, TOWN_NX = 62, TOWN_NY = 62;          // el mapa va de x -8 a 54 y de y -2 a 60
 const AVE = { y0: 14, y1: 18 }, CRS = { x0: 22, x1: 26 };               // la avenida (de este a oeste) y la calle que la cruza (de norte a sur)
+const SW_N = { y0: 11, y1: 14 }, SW_S = { y0: 18, y1: 21 }, SW_W = { x0: 19, x1: 22 }, SW_E = { x0: 26, x1: 30 };     // banquetas: tres losetas de ancho (la del este, cuatro)
+// Los edificios del lado norte miran a la avenida (puerta en la cara y1); las casas están al sur-oeste, separadas entre sí, y miran a la calle (puerta en la cara x1).
 const BLD = [
-  { id: 'taq',    kind: 'taq',    name: 'Tacos Enmascarados',   x0: 1,    y0: 4.8,  x1: 8.6,  y1: 12, h: 98,  door: { f: 'y', t: 4.8 } },
-  { id: 'cine',   kind: 'cine',   name: 'Cine',                 x0: 9.4,  y0: 3.8,  x1: 16.4, y1: 12, h: 122, door: { f: 'y', t: 12.9 } },
-  { id: 'bou',    kind: 'bou',    name: 'Boutique Enmascarada', x0: 17.2, y0: 6,    x1: 20,   y1: 12, h: 102, door: { f: 'y', t: 18.6 } },
-  { id: 'tienda', kind: 'tienda', name: 'Tienda de muebles',    x0: 27.8, y0: 4.2,  x1: 37.4, y1: 12, h: 108, door: { f: 'y', t: 32.6 } },
-  { id: 'casa1',  kind: 'casa',   name: 'Casita del Barrio',    x0: 13.8, y0: 20,   x1: 20,   y1: 24.2, h: 70,  door: { f: 'x', t: 22.1 } },
-  { id: 'casa2',  kind: 'casa',   name: 'Casa Familiar',        x0: 12.8, y0: 25,   x1: 20,   y1: 29.6, h: 76,  door: { f: 'x', t: 27.3 } },
-  { id: 'casa3',  kind: 'casa',   name: 'Casona del Campeón',   x0: 11.4, y0: 30.4, x1: 20,   y1: 35.6, h: 84,  door: { f: 'x', t: 33 } }
+  { id: 'taq',    kind: 'taq',    name: 'Tacos Enmascarados',   x0: 0,  y0: 4,  x1: 7,  y1: 11, h: 98,  door: { f: 'y', t: 3.5 } },
+  { id: 'cine',   kind: 'cine',   name: 'Cine',                 x0: 11, y0: 3,  x1: 18, y1: 11, h: 122, door: { f: 'y', t: 14.5 } },
+  { id: 'bou',    kind: 'bou',    name: 'Boutique Enmascarada', x0: 30, y0: 5,  x1: 35, y1: 11, h: 102, door: { f: 'y', t: 32.5 } },
+  { id: 'tienda', kind: 'tienda', name: 'Tienda de muebles',    x0: 39, y0: 2,  x1: 48, y1: 11, h: 108, door: { f: 'y', t: 43.5 } },
+  { id: 'casa1',  kind: 'casa',   name: 'Casita del Barrio',    x0: 9,  y0: 24, x1: 15, y1: 29, h: 70,  door: { f: 'x', t: 26.5 } },
+  { id: 'casa2',  kind: 'casa',   name: 'Casa Familiar',        x0: 2,  y0: 33, x1: 9,  y1: 40, h: 76,  door: { f: 'x', t: 36.5 } },
+  { id: 'casa3',  kind: 'casa',   name: 'Casona del Campeón',   x0: 8,  y0: 44, x1: 18, y1: 53, h: 84,  door: { f: 'x', t: 48.5 } }
 ];
 const BLDG = {}; BLD.forEach(b => { BLDG[b.id] = b; });
 const HOUSES = {
@@ -7633,40 +7643,92 @@ const HOUSES = {
   casa2: { name: 'Casa Familiar',      price: 26000, level: 16, cols: 8,  rows: 7, doorC: 6 },
   casa3: { name: 'Casona del Campeón', price: 70000, level: 26, cols: 10, rows: 8, doorC: 8 }
 };
-const PARK = { x0: 28, y0: 20, x1: 38, y1: 28 };
-const FIELDS = [{ id: 'f1', x0: 28.2, y0: 29, x1: 32.8, y1: 38 }, { id: 'f2', x0: 33.2, y0: 29, x1: 37.8, y1: 38 }];
-const BENCHES = [{ x: 30, y: 21.6, f: 'y' }, { x: 36, y: 21.6, f: 'y' }, { x: 30, y: 26.2, f: 'x' }, { x: 36, y: 26.2, f: 'x' }, { x: 33, y: 26.3, f: 'y' }];
-const FOUNTAIN = { x: 33, y: 23.8, r: 1.5 };
-const TREES = [[-6, 4], [-4, 8], [-5, 10.5], [0, 2], [3, 2.2], [8, 2], [16.8, 2.4], [21, 3], [24.4, 3.4], [26.4, 6], [-5, 21.6], [-3, 25], [-6, 29], [-4, 33], [0, 22], [3, 26], [1, 31], [5, 23], [8, 28], [6, 34], [9, 37], [11, 22], [10, 21], [-2, 21], [39, 8], [39.4, 13], [40, 22], [39.4, 30], [40, 36], [28.6, 21], [37.4, 21], [28.6, 26.8], [37.4, 26.8], [24, 38], [-2, 38], [39, 4], [23.2, 1], [31, 1.4]];
-const TLAMPS = [[-6, 13.7], [-2, 13.7], [1.4, 13.7], [8, 13.7], [15, 13.7], [21, 13.7], [29, 13.7], [36, 13.7], [40.6, 13.7], [-4, 18.3], [3, 18.3], [10, 18.3], [17, 18.3], [29.6, 18.3], [37, 18.3], [20.5, 24.6], [20.5, 30], [20.5, 8], [20.5, 3], [27.5, 6], [27.5, 21], [27.5, 30], [27.5, 36]];
-const TDEF = { wall: '#f1e6d0', floor: 'madera', fachada: '#e9d8bd', roof: '#b5482f', cuadros: true };
-const houseOf = (w, id) => w.town.houses[id] || (w.town.houses[id] = { own: false, wall: TDEF.wall, floor: TDEF.floor, fachada: id === 'casa2' ? '#c9e6b3' : id === 'casa3' ? '#a9d3e8' : TDEF.fachada, roof: id === 'casa2' ? '#3b5bdb' : id === 'casa3' ? '#2b2b33' : TDEF.roof, cuadros: true, furn: [] });
+const PARK = { x0: 30, y0: 22, x1: 40, y1: 30 };
+const FIELDS = [{ id: 'f1', x0: 30.2, y0: 31, x1: 34.8, y1: 40 }, { id: 'f2', x0: 35.2, y0: 31, x1: 39.8, y1: 40 }];
+const BENCHES = [{ x: 35, y: 23.5, f: 'y' }, { x: 31.5, y: 26, f: 'x' }, { x: 37.5, y: 26, f: 'x' }, { x: 32.5, y: 27.5, f: 'y' }];       // cada banca cabe en una loseta; se sienta uno desde la loseta de enfrente
+const FOUNTAIN = { x: 35, y: 26, r: 1.3 };
+const SWING = { x: 36.8, y: 28.3 };
+const PARK_TREES = [[31.6, 23.7], [38.4, 23.7], [31.6, 28.5], [38.4, 28.5]];
+const doorRow = b => Math.floor(b.door.t);                                // la fila (casas) o columna (negocios) de la puerta
+const housePath = b => ({ x0: b.x1, x1: 19, y0: doorRow(b) - 1, y1: doorRow(b) + 2 });               // el caminito de piedra de la puerta de la casa a la banqueta
+// zonas por donde se puede caminar (todo lo demás es pasto, jardín o lo que queda detrás de los edificios)
+const WALK_RECTS = [[TOWN_X0, 11, TOWN_X0 + TOWN_NX, 21], [19, 21, 30, TOWN_Y0 + TOWN_NY], [PARK.x0, PARK.y0, PARK.x1, PARK.y1], [30, 30, 40, 42]]
+  .concat(BLD.filter(b => b.kind === 'casa').map(b => { const p = housePath(b); return [p.x0, p.y0, p.x1, p.y1]; }));
+const inWalkRect = (c, r) => WALK_RECTS.some(q => c >= q[0] && c < q[2] && r >= q[1] && r < q[3]);
+// arbolitos (siempre los mismos) y faroles
+const TREES = (() => {
+  let s = 20261009; const rnd = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296, out = [];
+  const keep = (x, y) => {
+    if (y > 9.2 && y < 21.8) return false;                                                            // la avenida, sus banquetas y los setos
+    if (x > 17.6 && x < 30.8) return false;                                                           // la calle que cruza, sus banquetas y su seto
+    if (x > 28.6 && x < 41.4 && y > 21 && y < 43) return false;                                        // parque y canchas
+    for (const b of BLD) { if (x > b.x0 - 1.8 && x < b.x1 + 1.8 && y > b.y0 - 1.8 && y < b.y1 + 2.4) return false; if (b.kind === 'casa' && y > b.door.t - 2.6 && y < b.door.t + 2.6 && x > b.x1 - .5) return false; }
+    return true;
+  };
+  for (let gy = -1; gy < 60; gy += 2.4) for (let gx = -7.5; gx < 54; gx += 2.4) {
+    const x = gx + (rnd() - .5) * 1.3, y = gy + (rnd() - .5) * 1.3;
+    if (rnd() < .5 && keep(x, y) && !out.some(q => Math.hypot(q[0] - x, q[1] - y) < 2)) out.push([Math.round(x * 10) / 10, Math.round(y * 10) / 10]);
+  }
+  return out.concat(PARK_TREES);
+})();
+const TLAMPS = (() => {
+  const out = [];
+  for (let x = -6; x < 54; x += 6.5) if (x < 17 || x > 31) { out.push([x, 13.8]); if (x + 3.2 < 54) out.push([x + 3.2, 18.3]); }
+  for (let y = 22; y < 59; y += 6.5) out.push([21.6, y], [26.4, y]);
+  out.push([21.6, 13.8], [26.4, 13.8], [21.6, 18.3], [26.4, 18.3], [21.6, 4], [26.4, 4], [21.6, 9], [26.4, 9]);
+  return out;
+})();
+// setos bajitos: separan las banquetas de los jardines y cierran los huecos entre los negocios
+const HEDGES = (() => {
+  const out = [], seg = (x0, y0, x1, y1, ax) => { const n = Math.max(1, Math.ceil((ax === 'x' ? x1 - x0 : y1 - y0) / 2)); for (let k = 0; k < n; k++) out.push(ax === 'x' ? { x0: x0 + (x1 - x0) * k / n, y0, x1: x0 + (x1 - x0) * (k + 1) / n, y1 } : { x0, y0: y0 + (y1 - y0) * k / n, x1, y1: y0 + (y1 - y0) * (k + 1) / n }); };
+  const north = BLD.filter(b => b.y1 === 11).sort((p, q) => p.x0 - q.x0), gaps = []; let cx = TOWN_X0;
+  north.forEach(b => { if (b.x0 > cx) gaps.push([cx, b.x0]); cx = b.x1; }); gaps.push([cx, TOWN_X0 + TOWN_NX]);
+  gaps.forEach(([a, b]) => { if (Math.min(b, 19) > a) seg(a, 10.5, Math.min(b, 19), 11, 'x'); if (b > Math.max(a, 30)) seg(Math.max(a, 30), 10.5, b, 11, 'x'); });
+  seg(TOWN_X0, 21.1, 19, 21.6, 'x');                                                                // jardines del lado sur de la avenida
+  const paths = BLD.filter(b => b.kind === 'casa').map(housePath).sort((a, b) => a.y0 - b.y0); let cy = 21.6;
+  paths.forEach(p => { if (p.y0 > cy) seg(18.4, cy, 18.9, p.y0, 'y'); cy = p.y1; });
+  seg(18.4, cy, 18.9, TOWN_Y0 + TOWN_NY - 1, 'y');
+  return out;
+})();
 
-// ---- mapa de choques: edificios, árboles, faroles, la fuente y la cerca del parque (con sus puertas)
+const parkGate = (c, r) => (r === PARK.y0 || r === PARK.y1 - 1) ? (c >= PARK.x0 + 3 && c < PARK.x0 + 7) : (c === PARK.x0 ? (r >= PARK.y0 + 2 && r < PARK.y0 + 5) : false);        // puertas del parque: arriba y abajo (4 losetas) y a la izquierda (3)
+// ---- mapa de choques: lo que no se puede pisar. Solo se camina por las banquetas, la calle, el parque, las canchas y los caminitos de las casas
 const TOWN_BLOCK = new Uint8Array(TOWN_NX * TOWN_NY);
 const tnIdx = (c, r) => (r - TOWN_Y0) * TOWN_NX + (c - TOWN_X0);
 const tnIn = (c, r) => c >= TOWN_X0 && c < TOWN_X0 + TOWN_NX && r >= TOWN_Y0 && r < TOWN_Y0 + TOWN_NY;
 const tnBlocked = (c, r) => !tnIn(c, r) || TOWN_BLOCK[tnIdx(c, r)] === 1;
 (function buildTownBlock() {
+  for (let r = TOWN_Y0; r < TOWN_Y0 + TOWN_NY; r++) for (let c = TOWN_X0; c < TOWN_X0 + TOWN_NX; c++) TOWN_BLOCK[tnIdx(c, r)] = inWalkRect(c, r) ? 0 : 1;
   const set = (c, r) => { if (tnIn(c, r)) TOWN_BLOCK[tnIdx(c, r)] = 1; };
   const blk = (x0, y0, x1, y1) => { for (let r = Math.floor(y0); r < Math.ceil(y1); r++) for (let c = Math.floor(x0); c < Math.ceil(x1); c++) set(c, r); };
   BLD.forEach(b => blk(b.x0, b.y0, b.x1, b.y1));
   TREES.forEach(([x, y]) => blk(x - .3, y - .3, x + .3, y + .3));
   TLAMPS.forEach(([x, y]) => blk(x - .15, y - .15, x + .15, y + .15));
-  blk(FOUNTAIN.x - FOUNTAIN.r, FOUNTAIN.y - FOUNTAIN.r, FOUNTAIN.x + FOUNTAIN.r, FOUNTAIN.y + FOUNTAIN.r);
-  const gate = (c, r) => (r === 20 || r === 27) ? (c >= 31 && c < 35) : (c === 28 ? (r >= 22 && r < 25) : false);        // puertas del parque: arriba y abajo (x 31 a 35) y a la izquierda (y 22 a 25)
-  for (let c = 28; c <= 37; c++) for (const r of [20, 27]) if (!gate(c, r)) set(c, r);
-  for (let r = 20; r <= 27; r++) for (const c of [28, 37]) if (!gate(c, r)) set(c, r);
+  BENCHES.forEach(b => b.f === 'y' ? blk(b.x - .6, b.y - .2, b.x + .6, b.y + .2) : blk(b.x - .2, b.y - .6, b.x + .2, b.y + .6));
+  blk(SWING.x - .8, SWING.y - .3, SWING.x + .8, SWING.y + .3);
+  for (let r = Math.floor(FOUNTAIN.y - 3); r <= Math.ceil(FOUNTAIN.y + 3); r++) for (let c = Math.floor(FOUNTAIN.x - 3); c <= Math.ceil(FOUNTAIN.x + 3); c++) if (Math.hypot(c + .5 - FOUNTAIN.x, r + .5 - FOUNTAIN.y) < FOUNTAIN.r + .25) set(c, r);
+  for (let c = PARK.x0; c < PARK.x1; c++) for (const r of [PARK.y0, PARK.y1 - 1]) if (!parkGate(c, r)) set(c, r);
+  for (let r = PARK.y0; r < PARK.y1; r++) for (const c of [PARK.x0, PARK.x1 - 1]) if (!parkGate(c, r)) set(c, r);
 })();
-const sidewalkCells = (() => {                                          // dónde caminan los peatones (las banquetas)
-  const out = [];
+// por dónde caminan los peatones: solo las banquetas (y los pasos de cebra, que son las mismas banquetas cruzando), y a una loseta de distancia de los edificios
+const TOWN_NPC = new Uint8Array(TOWN_NX * TOWN_NY);
+(function buildNpcMask() {
   for (let r = TOWN_Y0; r < TOWN_Y0 + TOWN_NY; r++) for (let c = TOWN_X0; c < TOWN_X0 + TOWN_NX; c++) {
-    if (TOWN_BLOCK[tnIdx(c, r)]) continue;
-    const nA = (r >= 12 && r < 14) || (r >= 18 && r < 20), nB = (c >= 20 && c < 22) || (c >= 26 && c < 28);
-    if ((nA && c < 42) || (nB && r < 40)) out.push([c, r]);
+    const band = (r >= SW_N.y0 && r < SW_N.y1) || (r >= SW_S.y0 && r < SW_S.y1) || (c >= SW_W.x0 && c < SW_W.x1 && r >= 11) || (c >= SW_E.x0 && c < SW_E.x1 && r >= 11);
+    let bad = !band || TOWN_BLOCK[tnIdx(c, r)] === 1;
+    if (!bad) for (const b of BLD) if (c + 1 > b.x0 - 1 && c < b.x1 + 1 && r + 1 > b.y0 - 1 && r < b.y1 + 1) { bad = true; break; }
+    TOWN_NPC[tnIdx(c, r)] = bad ? 1 : 0;
   }
+})();
+const npcBlocked = (c, r) => !tnIn(c, r) || TOWN_NPC[tnIdx(c, r)] === 1;
+const sidewalkCells = (() => {                                          // las losetas donde caminan los peatones
+  const out = [];
+  for (let r = TOWN_Y0; r < TOWN_Y0 + TOWN_NY; r++) for (let c = TOWN_X0; c < TOWN_X0 + TOWN_NX; c++) if (!TOWN_NPC[tnIdx(c, r)]) out.push([c, r]);
   return out;
 })();
+
+const TDEF = { wall: '#f1e6d0', floor: 'madera', fachada: '#e9d8bd', roof: '#b5482f', cuadros: true };
+const houseOf = (w, id) => w.town.houses[id] || (w.town.houses[id] = { own: false, wall: TDEF.wall, floor: TDEF.floor, fachada: id === 'casa2' ? '#c9e6b3' : id === 'casa3' ? '#a9d3e8' : TDEF.fachada, roof: id === 'casa2' ? '#3b5bdb' : id === 'casa3' ? '#2b2b33' : TDEF.roof, cuadros: true, furn: [] });
 
 // ---- búsqueda de camino en una cuadrícula cualquiera (el pueblo o el interior de un edificio)
 function bfsPath(nx, ny, blocked, sx, sy, goals, ox = 0, oy = 0) {   // blocked(c, r) · goals = lista de [c, r] · devuelve las losetas desde la siguiente a la de inicio hasta la meta (o null)
@@ -7703,7 +7765,7 @@ const doorSpot = b => b.door.f === 'y' ? { x: b.door.t, y: b.y1 + .8 } : { x: b.
 // ---- estado del pueblo (se guarda lo de las casas y los muebles de la casa)
 function townInit(w, save) {
   const sv = (save && save.town) || {};
-  w.town = { x: 5, y: 13.4, dir: 1, phase: 0, moving: false, speed: 4.2, path: [], intent: null, npcs: [], cars: [], npcT: 0, carT: 2, cx: null, cy: null, sit: null, t: 0, seen: false,
+  w.town = { x: 5, y: 13.4, dir: 1, phase: 0, moving: false, speed: 4.2, path: [], intent: null, npcs: [], cars: [], npcT: 0, carT: 2, cx: null, cy: null, free: false, sit: null, t: 0, seen: false,
     houses: {}, hinv: Array.isArray(sv.hinv) ? sv.hinv.filter(t => HF[t]) : [], hasTicket: false, movie: 0, movies: 0, penalDay: 0, penalN: 0, bedDay: 0 };
   Object.keys(sv.houses || {}).forEach(id => {
     if (!HOUSES[id]) return; const h = sv.houses[id], d = houseOf(w, id);
@@ -7715,27 +7777,27 @@ function townInit(w, save) {
 const townPersist = w => ({ hinv: w.town.hinv.slice(), houses: Object.fromEntries(Object.keys(w.town.houses).filter(id => w.town.houses[id]).map(id => { const h = w.town.houses[id]; return [id, { own: h.own, wall: h.wall, floor: h.floor, fachada: h.fachada, roof: h.roof, cuadros: h.cuadros, furn: h.furn.map(f => ({ t: f.t, c: f.c, r: f.r, rot: f.rot })) }]; })) });
 
 // ---- de qué hora depende cuánta gente hay en la calle (de 0 a 1)
-const TDENS = [[8, .35], [9, .6], [11, .85], [13, 1], [15.5, .9], [18, .65], [20, .4], [22, .22], [23, .12]];
+const TDENS = [[8, .35], [9, .6], [11, .85], [13, 1], [15.5, .9], [18, .65], [20, .4], [22, .22], [23, .12], [25, .05]];
 function townDensity(h) {
   if (h <= TDENS[0][0]) return TDENS[0][1];
   for (let i = 1; i < TDENS.length; i++) if (h <= TDENS[i][0]) { const a = TDENS[i - 1], b = TDENS[i]; return lerp(a[1], b[1], (h - a[0]) / (b[0] - a[0])); }
   return TDENS[TDENS.length - 1][1];
 }
-const TNPC_MAX = 16, TCAR_MAX = 5;
+const TNPC_MAX = 22, TCAR_MAX = 6;
 function spawnTownNpc(T) {
-  const edges = [[-7, 13], [41, 13], [-7, 19], [41, 19], [21, -1], [27, -1], [21, 39], [27, 39]], e = pick(edges), cell = nearFreeCell(e[0], e[1], tnBlocked, 3); if (!cell) return;
+  const edges = [[-7, 12], [-7, 19], [53, 12], [53, 19], [20, 59], [28, 59]], e = pick(edges), cell = nearFreeCell(e[0], e[1], npcBlocked, 3); if (!cell) return;
   const n = { x: cell[0] + .5, y: cell[1] + .5, dir: 1, phase: rand(0, 6), moving: false, speed: rand(1.3, 2), path: [], look: randomLook(), wait: 0, leaving: false, dead: false, t: rand(0, 6) };
   T.npcs.push(n); npcNewGoal(n);
 }
 function npcNewGoal(n) {
-  const g = pick(sidewalkCells), p = bfsPath(TOWN_NX, TOWN_NY, tnBlocked, n.x, n.y, [g], TOWN_X0, TOWN_Y0);
+  const g = pick(sidewalkCells), p = bfsPath(TOWN_NX, TOWN_NY, npcBlocked, n.x, n.y, [g], TOWN_X0, TOWN_Y0);
   n.path = p ? p.map(q => ({ x: q.c + .5, y: q.r + .5 })) : [];
 }
 function npcLeave(n) {
-  const exits = [[-7, 13], [41, 13], [21, -1], [27, 39]], e = exits.sort((a, b) => Math.hypot(a[0] - n.x, a[1] - n.y) - Math.hypot(b[0] - n.x, b[1] - n.y))[0];
-  const p = bfsPath(TOWN_NX, TOWN_NY, tnBlocked, n.x, n.y, [e], TOWN_X0, TOWN_Y0); n.path = p ? p.map(q => ({ x: q.c + .5, y: q.r + .5 })) : []; n.leaving = true; if (!n.path.length) n.dead = true;
+  const exits = [[-7, 12], [53, 12], [20, 59], [28, 59]], e = exits.sort((a, b) => Math.hypot(a[0] - n.x, a[1] - n.y) - Math.hypot(b[0] - n.x, b[1] - n.y))[0];
+  const p = bfsPath(TOWN_NX, TOWN_NY, npcBlocked, n.x, n.y, [e], TOWN_X0, TOWN_Y0); n.path = p ? p.map(q => ({ x: q.c + .5, y: q.r + .5 })) : []; n.leaving = true; if (!n.path.length) n.dead = true;
 }
-const TLANES = [{ o: 'x', fix: 15.1, dir: -1, a: 43, b: -10 }, { o: 'x', fix: 16.9, dir: 1, a: -10, b: 43 }, { o: 'y', fix: 23.1, dir: 1, a: -3, b: 41 }, { o: 'y', fix: 24.9, dir: -1, a: 41, b: -3 }];
+const TLANES = [{ o: 'x', fix: 15.1, dir: -1, a: 57, b: -11 }, { o: 'x', fix: 16.9, dir: 1, a: -11, b: 57 }, { o: 'y', fix: 23.1, dir: 1, a: -3, b: 61 }, { o: 'y', fix: 24.9, dir: -1, a: 61, b: -3 }];
 function spawnTownCar(T) {
   const L = pick(TLANES), busy = T.cars.some(q => q.lane === L && Math.abs((L.o === 'x' ? q.x : q.y) - L.a) < 7); if (busy) return;
   T.cars.push({ lane: L, x: L.o === 'x' ? L.a : L.fix, y: L.o === 'y' ? L.a : L.fix, o: L.o, fx: L.o === 'x' ? L.dir : 0, fy: L.o === 'y' ? L.dir : 0, model: pick(CAR_KEYS), col: Math.floor(Math.random() * CAR_COLS.length), state: 'out', brake: 0, t: 0, speed: rand(3, 4.2), moving: true });
@@ -7778,7 +7840,7 @@ function doGoTown(w) {
   handsRelease(w); n.path = []; n.task = null; n.moving = false; if (n.resting) standUp(w, n);
   sfx('door');
   fadeTo(w, () => {
-    const T = w.town, b = BLDG.taq, sp = doorSpot(b); T.x = sp.x; T.y = sp.y; T.path = []; T.intent = null; T.moving = false; T.sit = null; T.cx = null;
+    const T = w.town, b = BLDG.taq, sp = doorSpot(b); T.x = sp.x; T.y = sp.y; T.path = []; T.intent = null; T.moving = false; T.sit = null; T.cx = null; T.free = false;
     w.loc = 'town'; n.away = true; camReset(); toast(w, 'Estás en el pueblo. Toca un edificio para entrar o la taquería para volver');
   });
 }
@@ -7795,28 +7857,35 @@ function enterBuilding(w, id) {
   const b = BLDG[id]; if (!b || w.fade) return;
   if (id === 'taq') { returnToRest(w); return; }
   if (b.kind === 'casa' && !houseOf(w, id).own) { openBuyHouse(w, id); return; }
+  if (b.kind !== 'casa' && w.dayTime <= 0) { toast(w, `${b.name}: cerrado, ya es de noche`); sfx('nope'); return; }
   sfx('door');
   fadeTo(w, () => { w.loc = 'in'; w.inId = id; w.inn = newRoom(w, id); w.town.path = []; camReset(); w.modal = null; });
 }
 function exitBuilding(w) {
   if (w.loc !== 'in' || w.fade) return;
   sfx('door');
-  fadeTo(w, () => { const T = w.town, b = BLDG[w.inId], sp = doorSpot(b); T.x = sp.x; T.y = sp.y; T.path = []; T.intent = null; T.cx = null; w.loc = 'town'; w.inId = null; w.inn = null; w.hedit = null; w.modal = null; camReset(); });
+  fadeTo(w, () => { const T = w.town, b = BLDG[w.inId], sp = doorSpot(b); T.x = sp.x; T.y = sp.y; T.path = []; T.intent = null; T.cx = null; T.free = false; w.loc = 'town'; w.inId = null; w.inn = null; w.hedit = null; w.modal = null; camReset(); });
 }
 
 // ---- clic en el pueblo
 const tS = (x, y) => ({ x: (x - y) * (TW / 2), y: (x + y) * (TH / 2) });          // posición en pantalla con el origen del pueblo (0, 0)
 const tnView = w => { const T = w.town, p = tS(T.x, T.y); return { sx: T.cx == null ? p.x : T.cx, sy: T.cy == null ? p.y : T.cy }; };
+function townClampView(T) { const x0 = tS(TOWN_X0, TOWN_Y0 + TOWN_NY).x, x1 = tS(TOWN_X0 + TOWN_NX, TOWN_Y0).x, y0 = tS(TOWN_X0, TOWN_Y0).y, y1 = tS(TOWN_X0 + TOWN_NX, TOWN_Y0 + TOWN_NY).y; T.cx = clamp(T.cx, x0, x1); T.cy = clamp(T.cy, y0, y1); }
+function townZoomAt(w, f, sx, sy) {                                    // acerca o aleja el pueblo dejando fijo el punto que señalas
+  const T = w.town, v = tnView(w), z0 = Cam.z, z1 = clamp(z0 * f, Cam.MIN, Cam.MAX); if (z1 === z0) return;
+  const dx = sx - 480, dy = sy - 330; if (Math.abs(dx) + Math.abs(dy) > 2) { T.cx = v.sx + dx * (1 / z0 - 1 / z1); T.cy = v.sy + dy * (1 / z0 - 1 / z1); T.free = true; townClampView(T); }
+  Cam.z = z1; Cam.px = 0; Cam.py = 0;
+}
 function withTownOrigin(fn) { const a = OX, b = OY; OX = 0; OY = 0; try { return fn(); } finally { OX = a; OY = b; } }
 function townWorldAt(w, x, y) {                                        // de un punto de la pantalla a la loseta (con zoom y desplazamiento)
   const q = camWorld(x, y), v = tnView(w);
   return withTownOrigin(() => screenToIso(q.x - 480 + v.sx, q.y - 330 + v.sy));
 }
 function townGoTo(w, x, y, intent) {
-  const T = w.town, cell = nearFreeCell(Math.floor(x), Math.floor(y), tnBlocked, 3); if (!cell) { sfx('nope'); return false; }
+  const T = w.town, cell = nearFreeCell(Math.floor(x), Math.floor(y), tnBlocked, 6); if (!cell) { sfx('nope'); return false; }
   const p = townPathTo(T, [cell]); if (!p) { sfx('nope'); return false; }
   T.path = p.map(q => ({ x: q.c + .5, y: q.r + .5 })); if (!T.path.length || Math.hypot(T.path[T.path.length - 1].x - (cell[0] + .5), T.path[T.path.length - 1].y - (cell[1] + .5)) > .01) T.path.push({ x: cell[0] + .5, y: cell[1] + .5 });
-  T.intent = intent || null; T.sit = null; sfx('click'); return true;
+  T.intent = intent || null; T.sit = null; T.free = false; sfx('click'); return true;
 }
 function buildingAt(x, y) { return BLD.find(b => x >= b.x0 - .05 && x <= b.x1 + .05 && y >= b.y0 - .05 && y <= b.y1 + .05) || null; }
 function townPointer(w, x, y) {
@@ -7824,14 +7893,14 @@ function townPointer(w, x, y) {
   const bd = townHitBuilding(w, x, y);
   if (bd) { const sp = doorSpot(bd); if (Math.hypot(T.x - sp.x, T.y - sp.y) < .75) { enterBuilding(w, bd.id); return; } townGoTo(w, sp.x, sp.y, { type: 'enter', id: bd.id }); return; }
   const bn = BENCHES.findIndex(b => Math.hypot(b.x - q.x, b.y - q.y) < .9);
-  if (bn >= 0) { const b = BENCHES[bn], st = b.f === 'y' ? { x: b.x, y: b.y + .9 } : { x: b.x + .9, y: b.y }; townGoTo(w, st.x, st.y, { type: 'bench', i: bn }); return; }
+  if (bn >= 0) { const b = BENCHES[bn], st = b.f === 'y' ? { x: b.x, y: b.y + 1 } : { x: b.x + 1, y: b.y }; townGoTo(w, st.x, st.y, { type: 'bench', i: bn }); return; }
   const fl = FIELDS.find(f => q.x >= f.x0 && q.x <= f.x1 && q.y >= f.y0 && q.y <= f.y1);
   if (fl) { townGoTo(w, (fl.x0 + fl.x1) / 2, fl.y0 + 1.2, { type: 'field', id: fl.id }); return; }
   townGoTo(w, q.x, q.y, null);
 }
 function updateTown(w, dt) {                                           // el personaje del jugador en la calle
   const T = w.town; T.t += dt;
-  const p = tS(T.x, T.y); if (T.cx == null) { T.cx = p.x; T.cy = p.y; } else { T.cx += (p.x - T.cx) * Math.min(1, dt * 5); T.cy += (p.y - T.cy) * Math.min(1, dt * 5); }
+  const p = tS(T.x, T.y); if (T.cx == null) { T.cx = p.x; T.cy = p.y; } else if (!T.free) { T.cx += (p.x - T.cx) * Math.min(1, dt * 5); T.cy += (p.y - T.cy) * Math.min(1, dt * 5); } townClampView(T);
   if (T.sit) { T.moving = false; T.path = []; T.sit.t += dt; const n = w.novato, mx = maxStamina(w); n.stamina = Math.min(mx, n.stamina + STAM.regen * 1.4 * dt); if (n.stamina >= mx && T.sit.t > 3) { T.sit = null; toast(w, 'Descansaste en la banca: ¡energía completa!'); sfx('ready'); } return; }
   const wasMoving = T.path.length > 0; step(T, dt);
   if (wasMoving && !T.path.length) {
@@ -7845,6 +7914,7 @@ function townHint(w) {
   const T = w.town;
   if (w.loc === 'in') return w.inn && w.inn.hint ? w.inn.hint : 'Toca la puerta para salir';
   if (T.sit) return 'Descansando en la banca… toca el piso para levantarte';
+  if (backLate(w)) return ownsHouse(w) ? 'Es de madrugada: duerme en la cama de tu casa o regresa a la taquería' : 'Es de madrugada: regresa a la taquería para dormir';
   return 'Toca un edificio para entrar · el cartel SE VENDE es una casa que puedes comprar · la taquería está a la izquierda';
 }
 
@@ -7856,15 +7926,16 @@ function onFace(c, kind, v, a, z, fn) {                                // dibuja
 }
 function drawTownGround(c, w) {
   const x0 = TOWN_X0 - 8, x1 = TOWN_X0 + TOWN_NX + 8, y0 = TOWN_Y0 - 8, y1 = TOWN_Y0 + TOWN_NY + 8;
-  const g = c.createLinearGradient(0, -400, 0, 1500); g.addColorStop(0, '#5aa65a'); g.addColorStop(1, '#3f8a49');
+  const g = c.createLinearGradient(0, -400, 0, 1800); g.addColorStop(0, '#5aa65a'); g.addColorStop(1, '#3f8a49');
   c.fillStyle = g; c.fillRect(-4000, -2000, 9000, 6000);
   const band = (a, b, cc, d, col) => { groundQuad(c, a, b, cc, d); c.fillStyle = col; c.fill(); };
-  band(x0, 12, x1, 14, '#d0cabb'); band(x0, 18, x1, 20, '#d0cabb'); band(20, y0, 22, y1, '#d0cabb'); band(26, y0, 28, y1, '#d0cabb');            // banquetas
+  band(x0, SW_N.y0, x1, SW_N.y1, '#d0cabb'); band(x0, SW_S.y0, x1, SW_S.y1, '#d0cabb'); band(SW_W.x0, y0, SW_W.x1, y1, '#d0cabb'); band(SW_E.x0, y0, SW_E.x1, y1, '#d0cabb');            // banquetas
   band(x0, AVE.y0, x1, AVE.y1, '#4a4c5c'); band(CRS.x0, y0, CRS.x1, y1, '#4a4c5c');                                                              // la avenida y la calle
-  band(x0, 13.8, x1, 14, '#8d8779'); band(x0, 18, x1, 18.2, '#8d8779'); band(19.8, y0, 20, y1, '#8d8779'); band(22, y0, 22.2, y1, '#8d8779'); band(25.8, y0, 26, y1, '#8d8779'); band(26, y0, 26.2, y1, '#8d8779');
+  band(x0, 13.8, x1, 14, '#8d8779'); band(x0, 18, x1, 18.2, '#8d8779'); band(21.8, y0, 22, y1, '#8d8779'); band(26, y0, 26.2, y1, '#8d8779');       // bordillos
+  band(x0, SW_N.y0, x1, SW_N.y0 + .1, '#b9b2a1'); band(x0, SW_S.y1 - .1, x1, SW_S.y1, '#b9b2a1'); band(SW_W.x0, y0, SW_W.x0 + .1, y1, '#b9b2a1'); band(SW_E.x1 - .1, y0, SW_E.x1, y1, '#b9b2a1');
   c.strokeStyle = 'rgba(70,55,40,.28)'; c.lineWidth = 1.1; c.beginPath();                                                                           // juntas de la banqueta
-  for (let x = x0; x < x1; x += 1.5) for (const [ya, yb] of [[12, 14], [18, 20]]) { const a = S(x, ya), b = S(x, yb); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); }
-  for (let y = y0; y < y1; y += 1.5) for (const [xa, xb] of [[20, 22], [26, 28]]) { const a = S(xa, y), b = S(xb, y); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); }
+  for (let x = x0; x < x1; x += 1.5) for (const [ya, yb] of [[SW_N.y0, SW_N.y1], [SW_S.y0, SW_S.y1]]) { const a = S(x, ya), b = S(x, yb); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); }
+  for (let y = y0; y < y1; y += 1.5) for (const [xa, xb] of [[SW_W.x0, SW_W.x1], [SW_E.x0, SW_E.x1]]) { const a = S(xa, y), b = S(xb, y); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); }
   c.stroke();
   c.fillStyle = '#f2d45c';
   for (let x = x0; x < x1; x += 1.6) if (x < 21.2 || x > 26.6) { groundQuad(c, x, 15.94, x + .8, 16.06); c.fill(); }
@@ -7872,10 +7943,15 @@ function drawTownGround(c, w) {
   c.fillStyle = 'rgba(255,255,255,.88)';                                                                                                          // pasos de cebra en las cuatro esquinas del cruce
   for (let k = 0; k < 6; k++) { const o = 22.3 + k * .6; groundQuad(c, o, 18.2, o + .34, 19.8); c.fill(); groundQuad(c, o, 12.2, o + .34, 13.8); c.fill(); }
   for (let k = 0; k < 6; k++) { const o = 14.3 + k * .6; groundQuad(c, 20.2, o, 21.8, o + .34); c.fill(); groundQuad(c, 26.2, o, 27.8, o + .34); c.fill(); }
+  // los caminitos de piedra de las casas
+  BLD.filter(b => b.kind === 'casa').forEach(b => {
+    const p = housePath(b), t = b.door.t; band(p.x0, t - 1.1, 19, t + 1.1, '#d9d2c0');
+    c.strokeStyle = 'rgba(70,55,40,.3)'; c.lineWidth = 1.1; c.beginPath(); for (let x = p.x0 + 1; x < 19; x += 1) { const a = S(x, t - 1.1), q = S(x, t + 1.1); c.moveTo(a.x, a.y); c.lineTo(q.x, q.y); } const m0 = S(p.x0, t), m1 = S(19, t); c.moveTo(m0.x, m0.y); c.lineTo(m1.x, m1.y); c.stroke();
+  });
   // el parque y las canchas
   const P0 = PARK;
   band(P0.x0, P0.y0, P0.x1, P0.y1, '#62b85c');
-  band(32, P0.y0, 34, P0.y1, '#e6dcc3'); band(P0.x0, 22.6, 33, 24.4, '#e6dcc3'); band(33, 22.6, P0.x1, 24.4, '#e6dcc3');
+  band(34.2, P0.y0, 35.8, P0.y1, '#e6dcc3'); band(P0.x0, 25.2, P0.x1, 26.8, '#e6dcc3');
   FIELDS.forEach(f => {
     band(f.x0, f.y0, f.x1, f.y1, '#3f9a4a');
     for (let y = f.y0, k = 0; y < f.y1; y += 1.5, k++) if (k & 1) band(f.x0, y, f.x1, Math.min(f.y1, y + 1.5), '#47a653');
@@ -7887,12 +7963,18 @@ function drawTownGround(c, w) {
     c.stroke(); isoEllipse(c, xm, ym, 0, 1.1); c.stroke();
   });
 }
-function drawFence(c) {                                                // cerca blanca del parque, con sus puertas
-  const P0 = PARK;
+function fenceItems(c) {                                                // la cerca blanca del parque, con sus puertas, como piezas sueltas para ordenarlas con la gente
+  const P0 = PARK, out = [];
   const post = (x, y) => isoBox(c, x - .05, y - .05, x + .05, y + .05, 0, 12, { top: '#ffffff', left: '#eeeef4', right: '#cfd0dc' }, 1);
   const rail = (a, b, cc, d) => isoBox(c, a, b, cc, d, 6, 8.5, { top: '#fff', left: '#e7e7ee', right: '#c9cad6' }, .9);
-  for (let cx = 28; cx <= 37; cx++) for (const r of [20, 27]) if (!(cx >= 31 && cx < 35)) { rail(cx, r + .5 - .03, cx + 1, r + .5 + .03); post(cx + .5, r + .5); }
-  for (let r = 20; r <= 27; r++) for (const cx of [28, 37]) if (!(cx === 28 && r >= 22 && r < 25)) { rail(cx + .5 - .03, r, cx + .5 + .03, r + 1); post(cx + .5, r + .5); }
+  for (let cx = P0.x0; cx < P0.x1; cx++) for (const r of [P0.y0, P0.y1 - 1]) if (!parkGate(cx, r)) out.push({ x: cx + .5, y: r + .5, d: cx + r + 1, draw: () => { rail(cx, r + .5 - .03, cx + 1, r + .5 + .03); post(cx + .5, r + .5); } });
+  for (let r = P0.y0; r < P0.y1; r++) for (const cx of [P0.x0, P0.x1 - 1]) if (!parkGate(cx, r)) out.push({ x: cx + .5, y: r + .5, d: cx + r + 1, draw: () => { rail(cx + .5 - .03, r, cx + .5 + .03, r + 1); post(cx + .5, r + .5); } });
+  return out;
+}
+function drawHedge(c, h, night) {
+  const col = night ? { top: '#3f7f3c', left: '#2f6a30', right: '#245626' } : { top: '#5fb05a', left: '#46963f', right: '#357a32' };
+  isoBox(c, h.x0, h.y0, h.x1, h.y1, 0, 14, col, 1.3);
+  const k = Math.floor(h.x0 * 7 + h.y0 * 13) % 3; if (k < 2) { const q = S((h.x0 + h.x1) / 2 + (k ? .25 : -.25), (h.y0 + h.y1) / 2, 14); c.fillStyle = k ? '#ff7aa8' : '#ffd24a'; c.beginPath(); c.arc(q.x, q.y, 2.2, 0, 6.3); c.fill(); }
 }
 function drawTownBench(c, b) {
   const p = S(b.x, b.y);
@@ -8002,36 +8084,51 @@ function drawBuilding(c, w, b) {
     onFace(c, 'y', b.y1 - .3, t - 3, H + 6, () => { txt(c, 'TACOS ENMASCARADOS', 3 * U + 10, -11, { font: `400 ${fitDisplay(c, 'TACOS ENMASCARADOS', 5.1 * U, 22)}px ${FONT_DISPLAY}`, align: 'center', color: '#fff8ea', stroke: P.ink, sw: 4 }); for (let k = 0; k < 8; k++) { c.fillStyle = RAINBOW[k]; c.fillRect(3 * U - 3.8 * U + k * .95 * U, -31, .95 * U + .5, 3); } });
     drawMask(c, S(t - 2.6, b.y1 - .3, H + 24).x, S(t - 2.6, b.y1 - .3, H + 24).y, 10, MASKS.ring);
   }
-  // flecha dorada que rebota sobre la puerta: ahí se entra
-  const dp = S(f === 'y' ? t : b.x1, f === 'y' ? b.y1 : t, 84 + Math.sin(w.t * 5) * 3); c.fillStyle = P.gold; c.strokeStyle = P.ink; c.lineWidth = 2; c.beginPath(); c.moveTo(dp.x - 7, dp.y - 5); c.lineTo(dp.x + 7, dp.y - 5); c.lineTo(dp.x, dp.y + 5); c.closePath(); c.fill(); c.stroke();
 }
 function drawHouse(c, w, b) {
-  const D = houseOf(w, b.id), HH = b.h, ym = (b.y0 + b.y1) / 2, xm = (b.x0 + b.x1) / 2, night = nightK(w) > .35, t = b.door.t, RH = HH + 34;
-  const wall = D.fachada, body = { top: wall, left: shade(wall, -.08), right: shade(wall, -.16) };
+  const D = houseOf(w, b.id), HH = b.h, W = b.x1 - b.x0, Dp = b.y1 - b.y0, xm = (b.x0 + b.x1) / 2, night = nightK(w) > .35, t = b.door.t, RH = HH + 34, HO = HOUSES[b.id];
+  const wall = D.fachada, body = { top: wall, left: shade(wall, -.08), right: shade(wall, -.16) }, lit = night && D.own, dark = night && !D.own ? '#38425c' : undefined;
   isoBox(c, b.x0, b.y0, b.x1, b.y1, 0, HH, body, 1.8);
   isoBox(c, b.x0 - .02, b.y0 - .02, b.x1 + .02, b.y1 + .02, 0, 7, { top: '#8d8779', left: '#7c7668', right: '#5f5a50' }, 1.2);
-  glassWin(c, 'x', b.x1, b.y0 + .7, b.y0 + 2.2, 22, 52, night); glassWin(c, 'x', b.x1, b.y1 - 2.2, b.y1 - .7, 22, 52, night);
-  glassWin(c, 'y', b.y1, b.x0 + 1, b.x0 + 2.5, 22, 52, night); glassWin(c, 'y', b.y1, xm + .3, xm + 1.8, 22, 52, night);
-  for (const [kind, v, a0, a1] of [['x', b.x1, b.y0 + .7, b.y0 + 2.2], ['x', b.x1, b.y1 - 2.2, b.y1 - .7], ['y', b.y1, b.x0 + 1, b.x0 + 2.5]]) { isoBox(c, kind === 'x' ? v : a0 - .05, kind === 'x' ? a0 - .05 : v, kind === 'x' ? v + .12 : a1 + .05, kind === 'x' ? a1 + .05 : v + .12, 16, 21, { top: '#8b5a2b', left: '#6d4423', right: '#54351a' }, 1); }      // jardineras
+  // ventanas: la cara del frente (x1, donde está la puerta) y la cara izquierda (y1), cada una con su jardinera
+  const planter = (kind, v, a0, a1) => isoBox(c, kind === 'x' ? v : a0 - .05, kind === 'x' ? a0 - .05 : v, kind === 'x' ? v + .12 : a1 + .05, kind === 'x' ? a1 + .05 : v + .12, 16, 21, { top: '#8b5a2b', left: '#6d4423', right: '#54351a' }, 1);
+  const fw = [[b.y0 + .5, b.y0 + 1.6], [b.y1 - 1.6, b.y1 - .5]]; if (Dp >= 9) fw.push([b.y0 + 2.1, b.y0 + 3.2], [b.y1 - 3.2, b.y1 - 2.1]);
+  const nw = Math.max(1, Math.floor((W - 1.2) / 2.4)), sw = []; for (let k = 0; k < nw; k++) { const m = b.x0 + W * (k + .5) / nw; sw.push([m - .6, m + .6]); }
+  sw.forEach(([a0, a1]) => { glassWin(c, 'y', b.y1, a0, a1, 22, 52, lit || (night && !D.own), dark); planter('y', b.y1, a0, a1); });
+  fw.forEach(([a0, a1]) => { glassWin(c, 'x', b.x1, a0, a1, 22, 52, lit || (night && !D.own), dark); planter('x', b.x1, a0, a1); });
   // puerta del frente (cara +x) con escalón
   const dv = b.x1, a0 = t - .65, a1 = t + .65;
   isoBox(c, dv, a0 - .2, dv + .5, a1 + .2, 0, 4, { top: '#cfc7b6', left: '#a69e8c', right: '#8d8779' }, 1);
-  polyFS(c, fq('x', dv, a0 - .1, a1 + .1, 4, 66), '#f4efe2', P.ink, 1.3); polyFS(c, fq('x', dv, a0, a1, 4, 62), '#8a5a2b', P.ink, 1.4); polyFS(c, fq('x', dv, a0 + .15, a1 - .15, 36, 56), night ? '#ffd58a' : '#a9d9ee', P.ink, 1);
+  polyFS(c, fq('x', dv, a0 - .1, a1 + .1, 4, 66), '#f4efe2', P.ink, 1.3); polyFS(c, fq('x', dv, a0, a1, 4, 62), '#8a5a2b', P.ink, 1.4); polyFS(c, fq('x', dv, a0 + .15, a1 - .15, 36, 56), lit ? '#ffd58a' : night ? '#38425c' : '#a9d9ee', P.ink, 1);
   { const kn = S(dv, t + .38, 30); c.fillStyle = '#ffd24a'; c.beginPath(); c.arc(kn.x, kn.y, 2, 0, 6.3); c.fill(); }
-  // techo a dos aguas
-  const ov = .45, xo0 = b.x0 - ov, xo1 = b.x1 + ov, yo0 = b.y0 - ov, yo1 = b.y1 + ov;
+  // techo a dos aguas (el caballete corre de norte a sur; la vertiente que se ve es la del frente)
+  const ov = .45, xo0 = b.x0 - ov, xo1 = b.x1 + ov, yo0 = b.y0 - ov, yo1 = b.y1 + ov, EZ = HH - 4;
+  polyFS(c, [S(xo0, yo0, EZ), S(xo0, yo1, EZ), S(xm, yo1, RH), S(xm, yo0, RH)], shade(D.roof, -.14), P.ink, 1.8);                         // la vertiente de atrás (se ve desde arriba)
   polyFS(c, [S(b.x0, b.y1 + .05, HH), S(b.x1, b.y1 + .05, HH), S(xm, b.y1 + .05, RH)], shade(wall, -.04), P.ink, 1.6);               // el triángulo del frente izquierdo
-  polyFS(c, [S(xo1, yo0, HH - 4), S(xo1, yo1, HH - 4), S(xm, yo1, RH), S(xm, yo0, RH)], D.roof, P.ink, 1.8);                              // la vertiente que se ve
-  polyFS(c, [S(xo1, yo1, HH - 4), S(xm, yo1, RH), S(xm, yo1 + .08, RH + 2), S(xo1, yo1 + .08, HH - 2)], shade(D.roof, -.25), P.ink, 1.2);
-  c.strokeStyle = 'rgba(0,0,0,.22)'; c.lineWidth = 1; c.beginPath(); for (let k = 1; k < 5; k++) { const a = S(lerp(xo1, xm, k / 5), yo0, lerp(HH - 4, RH, k / 5)), q = S(lerp(xo1, xm, k / 5), yo1, lerp(HH - 4, RH, k / 5)); c.moveTo(a.x, a.y); c.lineTo(q.x, q.y); } c.stroke();
-  isoBox(c, b.x0 + 1.1, b.y0 + .8, b.x0 + 1.7, b.y0 + 1.4, HH + 8, HH + 34, { top: '#8f6a4a', left: '#7c5a3c', right: '#5f4630' }, 1.4);          // chimenea
-  // letrero del frente: SE VENDE o MI CASA
-  onFace(c, 'x', dv, b.y1 - .5, 82, () => {
-    const own = D.own; c.fillStyle = own ? '#14633a' : '#c4272f'; rr(c, 6, -2, 76, 22, 5); c.fill(); c.lineWidth = 2; c.strokeStyle = '#fff'; c.stroke();
-    txt(c, own ? 'MI CASA' : 'SE VENDE', 44, 13, { font: `700 14px ${FONT_UI}`, align: 'center', color: '#fff', ls: .8, maxW: 68 });
+  polyFS(c, [S(xo1, yo0, EZ), S(xo1, yo1, EZ), S(xm, yo1, RH), S(xm, yo0, RH)], D.roof, P.ink, 1.8);                                        // la vertiente que se ve
+  polyFS(c, [S(xo1, yo1, EZ), S(xm, yo1, RH), S(xm, yo1 + .08, RH + 2), S(xo1, yo1 + .08, EZ - 2)], shade(D.roof, -.25), P.ink, 1.2);        // el borde del frente
+  polyFS(c, [S(xo0, yo1, EZ), S(xm, yo1, RH), S(xm, yo1 + .08, RH + 2), S(xo0, yo1 + .08, EZ - 2)], shade(D.roof, -.25), P.ink, 1.2);
+  c.strokeStyle = 'rgba(0,0,0,.22)'; c.lineWidth = 1; c.beginPath(); for (let k = 1; k < 5; k++) { const a = S(lerp(xo1, xm, k / 5), yo0, lerp(EZ, RH, k / 5)), q = S(lerp(xo1, xm, k / 5), yo1, lerp(EZ, RH, k / 5)); c.moveTo(a.x, a.y); c.lineTo(q.x, q.y); } c.stroke();
+  { const cx0 = xm + .7, zb = lerp(EZ, RH, (xo1 - (cx0 + .3)) / (xo1 - xm)) - 3;                                                           // chimenea apoyada en la vertiente
+    isoBox(c, cx0, b.y0 + .9, cx0 + .6, b.y0 + 1.5, zb, zb + 30, { top: '#8f6a4a', left: '#7c5a3c', right: '#5f4630' }, 1.4); }
+  // letrero clavado en el pasto, junto al caminito: SE VENDE (con precio y nivel) o MI CASA
+  const sx = b.x1 + 2.7, sy = t + 1.9;
+  isoBox(c, sx - .05, sy - .05, sx + .05, sy + .05, 0, 30, { top: '#9a6a3a', left: '#7c5a3c', right: '#5f4630' }, 1);
+  const bd = fq('x', sx + .06, sy - 1.5, sy + .15, 30, 70); polyFS(c, bd, D.own ? '#14633a' : '#c4272f', P.ink, 1.8);
+  onFace(c, 'x', sx + .06, sy + .15, 70, () => {
+    const mw = 1.65 * U - 8;
+    if (D.own) txt(c, 'MI CASA', 1.65 * U / 2, 25, { font: `700 15px ${FONT_UI}`, align: 'center', color: '#fff', ls: .8, maxW: mw });
+    else {
+      txt(c, 'SE VENDE', 1.65 * U / 2, 13, { font: `700 12px ${FONT_UI}`, align: 'center', color: '#fff', ls: .8, maxW: mw });
+      txt(c, pesos(HO.price), 1.65 * U / 2, 27, { font: `700 14px ${FONT_UI}`, align: 'center', color: '#ffe58a', maxW: mw });
+      txt(c, `NIVEL ${HO.level}`, 1.65 * U / 2, 38, { font: `700 10px ${FONT_UI}`, align: 'center', color: Game.w && Game.w.level >= HO.level ? '#b6f5c8' : '#ffd0d0', ls: .8, maxW: mw });
+    }
   });
-  if (!D.own) { const pp = S(dv + .5, b.y1 - 1.2, 20); c.fillStyle = '#ffe58a'; c.strokeStyle = P.ink; c.lineWidth = 1.6; rr(c, pp.x - 30, pp.y - 11, 60, 18, 5); c.fill(); c.stroke(); txt(c, pesos(HOUSES[b.id].price), pp.x, pp.y + 2.5, { font: `700 13px ${FONT_UI}`, align: 'center', color: P.ink, maxW: 56 }); }
-  const dp = S(dv, t, 78 + Math.sin(w.t * 5) * 3 + 16); c.fillStyle = P.gold; c.strokeStyle = P.ink; c.lineWidth = 2; c.beginPath(); c.moveTo(dp.x - 7, dp.y - 5); c.lineTo(dp.x + 7, dp.y - 5); c.lineTo(dp.x, dp.y + 5); c.closePath(); c.fill(); c.stroke();
+}
+function drawBuildingArrow(c, w, b) {                                  // flecha dorada que rebota sobre la puerta: ahí se entra
+  const f = b.door.f, t = b.door.t, bounce = Math.sin(w.t * 5) * 3;
+  const dp = f === 'y' ? S(t, b.y1, 84 + bounce) : S(b.x1 + .5, t, b.h + 8 + bounce);
+  c.fillStyle = P.gold; c.strokeStyle = P.ink; c.lineWidth = 2; c.beginPath(); c.moveTo(dp.x - 7, dp.y - 5); c.lineTo(dp.x + 7, dp.y - 5); c.lineTo(dp.x, dp.y + 5); c.closePath(); c.fill(); c.stroke();
 }
 function drawTownActor(c, w, o, isPlayer) {
   const p = S(o.x, o.y), look = isPlayer ? playerLook(w) : o.look;
@@ -8041,32 +8138,56 @@ function drawTownActor(c, w, o, isPlayer) {
   drawLuchador(c, p.x, p.y - (isPlayer && w.town.sit ? 8 : 0), opts);
 }
 function townSpots() { return TLAMPS.map(([x, y]) => ({ x, y })); }
+// Orden de dibujo del pueblo: los edificios son cajas (b) y se comparan con lo demás por sus lados (algo que está más al este o más al sur que la caja va por delante, lo que está más al oeste o al norte va por detrás);
+// lo demás se ordena por profundidad (x + y). Así nadie atraviesa una pared ni se ve "a través" de un edificio.
+function townSort(L) {
+  const rel = (a, b) => {                                              // < 0: a se dibuja antes que b
+    const A = a.b || { x0: a.x, y0: a.y, x1: a.x, y1: a.y }, B = b.b || { x0: b.x, y0: b.y, x1: b.x, y1: b.y };
+    if (!a.b && !b.b) return a.d - b.d;
+    const ab = A.x1 <= B.x0 + 1e-6 || A.y1 <= B.y0 + 1e-6, ba = B.x1 <= A.x0 + 1e-6 || B.y1 <= A.y0 + 1e-6;
+    if (ab && !ba) return -1; if (ba && !ab) return 1; return a.d - b.d;
+  };
+  const Bs = L.filter(o => o.b), Ps = L.filter(o => !o.b).sort((p, q) => p.d - q.d), seen = new Set(), out = [];
+  const emit = o => {
+    if (seen.has(o)) return; seen.add(o);
+    Bs.forEach(q => { if (q !== o && rel(q, o) < 0) emit(q); });
+    if (o.b) Ps.forEach(p => { if (rel(p, o) < 0) emit(p); });
+    out.push(o);
+  };
+  Ps.forEach(emit); Bs.forEach(emit);
+  return out;
+}
+const buildingSil = b => { const hh = b.h + (b.kind === 'casa' ? 34 : 44); return [S(b.x0, b.y1, 0), S(b.x1, b.y1, 0), S(b.x1, b.y0, 0), S(b.x1, b.y0, hh), S(b.x0, b.y0, hh), S(b.x0, b.y1, hh)]; };
+function townHoverId(w) { if (w.modal || w.fade || w.hedit || w.phase !== 'play' || Input.mode === 'touch') return null; const b = townHitBuilding(w, UI.mx, UI.my); return b ? b.id : null; }
 function drawTown(c, w) {
-  const T = w.town, v = tnView(w), nk = nightK(w), h = hourOf(w);
+  const T = w.town, v = tnView(w), nk = nightK(w), h = hourOf(w), z = Cam.z, hid = townHoverId(w), night = nk > .35;
   withTownOrigin(() => {
     c.save(); camApply(c); c.translate(480 - v.sx, 330 - v.sy);
-    drawTownGround(c, w); drawFence(c);
-    // lista con profundidad: edificios, árboles, faroles, bancas, personas
-    const L = [];
-    BLD.forEach(b => L.push({ d: b.door.f === 'y' ? (b.x0 + b.x1) / 2 + b.y1 : b.x1 + (b.y0 + b.y1) / 2, draw: () => drawBuilding(c, w, b) }));
-    TREES.forEach(([x, y]) => L.push({ d: x + y, draw: () => drawTree(c, x, y) }));
-    TLAMPS.forEach(([x, y]) => L.push({ d: x + y, draw: () => drawLamp(c, x, y, w.t) }));
-    BENCHES.forEach(b => L.push({ d: b.x + b.y, draw: () => drawTownBench(c, b) }));
-    L.push({ d: FOUNTAIN.x + FOUNTAIN.y, draw: () => drawFountain(c, w) }); L.push({ d: 36.4 + 25.4, draw: () => drawSwing(c, 36.4, 25.4) });
-    FIELDS.forEach(f => { L.push({ d: f.x0 + f.y0 + 2, draw: () => drawGoal(c, (f.x0 + f.x1) / 2, f.y0 + .25, -1) }); L.push({ d: f.x1 + f.y1 + 2, draw: () => drawGoal(c, (f.x0 + f.x1) / 2, f.y1 - .25, 1) }); });
-    T.npcs.forEach(n => L.push({ d: n.x + n.y, draw: () => drawTownActor(c, w, n, false) }));
-    L.push({ d: T.x + T.y + .02, draw: () => drawTownActor(c, w, T, true) });
-    L.sort((a, b) => a.d - b.d).forEach(i => i.draw());
+    drawTownGround(c, w);
+    if (hid) { const b = BLDG[hid]; c.save(); c.lineJoin = 'round'; polyFS(c, [S(b.x0 - .2, b.y0 - .2), S(b.x1 + .2, b.y0 - .2), S(b.x1 + .2, b.y1 + .2), S(b.x0 - .2, b.y1 + .2)], 'rgba(255,214,90,.34)', 'rgba(255,214,90,.98)', 4); c.restore(); }          // brillo en la base: el edificio lo tapa, queda solo el borde
+    const vis = (x, y, ext) => { const p = S(x, y); return Math.abs(p.x - v.sx) * z < CW * .6 + ext * z && Math.abs(p.y - v.sy) * z < CH * .6 + ext * z; };
+    const L = [], add = (x, y, ext, o) => { if (vis(x, y, ext)) { o.x = x; o.y = y; if (o.d === undefined) o.d = x + y; L.push(o); } };
+    BLD.forEach(b => { const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2; add(cx, cy, 520, { b, d: b.x1 + b.y1, draw: () => { drawBuilding(c, w, b); drawBuildingArrow(c, w, b); } }); });
+    TREES.forEach(([x, y]) => add(x, y, 110, { draw: () => drawTree(c, x, y) }));
+    TLAMPS.forEach(([x, y]) => add(x, y, 110, { draw: () => drawLamp(c, x, y, w.t) }));
+    HEDGES.forEach(q => add((q.x0 + q.x1) / 2, (q.y0 + q.y1) / 2, 60, { draw: () => drawHedge(c, q, night) }));
+    BENCHES.forEach(b => add(b.x, b.y, 70, { draw: () => drawTownBench(c, b) }));
+    fenceItems(c).forEach(o => { if (vis(o.x, o.y, 60)) L.push(o); });
+    add(FOUNTAIN.x, FOUNTAIN.y, 130, { draw: () => drawFountain(c, w) }); add(SWING.x, SWING.y, 110, { draw: () => drawSwing(c, SWING.x, SWING.y) });
+    FIELDS.forEach(f => { const gx = (f.x0 + f.x1) / 2; add(gx, f.y0 + .25, 120, { draw: () => drawGoal(c, gx, f.y0 + .25, -1) }); add(gx, f.y1 - .25, 120, { draw: () => drawGoal(c, gx, f.y1 - .25, 1) }); });
+    T.npcs.forEach(n => add(n.x, n.y, 110, { draw: () => drawTownActor(c, w, n, false) }));
+    T.cars.forEach(cr => add(cr.x, cr.y, 170, { d: cr.x + cr.y + .35, draw: () => drawCar(c, cr, w) }));
+    add(T.x, T.y, 110, { d: T.x + T.y + .02, draw: () => drawTownActor(c, w, T, true) });
+    townSort(L).forEach(i => i.draw());
     if (nk > .02) {                                                    // de noche: todo se oscurece
       const k = skyTint(h); c.fillStyle = `rgba(${Math.round(k[1])},${Math.round(k[2])},${Math.round(k[3])},${(k[4] * .9).toFixed(3)})`; c.fillRect(-4000, -2000, 9000, 6000);
     }
-    T.cars.forEach(cr => drawCar(c, cr, w));
-    if (nk > .05) townNightLights(c, w, nk);
-    drawTownHover(c, w);
+    if (nk > .05) townNightLights(c, w, nk, vis);
+    drawTownHover(c, w, hid);
     c.restore();
   });
 }
-function townNightLights(c, w, nk) {
+function townNightLights(c, w, nk, vis) {
   c.save(); c.globalCompositeOperation = 'lighter';
   BLD.forEach(b => {                                                   // ventanas encendidas
     if (b.kind === 'casa' && !houseOf(w, b.id).own) return;
@@ -8074,6 +8195,7 @@ function townNightLights(c, w, nk) {
   });
   const R = 2.6 * TW * .7071;
   townSpots().forEach(sp => {
+    if (vis && !vis(sp.x, sp.y, 160)) return;
     const q = S(sp.x, sp.y), hx = q.x, hy = q.y - 84;
     const cg = c.createLinearGradient(hx, hy, hx, q.y); cg.addColorStop(0, `rgba(255,240,170,${.26 * nk})`); cg.addColorStop(1, `rgba(255,224,130,${.08 * nk})`);
     c.fillStyle = cg; c.beginPath(); c.moveTo(hx - 5, hy); c.lineTo(hx + 5, hy); c.lineTo(q.x + R * .6, q.y); c.ellipse(q.x, q.y, R * .6, R * .3, 0, 0, Math.PI, false); c.closePath(); c.fill();
@@ -8089,19 +8211,13 @@ function townHitBuilding(w, x, y) {                                    // ¿el c
   const q = camWorld(x, y), v = tnView(w), px = q.x - 480 + v.sx, py = q.y - 330 + v.sy;
   return withTownOrigin(() => {
     const list = BLD.slice().sort((a, b) => (b.x1 + b.y1) - (a.x1 + a.y1));
-    for (const b of list) {
-      const hh = b.h + (b.kind === 'casa' ? 34 : 44), poly = [S(b.x0, b.y1, 0), S(b.x1, b.y1, 0), S(b.x1, b.y0, 0), S(b.x1, b.y0, hh), S(b.x0, b.y0, hh), S(b.x0, b.y1, hh)];
-      if (inPoly(poly, px, py)) return b;
-    }
+    for (const b of list) if (inPoly(buildingSil(b), px, py)) return b;
     return null;
   });
 }
-function drawTownHover(c, w) {
-  if (w.modal || w.fade) return;
-  const b = townHitBuilding(w, UI.mx, UI.my); if (!b) return;
-  UI.cursor = true;
-  c.save(); c.lineWidth = 3; c.strokeStyle = 'rgba(255,214,90,.95)'; c.lineJoin = 'round';
-  polyFS(c, [S(b.x0, b.y0), S(b.x1, b.y0), S(b.x1, b.y1), S(b.x0, b.y1)], 'rgba(255,214,90,.14)', 'rgba(255,214,90,.95)', 3);
+function drawTownHover(c, w, hid) {                                    // el nombre del edificio que señalas (el contorno ya se dibujó pegado al edificio)
+  if (!hid) return; const b = BLDG[hid]; UI.cursor = true;
+  c.save();
   const tp = S((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, b.h + (b.kind === 'casa' ? 60 : 70)), nm = b.kind === 'casa' && !houseOf(w, b.id).own ? `${b.name} · ${pesos(HOUSES[b.id].price)}` : b.name;
   c.font = `700 15px ${FONT_UI}`; const tw = c.measureText(nm).width + 22;
   c.fillStyle = 'rgba(17,16,20,.9)'; rr(c, tp.x - tw / 2, tp.y - 16, tw, 24, 12); c.fill(); c.lineWidth = 2; c.strokeStyle = P.gold; c.stroke();
@@ -8282,8 +8398,8 @@ function roomStatic(id) {                                              // lo que
       isoBox(c, 3.0, .26, 3.9, 1.04, 30, 62, { top: 'rgba(255,255,255,.35)', left: 'rgba(255,240,200,.45)', right: 'rgba(255,220,150,.45)' }, 1.4);
       for (let k = 0; k < 14; k++) { const p = S(3.1 + (k % 5) * .17, .34 + Math.floor(k / 5) * .22, 34 + (k * 7 % 18)); c.fillStyle = '#fff6d0'; c.strokeStyle = P.ink; c.lineWidth = .8; c.beginPath(); c.arc(p.x, p.y, 3.4, 0, 6.3); c.fill(); c.stroke(); } } });
     for (let rw = 0; rw < 3; rw++) for (let k = 0; k < 5; k++) add({ k: 'seat', c: 3 + rw * 2, r: 3 + k, x0: 3 + rw * 2, y0: 3 + k, x1: 4 + rw * 2, y1: 4 + k, h: 36, solid: false, act: { type: 'seat' }, stand: [[3 + rw * 2, 3 + k]], draw: (c, w, o) => {
-      bxf(c, o.x0 + .12, o.y0 + .12, o.x1 - .12, o.y1 - .12, 0, 12, '#7a1a22'); bxf(c, o.x0 + .12, o.y0 + .12, o.x0 + .34, o.y1 - .12, 12, 38, '#b8242e');
-      bxf(c, o.x0 + .34, o.y0 + .06, o.x1 - .12, o.y0 + .2, 12, 22, '#8f1c26'); bxf(c, o.x0 + .34, o.y1 - .2, o.x1 - .12, o.y1 - .06, 12, 22, '#8f1c26'); } });
+      bxf(c, o.x0 + .12, o.y0 + .12, o.x1 - .12, o.y1 - .12, 0, 12, '#7a1a22'); bxf(c, o.x0 + .14, o.y0 + .1, o.x1 - .34, o.y0 + .26, 12, 24, '#8f1c26'); bxf(c, o.x0 + .14, o.y1 - .26, o.x1 - .34, o.y1 - .1, 12, 24, '#8f1c26');
+      bxf(c, o.x1 - .34, o.y0 + .1, o.x1 - .12, o.y1 - .1, 12, 38, '#b8242e'); } });
     [3, 7, 11, 12].forEach((s, i) => { const rw = Math.floor(s / 5), k = s % 5; person(3 + rw * 2 + .5, 3 + k + .5, Object.assign(randomLookSeed(i + 5), {}), true).seated = true; });
   } else if (id === 'tienda') {
     counter(5.2, 8.6, 'CAJA', { type: 'catalog' }); person(6.9, .62, CASH_LOOKS.tienda);
@@ -8291,14 +8407,14 @@ function roomStatic(id) {                                              // lo que
       bxf(c, o.x0, o.y0, o.x1, o.y1, 0, 64, '#c8ced8'); for (let z = 14; z < 60; z += 15) polyFS(c, fq('y', o.y1, o.x0 + .06, o.x1 - .06, z, z + 2), '#8d95a4', null);
       [['#e0527f', 20], ['#4a90d9', 35], ['#ffc83d', 50]].forEach(([col, z], j) => { const p = S(o.x0 + .5, o.y1, z); c.fillStyle = col; c.strokeStyle = P.ink; c.lineWidth = 1.2; rr(c, p.x - 9 + j * 3, p.y - 9, 16, 9, 2); c.fill(); c.stroke(); });
       const lp = S(o.x0 + .4, o.y0 + .5, 66); c.fillStyle = '#ffd24a'; c.strokeStyle = P.ink; c.beginPath(); c.moveTo(lp.x - 5, lp.y); c.lineTo(lp.x - 8, lp.y - 9); c.lineTo(lp.x + 8, lp.y - 9); c.lineTo(lp.x + 5, lp.y); c.closePath(); c.fill(); c.stroke(); } }));
-    [['cama2', 2, 4, 0], ['sofa3', 5, 3, 0], ['tapete', 5, 4, 0], ['mesaC', 6, 4, 0], ['comedor', 8, 5, 0], ['planta', 10, 6, 0], ['planta', 1, 7, 0], ['lampara', 4, 2, 0], ['silla', 7, 6, 0]].forEach(([t, c0, r0, rot]) => { const D = HF[t]; add({ k: 'display', t, x0: c0, y0: r0, x1: c0 + D.fw, y1: r0 + D.fh, h: D.h, solid: D.solid !== false, act: { type: 'catalog' }, stand: [], draw: (c, w, o) => drawHF(c, t, o.x0, o.y0, o.x1, o.y1, rot, w) }); });
+    [['ropero', 2, 0, 0], ['cama2', 2, 2, 0], ['buro', 4, 2, 0], ['tapete', 5, 4, 0], ['sofa3', 5, 3, 0], ['mesaC', 5.5, 4.5, 0], ['lampara', 8, 3, 0], ['comedor', 8, 6, 0], ['silla', 8, 5, 0], ['silla', 7, 6, 1], ['planta', 10, 5, 0], ['planta', 1, 7, 0]].forEach(([t, c0, r0, rot]) => { const D = HF[t]; add({ k: 'display', t, x0: c0, y0: r0, x1: c0 + D.fw, y1: r0 + D.fh, h: D.h, solid: D.solid !== false, act: { type: 'catalog' }, stand: [], draw: (c, w, o) => drawHF(c, t, o.x0, o.y0, o.x1, o.y1, rot, w) }); });
   } else if (id === 'bou') {
     counter(2.4, 5.4, 'CAJA', { type: 'boutique' }); person(3.9, .62, CASH_LOOKS.bou);
     [[2.4, 4.4], [5, 7]].forEach(([a, b]) => add({ k: 'rack', x0: .3, y0: a, x1: .9, y1: b, h: 64, solid: true, act: { type: 'boutique' }, stand: [[1, Math.floor((a + b) / 2)]], draw: (c, w, o) => {
       const l1 = S(o.x0 + .3, o.y0 + .1, 0), l2 = S(o.x0 + .3, o.y1 - .1, 0), t1 = S(o.x0 + .3, o.y0 + .1, 60), t2 = S(o.x0 + .3, o.y1 - .1, 60);
       c.strokeStyle = '#c9ced8'; c.lineWidth = 3; c.lineCap = 'round'; c.beginPath(); c.moveTo(l1.x, l1.y); c.lineTo(t1.x, t1.y); c.moveTo(l2.x, l2.y); c.lineTo(t2.x, t2.y); c.moveTo(t1.x, t1.y); c.lineTo(t2.x, t2.y); c.stroke();
       ['#d6342c', '#3b5bdb', '#ffb21e', '#7c3aed', '#14a38b', '#e8509a'].forEach((col, j) => { const q = S(o.x0 + .3, o.y0 + .3 + j * ((o.y1 - o.y0 - .6) / 5), 60); c.fillStyle = col; c.strokeStyle = P.ink; c.lineWidth = 1.3; c.beginPath(); c.moveTo(q.x - 4, q.y); c.lineTo(q.x + 4, q.y); c.lineTo(q.x + 7, q.y + 24); c.lineTo(q.x - 7, q.y + 24); c.closePath(); c.fill(); c.stroke(); }); } }));
-    [[4.2, 3.9, 'ring', '#3b5bdb'], [5.9, 4.7, 'pink', '#ffb21e']].forEach(([x, y, mk, hd]) => add({ k: 'mannequin', x0: x - .3, y0: y - .3, x1: x + .3, y1: y + .3, h: 82, solid: true, act: { type: 'boutique' }, stand: [], draw: (c, w, o) => {
+    [[4.5, 3.3, 'ring', '#3b5bdb'], [4.5, 5.3, 'pink', '#ffb21e']].forEach(([x, y, mk, hd]) => add({ k: 'mannequin', x0: x - .3, y0: y - .3, x1: x + .3, y1: y + .3, h: 82, solid: true, act: { type: 'boutique' }, stand: [], draw: (c, w, o) => {
       const p = S(x, y, 0); c.fillStyle = '#6b6580'; c.strokeStyle = P.ink; c.lineWidth = 1.6; c.beginPath(); c.ellipse(p.x, p.y, 15, 6, 0, 0, 6.3); c.fill(); c.stroke();
       const b = S(x, y, 4); c.strokeStyle = '#8f89a6'; c.lineWidth = 3; c.beginPath(); c.moveTo(b.x, b.y); c.lineTo(b.x, b.y - 24); c.stroke();
       c.fillStyle = hd; rr(c, b.x - 13, b.y - 54, 26, 32, 8); c.fill(); c.lineWidth = 1.8; c.strokeStyle = P.ink; c.stroke(); drawMask(c, b.x, b.y - 66, 11, MASKS[mk]); } }));
@@ -8365,7 +8481,7 @@ function drawRoomShell(c, w, id) {
   } else if (id === 'cine') {
     for (const [a, b] of [[1.1, 2.6], [3.2, 4.7], [8.6, 9.7].map(v => v)]) { /* pósters de la pared derecha (no tapan la puerta) */ }
     [[.5, 1.7], [1.9, 3.1]].forEach(([a, b], i) => { polyFS(c, fq('y', 0, a, b, 36, 90), '#17121f', P.ink, 1.4); polyFS(c, fq('y', 0, a + .08, b - .08, 42, 84), ['#c4272f', '#2b6cd9'][i], null); polyFS(c, fq('y', 0, a + .2, b - .2, 52, 74), ['#ffd24a', '#7cf0ff'][i], null); });
-    polyFS(c, fq('y', 0, 7.2, 8.0, 36, 90), '#17121f', P.ink, 1.4); polyFS(c, fq('y', 0, 7.28, 7.92, 42, 84), '#7c3aed', null);
+    polyFS(c, fq('y', 0, 6.4, 7.2, 36, 90), '#17121f', P.ink, 1.4); polyFS(c, fq('y', 0, 6.48, 7.12, 42, 84), '#7c3aed', null);
     const sc = fq('x', 0, 1.2, 6.8, 26, 96), k = Math.floor(w.t * .8) % 4;                       // la pantalla grande en la pared izquierda
     polyFS(c, sc, '#e9eef7', P.ink, 2); const pr = w.inn && w.inn.anim && w.inn.anim.type === 'movie';
     const cols2 = pr ? [['#7cf0ff', '#2b6cd9'], ['#ffd24a', '#e0527f'], ['#9af0b8', '#14a38b'], ['#ffb21e', '#c4272f']][k] : ['#f4f7fb', '#dfe6f3'];
@@ -8379,7 +8495,7 @@ function drawRoomShell(c, w, id) {
     polyFS(c, fq('y', 0, 9.3, 10.4, 40, 80), '#a9d9ee', P.ink, 1);
   } else if (id === 'bou') {
     polyFS(c, fq('x', 0, .6, 6.4, 40, 92), '#ffe0ee', P.ink, 1.6);                                  // pared de máscaras
-    ['ring', 'blue', 'black', 'pink', 'novato', 'gray'].forEach((mk, i) => { const col = i % 3, row = Math.floor(i / 3), p = S(0, 1.4 + col * 1.9, 50 + row * 24); drawMask(c, p.x, p.y, 8.5, MASKS[mk]); });
+    ['ring', 'blue', 'black', 'pink', 'novato', 'gray'].forEach((mk, i) => { const col = i % 3, row = Math.floor(i / 3), p = S(0, 1.5 + col * 1.9, 50 + row * 24); drawMask(c, p.x, p.y, 8.5, MASKS[mk]); });
     onFace(c, 'y', 0, .6, 96, () => { txt(c, 'BOUTIQUE ENMASCARADA', 2.6 * U, 6, { font: `400 ${fitDisplay(c, 'BOUTIQUE ENMASCARADA', 4.8 * U, 20)}px ${FONT_DISPLAY}`, align: 'center', color: '#c4274a', stroke: '#fff', sw: 4 }); });
     polyFS(c, fq('y', 0, 5.2, 6.3, 34, 84), '#cfe9f5', P.ink, 1.6);                                                                         // espejo
   }
@@ -8391,11 +8507,11 @@ function drawRoomScene(c, w) {
     c.save(); camApply(c);
     drawGround(c);                                                     // el jardín y la calle detrás del diorama
     drawRoomShell(c, w, id);
-    const L = [], items = roomItems(w, id), edit = w.hedit;
-    items.forEach(o => L.push({ d: (o.x0 + o.x1) / 2 + (o.y0 + o.y1) / 2 + (o.k === 'seat' ? -.3 : 0), draw: () => { if (o.draw) o.draw(c, w, o); } }));
-    roomStatic(id).filter(o => o.k === 'person').forEach(o => L.push({ d: o.x + o.y + .1, draw: () => drawRoomPerson(c, w, o) }));
-    const p = S(I.x, I.y); L.push({ d: I.x + I.y + .05, draw: () => drawRoomActor(c, w, I) });
-    L.sort((a, b) => a.d - b.d).forEach(i => i.draw());
+    const L = [], flat = [], items = roomItems(w, id), edit = w.hedit;
+    items.forEach(o => { const it = { x: (o.x0 + o.x1) / 2, y: (o.y0 + o.y1) / 2, d: (o.x0 + o.x1) / 2 + (o.y0 + o.y1) / 2 + (o.k === 'seat' ? -.3 : 0), draw: () => { if (o.draw) o.draw(c, w, o); } }; if (o.solid === false && (o.h || 0) <= 2) flat.push(it); else { it.b = { x0: o.x0, y0: o.y0, x1: o.x1, y1: o.y1 }; L.push(it); } });
+    roomStatic(id).filter(o => o.k === 'person').forEach(o => L.push({ x: o.x, y: o.y, d: o.x + o.y + .6, draw: () => drawRoomPerson(c, w, o) }));
+    L.push({ x: I.x, y: I.y, d: I.x + I.y + .05, draw: () => drawRoomActor(c, w, I) });
+    flat.forEach(i => i.draw()); townSort(L).forEach(i => i.draw());
     if (edit) drawHomeEditFloor(c, w);
     if (nightK(w) > .4 && !HOUSES[id]) { /* los interiores siempre están iluminados */ }
     c.restore();
@@ -8427,7 +8543,7 @@ function updateRoom(w, dt) {
   if (a) {
     a.t += dt;
     if (a.type === 'movie' && a.t >= a.dur) endMovie(w);
-    else if (a.type === 'sleep') { n.stamina = Math.min(mx, lerp(a.s0, mx, clamp(a.t / a.dur, 0, 1))); if (a.t >= a.dur) { I.anim = null; I.x = a.back.x; I.y = a.back.y; w.dayTime = Math.max(6, w.dayTime - 12); sfx('ready'); toast(w, '¡Qué buena siesta! Energía completa (pasó un rato)'); } }
+    else if (a.type === 'sleep') { n.stamina = Math.min(mx, lerp(a.s0, mx, clamp(a.t / a.dur, 0, 1))); if (a.t >= a.dur && a.night) { I.anim = null; I.x = a.back.x; I.y = a.back.y; n.stamina = mx; finishDay(w); } else if (a.t >= a.dur) { I.anim = null; I.x = a.back.x; I.y = a.back.y; w.dayTime = Math.max(6, w.dayTime - 12); sfx('ready'); toast(w, '¡Qué buena siesta! Energía completa (pasó un rato)'); } }
     else if (a.type === 'rest' || a.type === 'tv') { n.stamina = Math.min(mx, n.stamina + STAM.regen * 1.4 * dt); if (a.t >= (a.dur || 8) && a.type === 'tv' || (n.stamina >= mx && a.t > 2.5)) { I.anim = null; I.seat = null; if (a.back) { I.x = a.back.x; I.y = a.back.y; } sfx('ready'); toast(w, 'Descansaste: ¡energía recuperada!'); } }
     return;
   }
@@ -8489,6 +8605,11 @@ function roomAct(w, o) {
   else if (a.type === 'boutique') { w.shop = true; w.shopView = 'look'; w.lookCat = w.lookCat || 'mask'; w.lookPage = 0; sfx('click'); }
   else if (a.type === 'use') {
     const n = w.novato, mx = maxStamina(w), b = { x: Math.floor(I.x) + .5, y: Math.floor(I.y) + .5 };
+    if (a.use === 'sleep' && w.dayTime <= 0) {
+      const cx = (o.x0 + o.x1) / 2, cy = (o.y0 + o.y1) / 2;
+      w.dlg = { title: 'A DORMIR', lines: ['Ya es de noche y todo cerró.', '¿Duermes hasta mañana?', 'El día termina y se hace el resumen'], ok: 'DORMIR', no: 'TODAVÍA NO', fn: () => { w.modal = null; I.anim = { type: 'sleep', t: 0, dur: 3.6, s0: n.stamina, back: b, cancel: false, night: true }; I.x = cx; I.y = cy; I.path = []; sfx('pour'); } };
+      w.modal = 'dlg'; sfx('click'); return;
+    }
     if (a.use === 'sleep') { if (n.stamina >= mx - 1) { toast(w, 'No tienes sueño: tu energía está completa'); sfx('nope'); return; } const cx = (o.x0 + o.x1) / 2, cy = (o.y0 + o.y1) / 2; I.anim = { type: 'sleep', t: 0, dur: 3.6, s0: n.stamina, back: b, cancel: true }; I.x = cx; I.y = cy; I.path = []; sfx('pour'); }
     else if (a.use === 'sit') { if (n.stamina >= mx - 1) { toast(w, 'Te sientas un rato… tu energía ya está completa'); } I.seat = { dir: o.f && o.f.rot ? 1 : -1 }; I.anim = { type: 'rest', t: 0, back: b, cancel: true }; I.x = (o.x0 + o.x1) / 2; I.y = (o.y0 + o.y1) / 2; I.path = []; sfx('pickup'); }
     else if (a.use === 'tv') { const sofa = roomItems(w, w.inId).find(z => z.act && z.act.use === 'sit'); if (sofa) { I.seat = { dir: -1 }; I.anim = { type: 'tv', t: 0, dur: 9, back: b, cancel: true }; I.x = (sofa.x0 + sofa.x1) / 2; I.y = (sofa.y0 + sofa.y1) / 2; I.path = []; } else { I.anim = { type: 'tv', t: 0, dur: 6, back: b, cancel: true }; toast(w, 'Con un sillón verías la tele sentado'); } sfx('click'); }
@@ -8776,7 +8897,9 @@ function drawPenal(c, w) {
 const TOWN_LEVEL = 4;
 const townBtn = () => ({ x: 12 - EX + SL, y: 104, w: 80, h: 30 });
 const townAvail = w => w.loc === 'rest' && w.phase === 'play' && !w.tut && w.level >= TOWN_LEVEL && !w.modal && !w.shop && !w.edit && !w.fade;
-const backBtn = () => ({ x: 12 - EX + SL, y: 68, w: 118, h: 30 });
+const backLate = w => !!w && w.loc === 'town' && w.dayTime <= 0 && w.phase === 'play';                // ya cerró el día y sigues en la calle
+const ownsHouse = w => !!w && !!w.town && Object.keys(HOUSES).some(id => houseOf(w, id).own);
+const backBtn = () => { let w = null; try { w = Game.w; } catch (e) {} return backLate(w) ? { x: 12 - EX + SL, y: 68, w: 206, h: 46 } : { x: 12 - EX + SL, y: 68, w: 118, h: 30 }; };
 const backAvail = w => w.loc !== 'rest' && w.phase === 'play' && !w.modal && !w.shop && !w.fade && !w.hedit;
 function drawPillBtn(c, b, label, fill, icon, tip) {
   const hov = UI.hit(b); if (hov) UI.cursor = true;
@@ -8786,7 +8909,16 @@ function drawPillBtn(c, b, label, fill, icon, tip) {
   if (hov && tip) drawTip(c, b.x + b.w + 10, b.y, tip);
 }
 function drawTownBtn(c, w) { const c2 = c; drawPillBtn(c, townBtn(), 'PUEBLO', '#1e4f8a', (x, y) => { c2.fillStyle = '#ffd24a'; c2.strokeStyle = P.ink; c2.lineWidth = 1.3; c2.fillRect(x - 1.5, y - 8, 3, 16); c2.strokeRect(x - 1.5, y - 8, 3, 16); c2.beginPath(); c2.moveTo(x - 7, y - 7); c2.lineTo(x + 6, y - 7); c2.lineTo(x + 9, y - 3.5); c2.lineTo(x + 6, y); c2.lineTo(x - 7, y); c2.closePath(); c2.fill(); c2.stroke(); }, ['El pueblo', 'Cine, boutique, tienda de muebles, casas,', 'parque y canchas de fútbol']); }
-function drawBackBtn(c, w) { drawPillBtn(c, backBtn(), w.loc === 'town' ? 'A LA TAQUERÍA' : 'SALIR', '#7a1c28', (x, y) => { c.fillStyle = P.white; c.strokeStyle = P.ink; c.lineWidth = 1.3; c.beginPath(); c.moveTo(x + 6, y - 6); c.lineTo(x - 6, y); c.lineTo(x + 6, y + 6); c.closePath(); c.fill(); c.stroke(); }, null); }
+function drawBackBtn(c, w) {
+  if (backLate(w)) {                                                  // de noche y en la calle: regresar a dormir
+    const b = backBtn(), hov = UI.hit(b), home = ownsHouse(w); if (hov) UI.cursor = true;
+    c.save(); rr(c, b.x, b.y, b.w, b.h, 12); c.fillStyle = '#7a1c28'; c.fill(); c.lineWidth = 2.6; c.strokeStyle = hov ? P.gold : P.white; c.stroke();
+    const ix = b.x + 17, iy = b.y + b.h / 2; c.fillStyle = P.white; c.strokeStyle = P.ink; c.lineWidth = 1.3; c.beginPath(); c.moveTo(ix + 6, iy - 6); c.lineTo(ix - 6, iy); c.lineTo(ix + 6, iy + 6); c.closePath(); c.fill(); c.stroke();
+    txt(c, home ? 'A LA TAQUERÍA' : 'REGRESAR A LA TAQUERÍA', b.x + 32 + (b.w - 40) / 2, b.y + 19.5, { font: `700 13px ${FONT_UI}`, align: 'center', color: P.white, ls: .3, maxW: b.w - 44 });
+    txt(c, home ? 'o duerme en tu casa' : 'PARA DORMIR', b.x + 32 + (b.w - 40) / 2, b.y + 36, { font: `700 12px ${FONT_UI}`, align: 'center', color: '#ffd24a', ls: .5, maxW: b.w - 44 });
+    c.restore(); return;
+  }
+  drawPillBtn(c, backBtn(), w.loc === 'town' ? 'A LA TAQUERÍA' : 'SALIR', '#7a1c28', (x, y) => { c.fillStyle = P.white; c.strokeStyle = P.ink; c.lineWidth = 1.3; c.beginPath(); c.moveTo(x + 6, y - 6); c.lineTo(x - 6, y); c.lineTo(x + 6, y + 6); c.closePath(); c.fill(); c.stroke(); }, null); }
 function backClick(w) {
   if (w.loc === 'town') { const sp = doorSpot(BLDG.taq), T = w.town; if (Math.hypot(T.x - sp.x, T.y - sp.y) < .8) enterBuilding(w, 'taq'); else townGoTo(w, sp.x, sp.y, { type: 'enter', id: 'taq' }); }
   else exitBuilding(w);
@@ -8804,6 +8936,7 @@ function awayPointer(w, x, y) {
   if (w.loc === 'town') townPointer(w, x, y); else if (w.loc === 'in') roomPointer(w, x, y);
 }
 function updateAway(w, dt) {
+  if (w.loc === 'in' && w.dayTime <= 0 && !HOUSES[w.inId] && !w.fade && !w.modal && !w.shop && !(w.inn && w.inn.anim)) { toast(w, 'Ya cerramos: ¡hasta mañana!'); exitBuilding(w); }          // los negocios cierran a las 11 PM
   if (w.loc === 'town') { updateTownLife(w, dt); updateTown(w, dt); } else if (w.loc === 'in') updateRoom(w, dt);
 }
 function drawAway(c, w) { if (w.loc === 'town') drawTown(c, w); else drawRoomScene(c, w); }
@@ -9302,7 +9435,7 @@ const Input = {
     // cámara: stick derecho = mover, LB / RB / gatillos = zoom, R3 = 1:1
     if (playing) {
       const rm = Math.hypot(rx, ry);
-      if (rm > 0) { Cam.px -= rx * 420 * dt; Cam.py -= ry * 420 * dt; camClamp(); moved = true; }
+      if (rm > 0) { if (inTown()) { const T = Game.w.town; T.free = true; T.cx += rx * 420 * dt / Cam.z; T.cy += ry * 420 * dt / Cam.z; townClampView(T); } else { Cam.px -= rx * 420 * dt; Cam.py -= ry * 420 * dt; camClamp(); } moved = true; }
       const z = ((cur[5] || cur[7]) ? 1 : 0) - ((cur[4] || cur[6]) ? 1 : 0);
       if (z) { camZoomAt(Math.exp(z * 1.15 * dt), CAMC.x, CAMC.y); moved = true; }
       if (down(11)) camReset();
@@ -9355,11 +9488,13 @@ function pinchStart() {
   const a = [...Ptr.values()];
   Pinch.active = true; Pinch.d0 = Math.max(20, Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y)); Pinch.z0 = Cam.z;
   Pinch.wp = camWorld((a[0].x + a[1].x) / 2, (a[0].y + a[1].y) / 2);
+  if (inTown()) { const v = tnView(Game.w); Pinch.tp = { x: Pinch.wp.x - 480 + v.sx, y: Pinch.wp.y - 330 + v.sy }; }
   Game.pend = null;
 }
 function pinchMove() {
   const a = [...Ptr.values()]; if (a.length < 2) return;
   const d = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y), mx = (a[0].x + a[1].x) / 2, my = (a[0].y + a[1].y) / 2;
+  if (inTown() && Pinch.tp) { const T = Game.w.town; Cam.z = clamp(Pinch.z0 * d / Pinch.d0, Cam.MIN, Cam.MAX); Cam.px = 0; Cam.py = 0; T.free = true; T.cx = Pinch.tp.x - (mx - 480) / Cam.z; T.cy = Pinch.tp.y - (my - 330) / Cam.z; townClampView(T); return; }
   Cam.z = clamp(Pinch.z0 * d / Pinch.d0, Cam.MIN, Cam.MAX);
   Cam.px = mx - CAMC.x - (Pinch.wp.x - CAMC.x) * Cam.z; Cam.py = my - CAMC.y - (Pinch.wp.y - CAMC.y) * Cam.z; camClamp();
 }
