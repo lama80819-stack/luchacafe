@@ -41,6 +41,7 @@ const STAFF = {
 const STAFF_IDS = Object.keys(STAFF);
 const HIRE_IDS = STAFF_IDS.filter(id => STAFF[id].tab);          // los que se compran en la tienda (los meseros robados a los rivales no)
 /* =========================================================
+   VERSIÓN 1.8.2: sonidos por lugar (el pueblo y los negocios no oyen la taquería), colores sólidos en fachadas y ventanas con marco, muebles alineados, ir a dormir al cerrar (un minuto, o te desmayas)
    VERSIÓN 1.8.1: el pueblo sólido (edificios y casas separados, nadie atraviesa paredes), mapa que se mueve y se acerca, madrugada hasta la 1 AM, interiores ordenados
    VERSIÓN 1.8: el pueblo (calles, cine, boutique, tienda de muebles, casas, parque y canchas)
    VERSIÓN 1.7: llegada de clientes por mesas y fiestas, más paciencia, sueldos de $10, abrir y cerrar el local, comales de 2/4 lugares, parrilla de 8, vitrina de máscaras y 2 ampliaciones del local
@@ -988,7 +989,8 @@ const Sfx = {
     src.connect(f); f.connect(g); g.connect(this.master);
     src.start(t, Math.random() * 0.5, d + 0.05);
   },
-  play(n) { const s = this.sounds[n]; if (s) s.call(this); },
+  quiet: false,                                                     // la taquería sigue trabajando, pero sin sonar mientras estás fuera
+  play(n) { if (this.quiet) return; const s = this.sounds[n]; if (s) s.call(this); },
   sounds: {
     click()  { this.tone(620, .07, { vol: .14 }); },
     back()   { this.tone(420, .08, { vol: .14 }); },
@@ -1047,6 +1049,28 @@ const Sfx = {
   }
 };
 const sfx = n => Sfx.play(n);
+// Ambiente de cada lugar (solo suena fuera de la taquería): tráfico lejano, pájaros de día, grillos de noche; murmullo en el cine; campanita en la boutique
+const Amb = {
+  g: null, lp: null, tNext: 1, tCar: 5,
+  setup() { const c = Sfx.ctx; if (this.g || !c || !Sfx.noiseBuf) return; this.g = c.createGain(); this.g.gain.value = 0; this.lp = c.createBiquadFilter(); this.lp.type = 'lowpass'; this.lp.frequency.value = 380; const src = c.createBufferSource(); src.buffer = Sfx.noiseBuf; src.loop = true; src.connect(this.lp); this.lp.connect(this.g); this.g.connect(Sfx.master); src.start(); },
+  update(w, dt) {
+    const on = Settings.sound && w.phase === 'play' && w.loc !== 'rest', town = on && w.loc === 'town', inside = on && w.loc === 'in';
+    const mov = inside && w.inId === 'cine' && w.inn && w.inn.anim && w.inn.anim.type === 'movie';
+    Music.zkT = w.phase !== 'play' || w.loc === 'rest' ? 1 : town ? .4 : (mov ? .03 : .3);
+    const c = Sfx.ctx; if (!c || c.state !== 'running') return; this.setup(); if (!this.g) return;
+    const vol = town ? .03 + .008 * Math.min(6, w.town.cars.length) : inside ? (w.inId === 'cine' ? (mov ? .05 : .014) : .006) : 0;
+    this.g.gain.setTargetAtTime(vol, c.currentTime, .4); this.lp.frequency.setTargetAtTime(town ? 420 : 240, c.currentTime, .4);
+    if (!on) return;
+    this.tNext -= dt; if (town) this.tCar -= dt;
+    if (town && this.tCar <= 0) { this.tCar = rand(4, 9); if (w.town.cars.length) Sfx.noise(.9, { freq: 520, vol: .035, type: 'bandpass', q: .6 }); }
+    if (this.tNext > 0) return;
+    if (town) {
+      if (nightK(w) < .4) { this.tNext = rand(1.5, 5); const f = rand(2300, 3300); Sfx.tone(f, .08, { type: 'sine', vol: .035, to: f * 1.25 }); Sfx.tone(f * 1.1, .07, { type: 'sine', vol: .03, to: f * 1.4, delay: .12 }); }
+      else { this.tNext = rand(.8, 2.4); for (let k = 0; k < 3; k++) Sfx.tone(4300, .025, { type: 'sine', vol: .014, delay: k * .06 }); }
+    } else if (inside && w.inId === 'bou') { this.tNext = rand(9, 15); Sfx.tone(1568, .5, { type: 'sine', vol: .025 }); Sfx.tone(2093, .6, { type: 'sine', vol: .018, delay: .12 }); }
+    else this.tNext = 3;
+  }
+};
 
 /* =========================================================
    MÚSICA (composiciones originales, sintetizadas con WebAudio: no hay archivos ni derechos de terceros)
@@ -1061,7 +1085,8 @@ const Music = {
     this.mus = c.createGain(); this.mus.connect(Sfx.master);
     this.curve = new Float32Array(256); for (let i = 0; i < 256; i++) { const x = i / 255 * 2 - 1; this.curve[i] = Math.tanh(x * 3.4); }
   },
-  level() { return Settings.sound && Settings.music ? .5 : 0; },
+  zk: 1, zkT: 1,                                                   // volumen de la música según el lugar (en el pueblo y dentro de los edificios baja)
+  level() { return Settings.sound && Settings.music ? .5 * this.zk : 0; },
   fadeOut(g) {
     const c = Sfx.ctx; if (!g) return;
     try { g.gain.cancelScheduledValues(c.currentTime); g.gain.setValueAtTime(g.gain.value, c.currentTime); g.gain.linearRampToValueAtTime(0, c.currentTime + .6); } catch (e) {}
@@ -1081,6 +1106,7 @@ const Music = {
   update() {
     const c = Sfx.ctx; if (!c || c.state !== 'running') return;
     this.setup();
+    this.zk += (this.zkT - this.zk) * .06;
     const lv = this.level(), target = lv > 0 ? this.want : null;
     if (this.mus) this.mus.gain.value = lv;
     if (target !== this.cur) {
@@ -2043,9 +2069,9 @@ function step(e, dt) {                    // avanza por e.path; true cuando no q
    ========================================================= */
 const smooth = t => t * t * (3 - 2 * t);
 const hash = i => { const s = Math.sin(i * 127.1) * 43758.5453; return s - Math.floor(s); };
-function shade(hex, f) {                                   // f<0 oscurece, f>0 aclara (hex de 6 dígitos)
-  const n = parseInt(hex.slice(1), 16);
-  const ch = [n >> 16, (n >> 8) & 255, n & 255].map(v => Math.round(v + ((f < 0 ? 0 : 255) - v) * Math.abs(f)));
+function shade(hex, f) {                                   // f<0 oscurece, f>0 aclara (hex de 6 dígitos o rgb(r,g,b))
+  let rgb; if (hex.charCodeAt(0) === 114) rgb = hex.match(/[\d.]+/g).slice(0, 3).map(Number); else { const n = parseInt(hex.slice(1), 16); rgb = [n >> 16, (n >> 8) & 255, n & 255]; }
+  const ch = rgb.map(v => Math.round(v + ((f < 0 ? 0 : 255) - v) * Math.abs(f)));
   return `rgb(${ch[0]},${ch[1]},${ch[2]})`;
 }
 const luma = hex => { const n = parseInt(hex.slice(1), 16); return 0.3 * (n >> 16) + 0.59 * ((n >> 8) & 255) + 0.11 * (n & 255); };
@@ -2572,6 +2598,7 @@ const Game = {
   },
   update(dt) {
     const w = this.w;
+    Amb.update(w, dt);
     if (this.slot && (this.autoT += dt) >= 15) { this.autoT = 0; this.save(); }
     if (w.tut) tutorialUpdate(w);
     if ((w.modal === 'fight' && !w.fight) || (w.modal === 'map' && !w.map)) w.modal = null;                     // red de seguridad: ventana sin datos
@@ -2587,8 +2614,9 @@ const Game = {
       w.toasts.forEach(t => t.t -= dt); w.toasts = w.toasts.filter(t => t.t > 0);
       return;
     }
-    updateWorld(w, dt);
+    Sfx.quiet = w.loc !== 'rest'; try { updateWorld(w, dt); } finally { Sfx.quiet = false; }
     updateFade(w, dt); if (w.loc !== 'rest') updateAway(w, dt);
+    updateSleepClock(w, dt);
   },
   draw(c) { drawWorld(c, this.w); },
   // Un toque sobre el escenario se resuelve al soltar (si no fue un arrastre): arrastrar mueve la cámara, pellizcar hace zoom
@@ -2719,8 +2747,8 @@ function fixLayout(w) {
   w.furn = keep; w.invCap = Math.max(w.invCap, w.inv.length);
 }
 // Reloj del día: abre a las 8:00 AM y cierra a las 11:00 PM
-const LATE_H = 2, lateSec = w => LATE_H * w.dayLen / (END_H - START_H);          // pasadas las 11 PM, quien sigue en el pueblo tiene hasta la 1 AM
-const hourOf = w => w.dayTime > 0 ? START_H + (END_H - START_H) * (1 - clamp(w.dayTime / w.dayLen, 0, 1)) : END_H + clamp((w.late || 0) / (w.dayLen / (END_H - START_H)), 0, LATE_H);
+const LATE_H = 2, lateSec = w => 60;                                          // pasadas las 11 PM tienes un minuto para llegar a dormir (el reloj va de las 11 PM a la 1 AM); si no, te desmayas
+const hourOf = w => w.dayTime > 0 ? START_H + (END_H - START_H) * (1 - clamp(w.dayTime / w.dayLen, 0, 1)) : END_H + clamp((w.late || 0) / lateSec(w) * LATE_H, 0, LATE_H);
 function fmtHour(h) {
   h = ((h % 24) + 24) % 24; const hh = Math.floor(h), mm = Math.floor((h - hh) * 60 / 5) * 5, ap = hh >= 12 ? 'PM' : 'AM', h12 = ((hh + 11) % 12) + 1;
   return `${h12}:${String(mm).padStart(2, '0')} ${ap}`;
@@ -2923,7 +2951,7 @@ function startDay(w, rs) {
   w.phase = 'play';
   w.dayLen = DAY_SEC;
   w.event = eventFor(w.day); CUR_EVENT = w.event; if (w.event) BUNTINGS.ev.cols = w.event.cols;
-  w.dayTime = w.dayLen; w.closedWarned = false; w.late = 0; w.lateWarned = false; w.edit = null; w.repTemp = 0;
+  w.dayTime = w.dayLen; w.closedWarned = false; w.late = 0; w.lateWarned = false; w.faint = null; w.fainted = false; w.edit = null; w.repTemp = 0;
   w.vips = []; if (!rs) { planVips(w, START_H); planGemmer(w); }
   w.furn.forEach(it => { if (it.type === 'table') { it.down = 0; it.downT = 0; } });
   w.dayServed = 0; w.dayEarned = 0; w.dayCost = 0; w.dayAngry = 0; w.perfect = false; w.loanT = 0;
@@ -5303,6 +5331,7 @@ function clickDeferrable(w, x, y) {
   return true;
 }
 function worldPointer(w, x, y) {
+  if (w.faint) return;
   // superposiciones (resumen / fin de partida)
   if (w.phase !== 'play') {
     const b = w.overlay.find(b => UI.hit(b));
@@ -5476,12 +5505,8 @@ function updateWorld(w, dt) {
     w.coins.forEach(c => c.t += dt);
 
     // fin del día / fin de partida
-    if (w.dayTime <= 0 && w.loc !== 'rest' && w.phase === 'play') {                                                                     // ya cerró el día y sigues fuera: corre la madrugada (hasta la 1 AM)
-      w.late = Math.min(lateSec(w), (w.late || 0) + dt);
-      if (!w.lateWarned) { w.lateWarned = true; const hs = Object.keys(HOUSES).some(id => houseOf(w, id).own); toast(w, hs ? 'Ya es de noche: todo cerró. Duerme en tu cama o regresa a la taquería' : 'Ya es de noche: todo cerró. Regresa a la taquería para dormir'); sfx('door'); }
-    }
     if (w.overT > 0) { w.overT += dt; if (w.overT > 1.4) endGame(w); }
-    else if (w.dayTime <= 0 && w.customers.length === 0 && !w.cars.length && (w.loc === 'rest' || (w.late || 0) >= lateSec(w))) { w.endT += dt; if (w.endT > 1) finishDay(w); }
+    else if (w.dayTime <= 0 && w.customers.length === 0 && !w.cars.length && w.loc === 'rest' && !ownsHouse(w)) { w.endT += dt; if (w.endT > 1) finishDay(w); }       // sin casa: al llegar a la taquería ya cerrada, termina el día (con casa hay que ir a dormir)
   }
 
   for (const p of w.parts) {
@@ -5511,6 +5536,7 @@ function spoilStock(w) {                                              // al cerr
   return out;
 }
 function finishDay(w) {
+  w.faint = null;
   w.coins.forEach(c => collectCoin(w, c, true)); w.coins = [];
   w.open = true;
   if (w.dayAngry === 0 && w.rep < 5) { w.rep = Math.min(5, w.rep + 1); w.perfect = true; }
@@ -7727,8 +7753,8 @@ const sidewalkCells = (() => {                                          // las l
   return out;
 })();
 
-const TDEF = { wall: '#f1e6d0', floor: 'madera', fachada: '#e9d8bd', roof: '#b5482f', cuadros: true };
-const houseOf = (w, id) => w.town.houses[id] || (w.town.houses[id] = { own: false, wall: TDEF.wall, floor: TDEF.floor, fachada: id === 'casa2' ? '#c9e6b3' : id === 'casa3' ? '#a9d3e8' : TDEF.fachada, roof: id === 'casa2' ? '#3b5bdb' : id === 'casa3' ? '#2b2b33' : TDEF.roof, cuadros: true, furn: [] });
+const TDEF = { wall: '#f1e6d0', floor: 'madera', fachada: '#f0c27a', roof: '#b5482f', cuadros: true };
+const houseOf = (w, id) => w.town.houses[id] || (w.town.houses[id] = { own: false, wall: TDEF.wall, floor: TDEF.floor, fachada: id === 'casa2' ? '#8fc79a' : id === 'casa3' ? '#8db7e0' : TDEF.fachada, roof: id === 'casa2' ? '#3b5bdb' : id === 'casa3' ? '#2b2b33' : TDEF.roof, cuadros: true, furn: [] });
 
 // ---- búsqueda de camino en una cuadrícula cualquiera (el pueblo o el interior de un edificio)
 function bfsPath(nx, ny, blocked, sx, sy, goals, ox = 0, oy = 0) {   // blocked(c, r) · goals = lista de [c, r] · devuelve las losetas desde la siguiente a la de inicio hasta la meta (o null)
@@ -7912,9 +7938,9 @@ function updateTown(w, dt) {                                           // el per
 }
 function townHint(w) {
   const T = w.town;
-  if (w.loc === 'in') return w.inn && w.inn.hint ? w.inn.hint : 'Toca la puerta para salir';
+  if (w.loc === 'in') { if (sleepActive(w)) return HOUSES[w.inId] && ownsHouse(w) ? (hasBed(w, w.inId) ? 'Ya es de noche: toca tu cama para dormir' : 'Esta casa no tiene cama: compra una en la tienda de muebles o ve a la taquería') : 'Ya es de noche: regresa a la taquería para dormir'; return w.inn && w.inn.hint ? w.inn.hint : 'Toca la puerta para salir'; }
   if (T.sit) return 'Descansando en la banca… toca el piso para levantarte';
-  if (backLate(w)) return ownsHouse(w) ? 'Es de madrugada: duerme en la cama de tu casa o regresa a la taquería' : 'Es de madrugada: regresa a la taquería para dormir';
+  if (backLate(w)) return ownsHouse(w) ? 'Ya es de noche: ve a casa y toca tu cama para dormir' : 'Ya es de noche: regresa a la taquería para dormir';
   return 'Toca un edificio para entrar · el cartel SE VENDE es una casa que puedes comprar · la taquería está a la izquierda';
 }
 
@@ -8012,10 +8038,11 @@ function drawGoal(c, cx, y, face, z) {                                // porter�
 }
 
 // ---- edificios (por fuera están cerrados: no se ve nada de su interior)
-const WIN_G = '#8ccbe8';
+const WIN_G = '#5aa4cc';
 function glassWin(c, kind, v, a0, a1, z0, z1, night, warm) {
-  polyFS(c, fq(kind, v, a0, a1, z0, z1), night ? (warm || '#ffd58a') : WIN_G, P.ink, 1.3);
-  const q = fq(kind, v, a0, a1, z0, z1); c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1.4; c.beginPath(); c.moveTo(q[3].x + (q[2].x - q[3].x) * .12, q[3].y + (q[2].y - q[3].y) * .12 + 3); c.lineTo(q[3].x + (q[2].x - q[3].x) * .4, q[3].y + (q[2].y - q[3].y) * .4 + 3); c.stroke();
+  polyFS(c, fq(kind, v, a0 - .07, a1 + .07, z0 - 4, z1 + 4), '#f4efe4', P.ink, 1.3);                                   // marco blanco: la ventana no parece un hueco
+  polyFS(c, fq(kind, v, a0, a1, z0, z1), night ? (warm || '#ffd58a') : WIN_G, P.ink, 1.2);
+  const q = fq(kind, v, a0, a1, z0, z1); c.strokeStyle = '#f4efe4'; c.lineWidth = 2; c.beginPath(); c.moveTo((q[0].x + q[1].x) / 2, (q[0].y + q[1].y) / 2); c.lineTo((q[3].x + q[2].x) / 2, (q[3].y + q[2].y) / 2); c.moveTo((q[0].x + q[3].x) / 2, (q[0].y + q[3].y) / 2); c.lineTo((q[1].x + q[2].x) / 2, (q[1].y + q[2].y) / 2); c.stroke(); c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1.4; c.beginPath(); c.moveTo(q[3].x + (q[2].x - q[3].x) * .12, q[3].y + (q[2].y - q[3].y) * .12 + 3); c.lineTo(q[3].x + (q[2].x - q[3].x) * .4, q[3].y + (q[2].y - q[3].y) * .4 + 3); c.stroke();
 }
 function drawBuildingDoor(c, b, night) {
   const f = b.door.f, v = f === 'y' ? b.y1 : b.x1, t = b.door.t, a0 = t - .75, a1 = t + .75;
@@ -8035,7 +8062,7 @@ function awning(c, kind, v, a0, a1, z, depth, cols) {                    // told
 function drawBuilding(c, w, b) {
   const night = nightK(w) > .35, f = b.door.f, H = b.h, t = b.door.t, kx = (b.x0 + b.x1) / 2;
   const sh = S((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2); c.fillStyle = 'rgba(0,0,0,.16)'; groundQuad(c, b.x0 + .25, b.y0 + .25, b.x1 + .6, b.y1 + .6); c.fill();
-  const WALL = { taq: ['#fff8ea', '#ebe2d0', '#d7ccb4'], cine: ['#3a3047', '#2b2433', '#20192a'], bou: ['#fbdcea', '#f1bfd5', '#e1a6c1'], tienda: ['#d6b185', '#bf9566', '#a37c50'] };
+  const WALL = { taq: ['#fff0c9', '#f6c667', '#d9a23f'], cine: ['#6a5a96', '#52437a', '#3d3160'], bou: ['#ffd1e3', '#f48fb8', '#d96a9a'], tienda: ['#e8c48a', '#c68f4e', '#a8733a'] };
   if (b.kind === 'casa') { drawHouse(c, w, b); return; }
   const col = WALL[b.kind], body = { top: col[0], left: col[1], right: col[2] };
   isoBox(c, b.x0, b.y0, b.x1, b.y1, 0, H, body, 1.8);
@@ -8087,7 +8114,7 @@ function drawBuilding(c, w, b) {
 }
 function drawHouse(c, w, b) {
   const D = houseOf(w, b.id), HH = b.h, W = b.x1 - b.x0, Dp = b.y1 - b.y0, xm = (b.x0 + b.x1) / 2, night = nightK(w) > .35, t = b.door.t, RH = HH + 34, HO = HOUSES[b.id];
-  const wall = D.fachada, body = { top: wall, left: shade(wall, -.08), right: shade(wall, -.16) }, lit = night && D.own, dark = night && !D.own ? '#38425c' : undefined;
+  const wall = D.fachada, body = { top: wall, left: shade(wall, -.12), right: shade(wall, -.26) }, lit = night && D.own, dark = night && !D.own ? '#38425c' : undefined;
   isoBox(c, b.x0, b.y0, b.x1, b.y1, 0, HH, body, 1.8);
   isoBox(c, b.x0 - .02, b.y0 - .02, b.x1 + .02, b.y1 + .02, 0, 7, { top: '#8d8779', left: '#7c7668', right: '#5f5a50' }, 1.2);
   // ventanas: la cara del frente (x1, donde está la puerta) y la cara izquierda (y1), cada una con su jardinera
@@ -8262,7 +8289,7 @@ const HOME_FLOORS = {
   baldosa: { name: 'Baldosa gris',   c0: '#c9ccd6', c1: '#b7bbc8' },
   verde:   { name: 'Alfombra verde', c0: '#7bb26a', c1: '#6da45c' }
 };
-const HOME_FACHADA = ['#e9d8bd', '#ffffff', '#f4c3a1', '#a9d3e8', '#c9e6b3', '#f2b8c9', '#f7e29a', '#c9a27a', '#b7a3d6', '#e9e9ef'];
+const HOME_FACHADA = ['#f0c27a', '#ffffff', '#f4a27c', '#8db7e0', '#8fc79a', '#ee9fb8', '#f7e07a', '#c9a27a', '#b7a3d6', '#d9dbe3'];
 const HOME_ROOF = ['#b5482f', '#3b5bdb', '#2b2b33', '#2f8f4e', '#e0a42a', '#8b5cf6', '#7a4a2c', '#c4272f'];
 const INTER = {
   cine:   { name: 'Cine',                cols: 10, rows: 8, doorC: 8, floor: 'cine',  wall: '#2b2433', trim: '#3d3347' },
@@ -8287,8 +8314,8 @@ function drawHF(c, t, x0, y0, x1, y1, rot, w) {
       bxf(c, x0 + .1, y0 + .1, x1 - .1, y1 - .1, 9, 17, '#f4f1e8');
       const bl = rot ? [x0 + .55, y0 + .1, x1 - .1, y1 - .1] : [x0 + .1, y0 + .55, x1 - .1, y1 - .1];
       bxf(c, bl[0], bl[1], bl[2], bl[3], 17, 22, col);
-      const pw = big ? 2 : 1;
-      for (let k = 0; k < pw; k++) { const u = (big ? .3 + k * ((rot ? y1 - y0 : x1 - x0) / 2) : .15); const pb = rot ? [x0 + .26, y0 + u, x0 + .52, y0 + u + (big ? .8 : (y1 - y0) - .3)] : [x0 + u, y0 + .26, x0 + u + (big ? .8 : (x1 - x0) - .3), y0 + .52]; bxf(c, pb[0], pb[1], pb[2], pb[3], 17, 23, '#ffffff', 1); }
+      const pw = big ? 2 : 1, WL = rot ? y1 - y0 : x1 - x0, pl = big ? .8 : .7, gp = (WL - pw * pl) / (pw + 1);               // las almohadas van repartidas dentro del ancho de la cama
+      for (let k = 0; k < pw; k++) { const u = gp + k * (pl + gp); const pb = rot ? [x0 + .26, y0 + u, x0 + .52, y0 + u + pl] : [x0 + u, y0 + .26, x0 + u + pl, y0 + .52]; bxf(c, pb[0], pb[1], pb[2], pb[3], 17, 23, '#ffffff', 1); }
       break; }
     case 'buro': {
       bxf(c, x0 + .18, y0 + .18, x1 - .18, y1 - .18, 0, 24, '#8b5a2b');
@@ -8329,16 +8356,16 @@ function drawHF(c, t, x0, y0, x1, y1, rot, w) {
       break; }
     case 'cocina': case 'fregadero': {
       bxf(c, x0 + .04, y0 + .06, x1 - .04, y1 - .06, 0, 40, t === 'cocina' ? '#cfd3dc' : '#b7794b');
+      bxf(c, x0 + .02, y0 + .04, x1 - .02, y1 - .04, 40, 43, t === 'cocina' ? '#e4e7ee' : '#f4f1e8', 1.2);                      // la cubierta primero, para que se vean los quemadores y la tarja
       const a = rot ? y0 : x0, L = rot ? y1 - y0 : x1 - x0;
       if (t === 'cocina') {
-        for (const [u, v] of [[.3, .3], [.7, .3], [.3, .7], [.7, .7]]) { const p = S(rot ? x0 + .5 + (v - .5) * .6 : x0 + L * u, rot ? y0 + L * u : y0 + .5 + (v - .5) * .6, 41); c.fillStyle = '#2b2d36'; c.strokeStyle = P.ink; c.lineWidth = 1.2; c.beginPath(); c.ellipse(p.x, p.y, 7, 3.5, 0, 0, 6.3); c.fill(); c.stroke(); c.strokeStyle = '#ff6a2a'; c.beginPath(); c.ellipse(p.x, p.y, 4.5, 2.2, 0, 0, 6.3); c.stroke(); }
+        for (const [u, v] of [[.3, .3], [.7, .3], [.3, .7], [.7, .7]]) { const p = S(rot ? x0 + .5 + (v - .5) * .6 : x0 + L * u, rot ? y0 + L * u : y0 + .5 + (v - .5) * .6, 44); c.fillStyle = '#2b2d36'; c.strokeStyle = P.ink; c.lineWidth = 1.2; c.beginPath(); c.ellipse(p.x, p.y, 7, 3.5, 0, 0, 6.3); c.fill(); c.stroke(); c.strokeStyle = '#ff6a2a'; c.beginPath(); c.ellipse(p.x, p.y, 4.5, 2.2, 0, 0, 6.3); c.stroke(); }
         polyFS(c, fq(f, front - .06, a + .14, a + L - .14, 6, 26), '#2b2d36', P.ink, 1.2); polyFS(c, fq(f, front - .06, a + .22, a + L - .22, 12, 22), 'rgba(255,200,120,.45)', null);
       } else {
-        const p = S(rot ? x0 + .5 : x0 + L * .5, rot ? y0 + L * .5 : y0 + .5, 41); c.fillStyle = '#9ac3dc'; c.strokeStyle = P.ink; c.lineWidth = 1.4; c.beginPath(); c.ellipse(p.x, p.y, 13, 6, 0, 0, 6.3); c.fill(); c.stroke();
+        const p = S(rot ? x0 + .5 : x0 + L * .5, rot ? y0 + L * .5 : y0 + .5, 44); c.fillStyle = '#9ac3dc'; c.strokeStyle = P.ink; c.lineWidth = 1.4; c.beginPath(); c.ellipse(p.x, p.y, 13, 6, 0, 0, 6.3); c.fill(); c.stroke();
         c.strokeStyle = '#aab0bf'; c.lineWidth = 3; c.lineCap = 'round'; c.beginPath(); c.moveTo(p.x + 12, p.y - 4); c.lineTo(p.x + 12, p.y - 16); c.lineTo(p.x + 6, p.y - 18); c.stroke();
         [0, 1].forEach(k => polyFS(c, fq(f, front - .06, a + .1 + k * L / 2, a + (k + 1) * L / 2 - .1, 6, 36), '#c98b4e', P.ink, 1));
       }
-      bxf(c, x0 + .02, y0 + .04, x1 - .02, y1 - .04, 40, 43, '#f4f1e8', 1.2);
       break; }
     case 'lavadora': { bxf(c, x0 + .1, y0 + .1, x1 - .1, y1 - .1, 0, 42, '#f0f2f6'); const p = S(f === 'y' ? mx : front - .1, f === 'y' ? front - .1 : my, 22); c.fillStyle = '#7fb8d9'; c.strokeStyle = P.ink; c.lineWidth = 1.6; c.beginPath(); c.ellipse(p.x, p.y, 9, 9, 0, 0, 6.3); c.fill(); c.stroke(); c.fillStyle = 'rgba(255,255,255,.6)'; c.beginPath(); c.arc(p.x - 3, p.y - 3, 2.4, 0, 6.3); c.fill(); break; }
     case 'comedor': { bxf(c, x0 + .1, y0 + .1, x1 - .1, y1 - .1, 22, 28, '#d9a066'); bxf(c, x0 + .3, y0 + .3, x1 - .3, y1 - .3, 28, 28.5, '#fff4e6', .8); for (const [px, py] of [[x0 + .16, y0 + .16], [x1 - .26, y0 + .16], [x0 + .16, y1 - .26], [x1 - .26, y1 - .26]]) bxf(c, px, py, px + .1, py + .1, 0, 22, '#8b5a2b', 1); const p = S(mx, my, 29); c.fillStyle = '#e0364a'; c.beginPath(); c.arc(p.x, p.y - 4, 4, 0, 6.3); c.fill(); c.fillStyle = '#2fbf71'; c.beginPath(); c.arc(p.x - 3, p.y - 7, 3, 0, 6.3); c.fill(); break; }
@@ -8899,7 +8926,40 @@ const townBtn = () => ({ x: 12 - EX + SL, y: 104, w: 80, h: 30 });
 const townAvail = w => w.loc === 'rest' && w.phase === 'play' && !w.tut && w.level >= TOWN_LEVEL && !w.modal && !w.shop && !w.edit && !w.fade;
 const backLate = w => !!w && w.loc === 'town' && w.dayTime <= 0 && w.phase === 'play';                // ya cerró el día y sigues en la calle
 const ownsHouse = w => !!w && !!w.town && Object.keys(HOUSES).some(id => houseOf(w, id).own);
+const hasBed = (w, id) => houseOf(w, id).furn.some(f => HF[f.t].use === 'sleep');
+const homeTarget = w => { const own = Object.keys(HOUSES).filter(id => houseOf(w, id).own); return own.find(id => hasBed(w, id)) || own[0] || null; };
+// El día se acabó (11 PM): si tienes casa hay que ir a dormir a tu cama; si no, regresar a la taquería. Tienes un minuto: después te desmayas.
+const sleepActive = w => !!w && w.phase === 'play' && !w.tut && w.dayTime <= 0 && !w.faint && (w.loc !== 'rest' || (ownsHouse(w) && w.customers.length === 0 && !w.cars.length));
+const sleepLeft = w => Math.max(0, lateSec(w) - (w.late || 0));
+function updateSleepClock(w, dt) {
+  if (w.faint) { w.faint.t += dt; if (w.faint.t > 2.4) { w.faint = null; w.fainted = true; w.novato.stamina = maxStamina(w) * .5; finishDay(w); } return; }
+  if (w.shop || w.modal || w.edit || !sleepActive(w)) return;
+  if (w.loc === 'in' && w.inn && w.inn.anim && w.inn.anim.type === 'sleep') return;                // ya estás durmiendo
+  const n = w.novato;
+  if (!w.lateWarned) { w.lateWarned = true; w.lateS0 = n.stamina; toast(w, ownsHouse(w) ? 'Ya es de noche: ve a casa para dormir' : 'Ya es de noche: regresa a la taquería para dormir'); sfx('door'); }
+  const before = w.late || 0; w.late = Math.min(lateSec(w), before + dt);
+  n.stamina = Math.max(0, (w.lateS0 == null ? n.stamina : w.lateS0) * (1 - w.late / lateSec(w)));
+  if (before < 30 && w.late >= 30) { toast(w, 'Te estás cansando… ¡a dormir!'); sfx('nope'); }
+  if (before < 50 && w.late >= 50) { toast(w, '¡Te vas a desmayar! Corre a dormir'); sfx('nope'); }
+  if (w.late >= lateSec(w)) { w.faint = { t: 0 }; w.path = []; n.path = []; if (w.town) w.town.path = []; sfx('over'); }
+}
+function drawSleepBanner(c, w) {
+  if (w.faint || w.shop || w.modal || w.edit || w.hedit || !sleepActive(w)) return;
+  const left = sleepLeft(w), ss = Math.ceil(left), home = ownsHouse(w), inHome = w.loc === 'in' && HOUSES[w.inId], urgent = left < 15;
+  const l1 = home ? (inHome ? (hasBed(w, w.inId) ? 'Toca tu cama para dormir' : 'Tu casa no tiene cama: ve a la taquería o compra una') : 'Ve a casa para dormir') : 'Regresa a la taquería para dormir';
+  const pw = 380, px = 480 - pw / 2, py = 74, pulse = urgent ? .5 + .5 * Math.sin(w.t * 8) : 0;
+  c.save(); rr(c, px, py, pw, 46, 12); c.fillStyle = urgent ? `rgba(150,20,35,${.9 + .1 * pulse})` : 'rgba(17,16,20,.9)'; c.fill(); c.lineWidth = 2.4; c.strokeStyle = urgent ? '#ff8fa0' : P.gold; c.stroke();
+  txt(c, l1, 480, py + 19, { font: `700 16px ${FONT_UI}`, align: 'center', color: P.white, maxW: pw - 24 });
+  txt(c, `Te desmayas en ${Math.floor(ss / 60)}:${String(ss % 60).padStart(2, '0')}`, 480, py + 38, { font: `700 13px ${FONT_UI}`, align: 'center', color: urgent ? '#ffd0d0' : '#ffd24a', ls: .4, maxW: pw - 24 });
+  c.restore();
+}
+function drawFaint(c, w) {
+  const f = w.faint; if (!f) return;
+  c.fillStyle = `rgba(6,5,10,${clamp(f.t / 1.1, 0, 1).toFixed(3)})`; c.fillRect(-EX, -EY, CW, CH);
+  if (f.t > .5) { const a = clamp((f.t - .5) / .5, 0, 1); c.save(); c.globalAlpha = a; txt(c, '¡Te desmayaste de cansancio!', 480, 290, { font: `400 34px ${FONT_DISPLAY}`, align: 'center', color: P.gold, stroke: P.ink, sw: 6, maxW: 820 }); txt(c, 'La próxima vez duerme a tiempo', 480, 330, { font: `700 18px ${FONT_UI}`, align: 'center', color: P.cream, maxW: 700 }); c.restore(); }
+}
 const backBtn = () => { let w = null; try { w = Game.w; } catch (e) {} return backLate(w) ? { x: 12 - EX + SL, y: 68, w: 206, h: 46 } : { x: 12 - EX + SL, y: 68, w: 118, h: 30 }; };
+const backBtnTop = () => backBtn().y + backBtn().h;
 const backAvail = w => w.loc !== 'rest' && w.phase === 'play' && !w.modal && !w.shop && !w.fade && !w.hedit;
 function drawPillBtn(c, b, label, fill, icon, tip) {
   const hov = UI.hit(b); if (hov) UI.cursor = true;
@@ -8908,18 +8968,19 @@ function drawPillBtn(c, b, label, fill, icon, tip) {
   txt(c, label, b.x + 24 + (b.w - 30) / 2, b.y + 20.5, { font: `700 14px ${FONT_UI}`, align: 'center', color: P.white, ls: .6, maxW: b.w - 32 }); c.restore();
   if (hov && tip) drawTip(c, b.x + b.w + 10, b.y, tip);
 }
-function drawTownBtn(c, w) { const c2 = c; drawPillBtn(c, townBtn(), 'PUEBLO', '#1e4f8a', (x, y) => { c2.fillStyle = '#ffd24a'; c2.strokeStyle = P.ink; c2.lineWidth = 1.3; c2.fillRect(x - 1.5, y - 8, 3, 16); c2.strokeRect(x - 1.5, y - 8, 3, 16); c2.beginPath(); c2.moveTo(x - 7, y - 7); c2.lineTo(x + 6, y - 7); c2.lineTo(x + 9, y - 3.5); c2.lineTo(x + 6, y); c2.lineTo(x - 7, y); c2.closePath(); c2.fill(); c2.stroke(); }, ['El pueblo', 'Cine, boutique, tienda de muebles, casas,', 'parque y canchas de fútbol']); }
+function drawTownBtn(c, w) { const c2 = c; if (sleepActive(w)) { const b = townBtn(), k = .5 + .5 * Math.sin(w.t * 6); c.save(); c.strokeStyle = `rgba(255,210,74,${(.35 + .65 * k).toFixed(2)})`; c.lineWidth = 4; rr(c, b.x - 4, b.y - 4, b.w + 8, b.h + 8, 13); c.stroke(); c.restore(); } drawPillBtn(c, townBtn(), 'PUEBLO', '#1e4f8a', (x, y) => { c2.fillStyle = '#ffd24a'; c2.strokeStyle = P.ink; c2.lineWidth = 1.3; c2.fillRect(x - 1.5, y - 8, 3, 16); c2.strokeRect(x - 1.5, y - 8, 3, 16); c2.beginPath(); c2.moveTo(x - 7, y - 7); c2.lineTo(x + 6, y - 7); c2.lineTo(x + 9, y - 3.5); c2.lineTo(x + 6, y); c2.lineTo(x - 7, y); c2.closePath(); c2.fill(); c2.stroke(); }, ['El pueblo', 'Cine, boutique, tienda de muebles, casas,', 'parque y canchas de fútbol']); }
 function drawBackBtn(c, w) {
   if (backLate(w)) {                                                  // de noche y en la calle: regresar a dormir
     const b = backBtn(), hov = UI.hit(b), home = ownsHouse(w); if (hov) UI.cursor = true;
     c.save(); rr(c, b.x, b.y, b.w, b.h, 12); c.fillStyle = '#7a1c28'; c.fill(); c.lineWidth = 2.6; c.strokeStyle = hov ? P.gold : P.white; c.stroke();
     const ix = b.x + 17, iy = b.y + b.h / 2; c.fillStyle = P.white; c.strokeStyle = P.ink; c.lineWidth = 1.3; c.beginPath(); c.moveTo(ix + 6, iy - 6); c.lineTo(ix - 6, iy); c.lineTo(ix + 6, iy + 6); c.closePath(); c.fill(); c.stroke();
-    txt(c, home ? 'A LA TAQUERÍA' : 'REGRESAR A LA TAQUERÍA', b.x + 32 + (b.w - 40) / 2, b.y + 19.5, { font: `700 13px ${FONT_UI}`, align: 'center', color: P.white, ls: .3, maxW: b.w - 44 });
-    txt(c, home ? 'o duerme en tu casa' : 'PARA DORMIR', b.x + 32 + (b.w - 40) / 2, b.y + 36, { font: `700 12px ${FONT_UI}`, align: 'center', color: '#ffd24a', ls: .5, maxW: b.w - 44 });
+    txt(c, home ? 'IR A MI CASA' : 'REGRESAR A LA TAQUERÍA', b.x + 32 + (b.w - 40) / 2, b.y + 19.5, { font: `700 13px ${FONT_UI}`, align: 'center', color: P.white, ls: .3, maxW: b.w - 44 });
+    txt(c, home ? 'a dormir en tu cama' : 'PARA DORMIR', b.x + 32 + (b.w - 40) / 2, b.y + 36, { font: `700 12px ${FONT_UI}`, align: 'center', color: '#ffd24a', ls: .5, maxW: b.w - 44 });
     c.restore(); return;
   }
   drawPillBtn(c, backBtn(), w.loc === 'town' ? 'A LA TAQUERÍA' : 'SALIR', '#7a1c28', (x, y) => { c.fillStyle = P.white; c.strokeStyle = P.ink; c.lineWidth = 1.3; c.beginPath(); c.moveTo(x + 6, y - 6); c.lineTo(x - 6, y); c.lineTo(x + 6, y + 6); c.closePath(); c.fill(); c.stroke(); }, null); }
 function backClick(w) {
+  if (backLate(w) && ownsHouse(w)) { const id = homeTarget(w), sp = doorSpot(BLDG[id]), T = w.town; if (Math.hypot(T.x - sp.x, T.y - sp.y) < .8) enterBuilding(w, id); else townGoTo(w, sp.x, sp.y, { type: 'enter', id }); return; }
   if (w.loc === 'town') { const sp = doorSpot(BLDG.taq), T = w.town; if (Math.hypot(T.x - sp.x, T.y - sp.y) < .8) enterBuilding(w, 'taq'); else townGoTo(w, sp.x, sp.y, { type: 'enter', id: 'taq' }); }
   else exitBuilding(w);
 }
@@ -9043,6 +9104,7 @@ function drawWorldOverlays(c, w) {
   if (openAvail(w)) drawOpenBtn(c, w);
   if (townAvail(w)) drawTownBtn(c, w);
   if (backAvail(w)) drawBackBtn(c, w);
+  drawSleepBanner(c, w);
   if (handsOn(w)) drawHands(c, w);
   if (w.phase === 'play') {
     if (!w.shop && !w.edit && w.loc === 'rest') drawTooltips(c, w);
@@ -9053,6 +9115,7 @@ function drawWorldOverlays(c, w) {
     if (w.modal === 'sign') drawSignEditor(c, w); else if (w.modal === 'claw') drawClaw(c, w); else if (w.modal === 'cal') drawCalendar(c, w); else if (w.modal === 'lvl') drawLevelUp(c, w); else if (w.modal === 'map') drawMap(c, w); else if (w.modal === 'fight') drawFight(c, w); else if (w.modal === 'dlg') drawDialog(c, w); else if (w.modal === 'catalog') drawCatalog(c, w); else if (w.modal === 'paint') drawPaint(c, w); else if (w.modal === 'penal') drawPenal(c, w);
   }
 
+  drawFaint(c, w);
   // pistas y avisos (con el tutorial en curso, la guía es el cuadro del tutorial)
   if (w.tut && w.phase === 'play') drawTutorial(c, w);
   const clawScene = (w.modal === 'claw' && w.claw && w.claw.phase !== 'menu') || w.modal === 'lvl' || w.modal === 'cal' || w.modal === 'map' || w.modal === 'fight' || w.modal === 'dlg' || w.modal === 'catalog' || w.modal === 'paint' || w.modal === 'penal';      // (sin pistas ni avisos encima de esas ventanas)
@@ -9158,6 +9221,7 @@ function drawHud(c, w) {
 function getHint(w) {
   if (w.phase !== 'play') return null;
   if (w.loc !== 'rest') return townHint(w);
+  if (sleepActive(w)) return 'Ya es de noche: sal al PUEBLO y ve a tu casa para dormir';
   const n = w.novato, waiting = w.customers.filter(cu => cu.state === 'wait');
   if (w.panel) return w.panel === 'fridge' ? 'Prepara micheladas aquí: cada tanda cuesta y rinde tarros' : 'Elige qué cocinar y cuántas porciones: una tanda chica cuesta menos y no desperdicias';
   if (w.shop) return 'Tienda: compra mobiliario, equipamiento y personal';
@@ -9345,6 +9409,7 @@ function drawSummary(c, w) {
   txt(c, w.perfect ? '¡Día perfecto! Sin clientes enojados: +1 máscara' : (w.dayAngry ? `${w.dayAngry} cliente(s) se fueron enojados` : 'Todos los clientes quedaron contentos'),
     480, y, { font: `600 18px ${FONT_UI}`, align: 'center', color: w.perfect ? '#9af0b8' : P.muted, maxW: 430 });
   const line = (s2, col) => { y += 24; txt(c, s2, 480, y, { font: `600 17px ${FONT_UI}`, align: 'center', color: col, maxW: 430 }); };
+  if (w.fainted) line('Te desmayaste de cansancio: ¡duerme a tiempo!', '#ffb0a0');
   const sp = w.spoil;
   if (sp && sp.active) {                                                                                   // sobrantes: guardados en el refri o echados a perder
     if (sp.kept + sp.lost === 0) line('No sobró comida: ¡todo se vendió!', '#9af0b8');
@@ -9378,6 +9443,7 @@ const scenes = { INTRO: IntroScene, MENU: Menu, JUGANDO: Game, AJUSTES: Settings
 let state = 'INTRO', clock = 0;
 function setState(name, arg) {
   state = name;
+  Music.zkT = 1; Music.zk = 1;
   Music.want = name === 'INTRO' ? null : name === 'JUGANDO' || (name === 'AJUSTES' && arg && arg.from === 'JUGANDO') ? 'juego' : 'menu';     // cada escena tiene su canción
   const s = scenes[name];
   if (s.enter) s.enter(arg);
