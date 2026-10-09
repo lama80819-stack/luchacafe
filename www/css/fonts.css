@@ -8,3 +8,5 @@
 @font-face { font-family: 'Outfit'; font-style: normal; font-weight: 800; font-display: swap; src: url('../fonts/outfit-800.woff2') format('woff2'); }
 @font-face { font-family: 'Syncopate'; font-style: normal; font-weight: 400; font-display: swap; src: url('../fonts/syncopate-400.woff2') format('woff2'); }
 @font-face { font-family: 'Syncopate'; font-style: normal; font-weight: 700; font-display: swap; src: url('../fonts/syncopate-700.woff2') format('woff2'); }
+@font-face { font-family: 'Unbounded'; font-style: normal; font-weight: 300; font-display: swap; src: url('../fonts/unbounded-300.woff2') format('woff2'); }
+@font-face { font-family: 'Unbounded'; font-style: normal; font-weight: 700; font-display: swap; src: url('../fonts/unbounded-700.woff2') format('woff2'); }
