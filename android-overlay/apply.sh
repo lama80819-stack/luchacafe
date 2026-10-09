@@ -27,7 +27,7 @@ done
 cat > "$APP/src/main/res/values/ic_launcher_background.xml" <<'XML'
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#0D0720</color>
+    <color name="ic_launcher_background">#000000</color>
 </resources>
 XML
 

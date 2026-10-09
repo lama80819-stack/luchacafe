@@ -402,6 +402,87 @@ function drawMask(c, x, y, s, th) {
   c.restore();
 }
 
+/*LOGO-START*/
+/* =========================================================
+   LOGOTIPO: la máscara de ENMASCARADOS
+   Borde blanco grueso que resalta sobre lo oscuro; por dentro es muy colorida (flores, hojas y llamas de talavera / alebrije).
+   Solo usa el lienzo (sin nada del juego) para que el mismo dibujo sirva en el menú y en los íconos de la app.
+   ========================================================= */
+const LG = { red: '#e0364a', orange: '#ff8a3d', yellow: '#ffc83d', green: '#2fbf71', teal: '#17a2b0', purple: '#8b5cf6', pink: '#ff5fa2', cream: '#fff3b0', blue: '#3b82f6', ink: '#08080c' };
+function lgHead(c) {
+  c.beginPath(); c.moveTo(0, -1.15);
+  c.bezierCurveTo(0.75, -1.15, 0.95, -0.6, 0.92, -0.1); c.bezierCurveTo(0.9, 0.5, 0.6, 1.0, 0.3, 1.2);
+  c.quadraticCurveTo(0, 1.28, -0.3, 1.2); c.bezierCurveTo(-0.6, 1.0, -0.9, 0.5, -0.92, -0.1); c.bezierCurveTo(-0.95, -0.6, -0.75, -1.15, 0, -1.15); c.closePath();
+}
+function lgEye(c, m) {
+  c.beginPath(); c.moveTo(m * 0.86, -0.30); c.quadraticCurveTo(m * 0.52, -0.58, m * 0.10, -0.2); c.quadraticCurveTo(m * 0.28, 0.2, m * 0.70, 0.16); c.quadraticCurveTo(m * 0.9, 0.02, m * 0.86, -0.30); c.closePath();
+}
+function lgMouth(c) {
+  c.beginPath(); c.moveTo(-0.24, 0.52); c.lineTo(0.24, 0.52); c.quadraticCurveTo(0.4, 0.52, 0.4, 0.64); c.quadraticCurveTo(0.4, 0.78, 0.24, 0.78); c.lineTo(-0.24, 0.78); c.quadraticCurveTo(-0.4, 0.78, -0.4, 0.64); c.quadraticCurveTo(-0.4, 0.52, -0.24, 0.52); c.closePath();
+}
+function lgNose(c) { c.beginPath(); c.moveTo(0, 0.24); c.quadraticCurveTo(0.1, 0.32, 0.07, 0.39); c.quadraticCurveTo(0, 0.43, -0.07, 0.39); c.quadraticCurveTo(-0.1, 0.32, 0, 0.24); c.closePath(); }
+function lgPetal(c, x, y, len, wid, ang, col) {
+  c.save(); c.translate(x, y); c.rotate(ang); c.beginPath(); c.moveTo(0, 0);
+  c.bezierCurveTo(wid, -len * .25, wid * .85, -len * .8, 0, -len); c.bezierCurveTo(-wid * .85, -len * .8, -wid, -len * .25, 0, 0);
+  c.fillStyle = col; c.fill(); c.lineWidth = .014; c.strokeStyle = LG.ink; c.stroke(); c.restore();
+}
+function lgFlower(c, x, y, r, n, col, center, rot = 0) {
+  for (let i = 0; i < n; i++) lgPetal(c, x, y, r, r * .46, rot + i / n * 6.2832, col);
+  c.fillStyle = center; c.beginPath(); c.arc(x, y, r * .3, 0, 6.3); c.fill(); c.lineWidth = .014; c.strokeStyle = LG.ink; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.7)'; c.beginPath(); c.arc(x - r * .08, y - r * .08, r * .07, 0, 6.3); c.fill();
+}
+function drawLogoMask(c, x, y, s) {
+  const rnd = i => { const q = Math.sin(i * 127.1 + 311.7) * 43758.5453; return q - Math.floor(q); };
+  c.save(); c.translate(x, y); c.scale(s, s); c.lineJoin = 'round'; c.lineCap = 'round';
+  lgHead(c); c.fillStyle = LG.ink; c.fill();
+  c.save(); lgHead(c); c.clip();
+  // confeti de colores sobre el fondo negro
+  const cols = [LG.red, LG.orange, LG.yellow, LG.green, LG.teal, LG.purple, LG.pink];
+  for (let i = 0; i < 260; i++) { const a = rnd(i) * 6.2832, r = Math.sqrt(rnd(i + 200)) * 1.0; c.fillStyle = cols[i % cols.length]; c.beginPath(); c.arc(Math.cos(a) * r * .95, 0.05 + Math.sin(a) * r * 1.2, .016 + rnd(i + 400) * .028, 0, 6.3); c.fill(); }
+  // enredaderas que rodean los ojos y el cachete
+  c.lineWidth = .04; c.strokeStyle = LG.green;
+  for (const m of [-1, 1]) {
+    c.beginPath(); c.moveTo(m * .9, -.5); c.bezierCurveTo(m * .7, -.78, m * .35, -.74, m * .08, -.46); c.stroke();
+    c.strokeStyle = LG.pink; c.beginPath(); c.moveTo(m * .9, .06); c.bezierCurveTo(m * .86, .42, m * .6, .62, m * .46, .5); c.stroke();
+    c.strokeStyle = LG.yellow; c.beginPath(); c.moveTo(m * .42, .3); c.bezierCurveTo(m * .3, .42, m * .52, .62, m * .3, .62); c.stroke();
+    c.strokeStyle = LG.teal; c.beginPath(); c.moveTo(m * .3, .9); c.bezierCurveTo(m * .5, .88, m * .6, .98, m * .5, 1.04); c.stroke(); c.strokeStyle = LG.green;
+  }
+  // frente: llama central, tulipanes, hojas y flores
+  for (const m of [-1, 1]) {
+    lgPetal(c, m * .16, -.46, .36, .13, m * .75, LG.green); lgPetal(c, m * .3, -.5, .3, .1, m * 1.15, LG.teal);
+    lgPetal(c, m * .22, -.56, .44, .15, m * .38, LG.purple); lgPetal(c, m * .22, -.56, .28, .09, m * .38, LG.pink);
+    lgFlower(c, m * .52, -.84, .18, 8, LG.pink, LG.yellow, m * .3); lgFlower(c, m * .24, -1.0, .1, 6, LG.teal, LG.cream);
+    lgPetal(c, m * .82, -.3, .34, .1, m * 1.9, LG.green); lgPetal(c, m * .86, -.5, .3, .09, m * 1.2, LG.teal);
+    lgFlower(c, m * .62, .36, .24, 10, LG.orange, LG.red, m * .2); lgFlower(c, m * .66, -.58, .17, 9, LG.yellow, LG.red, m * .1); lgFlower(c, m * .13, .0, .09, 6, LG.purple, LG.yellow); lgFlower(c, m * .25, .44, .1, 7, LG.pink, LG.yellow); lgPetal(c, m * .2, .3, .24, .07, m * 2.2, LG.green); lgPetal(c, m * .3, .6, .2, .06, m * 2.9, LG.teal); lgFlower(c, m * .6, .72, .1, 7, LG.teal, LG.yellow); lgFlower(c, m * .14, .98, .12, 8, LG.pink, LG.cream); lgFlower(c, m * .8, .58, .12, 7, LG.pink, LG.yellow);
+    lgPetal(c, m * .45, .22, .3, .09, m * 2.4, LG.green); lgPetal(c, m * .72, .78, .28, .09, m * 2.7, LG.teal);
+    lgFlower(c, m * .36, .86, .18, 9, LG.yellow, LG.red); lgFlower(c, m * .78, .3, .1, 6, LG.purple, LG.cream); lgPetal(c, m * .22, 1.0, .26, .08, m * 2.2, LG.green);
+  }
+  lgPetal(c, 0, -.36, .74, .26, 0, LG.yellow); lgPetal(c, 0, -.36, .55, .17, 0, LG.orange); lgPetal(c, 0, -.36, .34, .1, 0, LG.red);
+  lgFlower(c, 0, 1.03, .1, 6, LG.teal, LG.yellow);
+  lgFlower(c, 0, .06, .12, 8, LG.orange, LG.red); lgPetal(c, 0, .24, .16, .06, 3.1416, LG.green);
+  // lentejuela roja en el borde interior
+  for (let i = 0; i < 90; i++) { const a = i / 90 * 6.2832, px = Math.sin(a) * .83, py = -Math.cos(a) * (Math.cos(a) > 0 ? 1.05 : 1.02) + .06; c.fillStyle = i % 3 ? LG.red : '#ff9a9a'; c.beginPath(); c.arc(px, py, .016, 0, 6.3); c.fill(); }
+  c.restore();
+  // ojos, nariz y boca: huecos negros con aro blanco
+  for (const hole of [() => lgEye(c, -1), () => lgEye(c, 1), () => lgNose(c), () => lgMouth(c)]) {
+    hole(); c.fillStyle = LG.ink; c.fill(); c.lineWidth = .15; c.strokeStyle = LG.ink; c.stroke(); c.lineWidth = .075; c.strokeStyle = '#fff'; c.stroke(); hole(); c.fillStyle = LG.ink; c.fill();
+  }
+  for (const m of [-1, 1]) { c.fillStyle = 'rgba(255,255,255,.85)'; c.beginPath(); c.arc(m * .5, -.22, .04, 0, 6.3); c.fill(); }          // brillito en cada ojo
+  c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = .025; c.beginPath(); c.moveTo(-.24, .59); c.lineTo(.24, .59); c.stroke();                       // brillo del labio
+  // borde blanco grueso (con un filo negro por fuera para que resalte sobre cualquier fondo)
+  lgHead(c); c.lineWidth = .24; c.strokeStyle = LG.ink; c.stroke(); lgHead(c); c.lineWidth = .17; c.strokeStyle = '#fff'; c.stroke();
+  c.restore();
+}
+// Versión guardada en memoria (se dibuja una sola vez por tamaño): sirve para poner brillo detrás sin gastar cuadros
+const lgCache = {};
+function drawLogoCached(c, x, y, s, k = 2) {
+  const key = Math.round(s * k), W2 = Math.ceil(2.6 * key), H2 = Math.ceil(3.0 * key);
+  let cv = lgCache[key];
+  if (!cv) { cv = lgCache[key] = document.createElement('canvas'); cv.width = W2; cv.height = H2; const g = cv.getContext('2d'); if (g) { g.translate(W2 / 2, H2 * .47); drawLogoMask(g, 0, 0, key); } }
+  c.drawImage(cv, x - W2 / 2 / k, y - H2 * .47 / k, W2 / k, H2 / k);
+}
+/*LOGO-END*/
+
 /* ---------- Objetos pequeños reutilizables ---------- */
 function drawTaco(c, x, y, r, kind = 'pastor') {
   c.save(); c.translate(x, y); c.scale(r / 6.5, r / 6.5);                // se dibuja en una caja de radio 6.5
@@ -1331,8 +1412,8 @@ const Menu = {
     const bob = Math.sin(t * 1.6) * 6;
     c.save(); c.translate(0, bob);
     c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(480, 470 - bob, 110, 14, 0, 0, 6.3); c.fill();
-    c.shadowColor = 'rgba(255,200,61,.55)'; c.shadowBlur = 40;
-    drawMask(c, 480, 305, 118, MASKS.ring);
+    c.shadowColor = 'rgba(255,255,255,.55)'; c.shadowBlur = 38;
+    drawLogoCached(c, 480, 305, 118, K);                              // el logotipo: máscara blanca con adorno de colores por dentro
     c.restore();
 
     // título
@@ -1361,7 +1442,7 @@ const Menu = {
 
     this.buttons.forEach((b, i) => drawButton(c, b, UI.kb && i === this.kbIndex));
     txt(c, COPY, 480, H - 9, { font: `600 13px ${FONT_UI}`, align: 'center', color: 'rgba(255,248,234,.6)', ls: .4 });
-    txt(c, 'v1.3.1', W - 12, H - 9, { font: `600 12px ${FONT_UI}`, align: 'right', color: 'rgba(255,248,234,.4)' });
+    txt(c, 'v1.3.2', W - 12, H - 9, { font: `600 12px ${FONT_UI}`, align: 'right', color: 'rgba(255,248,234,.4)' });
   },
   pointerDown(x, y) {
     UI.kb = false;

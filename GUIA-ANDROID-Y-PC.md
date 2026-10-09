@@ -144,7 +144,7 @@ Todo se traduce a las mismas funciones del puntero (`pointerDown/Move/Up`, `key`
 - [ ] **Seguridad de los datos** (Data safety): el juego no recopila ni comparte datos, no tiene cuentas, anuncios ni compras; la partida se guarda solo en el dispositivo (`localStorage`). Las tipografías van incluidas: la app no se conecta a Google Fonts.
 - [ ] **Clasificación de contenido** (IARC): responde con sinceridad. El juego tiene **bebidas alcohólicas simuladas** (cervezas, micheladas) y **violencia caricaturesca** (llaves, sillazos de lucha libre); es probable una clasificación para adolescentes (PEGI 12 / Teen).
 - [ ] **Público objetivo:** 13 años o más (no marcarlo para niños evita las reglas de Familias).
-- [ ] Ficha: nombre, descripción corta (80) y larga, **ícono 512 × 512**, **gráfico de función 1024 × 500**, mínimo 2 capturas de teléfono (y capturas de tableta 7" y 10" recomendadas por la calidad en pantallas grandes).
+- [ ] Ficha: nombre, descripción corta (80) y larga, **ícono 512 × 512** (`store/icono-512.png`), **gráfico de función 1024 × 500** (`store/grafico-1024x500.png`, ya hechos con el logotipo nuevo), mínimo 2 capturas de teléfono (y capturas de tableta 7" y 10" recomendadas por la calidad en pantallas grandes).
 - [ ] Declaraciones: sin permisos sensibles, sin anuncios, sin acceso a ubicación / cámara / micrófono. Marca el contenido de **copyright**: todo el arte, música y sonidos son propios (sintetizados por el juego).
 - [ ] Si Google Play pide **acceso a la app**: no hay inicio de sesión.
 
