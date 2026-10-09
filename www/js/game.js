@@ -303,10 +303,19 @@ let MIRROR = false;                          // true mientras se dibuja un muebl
 function txt(c, s, x, y, o = {}) {
   c.save();
   if (MIRROR) { c.translate(x, 0); c.scale(-1, 1); c.translate(-x, 0); }
-  c.font = o.font || `700 20px ${FONT_UI}`;
+  let font = o.font || `700 20px ${FONT_UI}`, ls = o.ls || 0;
+  if (o.maxW) {                                                    // que el texto nunca se salga de su caja: se encoge letra y espaciado
+    c.font = font; if ('letterSpacing' in c) c.letterSpacing = '0px';
+    const wd = c.measureText(String(s)).width + ls * Math.max(0, String(s).length - 1);
+    if (wd > o.maxW) { const k = o.maxW / wd; font = font.replace(/(\d+(?:\.\d+)?)px/, (m, a) => (a * k).toFixed(2) + 'px'); ls *= k; }
+  }
+  c.font = font;
   c.textAlign = o.align || 'left';
   c.textBaseline = o.base || 'alphabetic';
-  if (o.ls && 'letterSpacing' in c) c.letterSpacing = o.ls + 'px';
+  if (ls && 'letterSpacing' in c) {
+    c.letterSpacing = ls + 'px';
+    const al = o.align || 'left'; if (al === 'center') x += (MIRROR ? -1 : 1) * ls / 2; else if (al === 'right') x += (MIRROR ? -1 : 1) * ls;      // el último espacio no cuenta: el texto queda realmente centrado
+  }
   if (o.alpha != null) c.globalAlpha = o.alpha;
   c.lineJoin = 'round';
   if (o.shadow) { c.fillStyle = o.shadow; c.fillText(s, x + (o.sx || 2), y + (o.sy || 3)); }
@@ -1198,9 +1207,9 @@ function drawButton(c, b, focus) {
   if (hov) { c.fillStyle = 'rgba(255,255,255,.14)'; rr(c, b.x, b.y, b.w, b.h, 12); c.fill(); }
   const size = b.size || 26, lift2 = b.sub ? Math.min(7, b.h * .12) : 0;
   txt(c, b.label, b.x + b.w / 2, b.y + b.h / 2 + size * .33 - lift2, {
-    font: `700 ${size}px ${FONT_UI}`, align: 'center', color: off ? '#cfc9e0' : P.white, stroke: P.ink, sw: 5, ls: 1.5
+    font: `700 ${size}px ${FONT_UI}`, align: 'center', color: off ? '#cfc9e0' : P.white, stroke: P.ink, sw: 5, ls: 1.5, maxW: b.w - 18
   });
-  if (b.sub) txt(c, b.sub, b.x + b.w / 2, b.y + b.h - 8, { font: `600 12px ${FONT_UI}`, align: 'center', color: '#e8e0ff', ls: 1 });
+  if (b.sub) txt(c, b.sub, b.x + b.w / 2, b.y + b.h - 8, { font: `600 12px ${FONT_UI}`, align: 'center', color: '#e8e0ff', ls: 1, maxW: b.w - 14 });
   if (focus) {
     c.lineWidth = 3; c.strokeStyle = P.white; c.setLineDash([6, 4]);
     rr(c, b.x - 5, b.y - 5, b.w + 10, b.h + 10, 15); c.stroke();
@@ -1352,7 +1361,7 @@ const Menu = {
 
     this.buttons.forEach((b, i) => drawButton(c, b, UI.kb && i === this.kbIndex));
     txt(c, COPY, 480, H - 9, { font: `600 13px ${FONT_UI}`, align: 'center', color: 'rgba(255,248,234,.6)', ls: .4 });
-    txt(c, 'v1.3', W - 12, H - 9, { font: `600 12px ${FONT_UI}`, align: 'right', color: 'rgba(255,248,234,.4)' });
+    txt(c, 'v1.3.1', W - 12, H - 9, { font: `600 12px ${FONT_UI}`, align: 'right', color: 'rgba(255,248,234,.4)' });
   },
   pointerDown(x, y) {
     UI.kb = false;
@@ -4321,10 +4330,10 @@ function drawNeonMask(c, u, w, t) {
 function drawWallPoster(c, u, w, pw, ph, th, l1, l2, foot) {
   c.fillStyle = '#fff0cc'; c.fillRect(u, w, pw, ph); c.lineWidth = 1.6; c.strokeStyle = P.ink; c.strokeRect(u, w, pw, ph);
   c.fillStyle = th.base; c.fillRect(u + 2.5, w + 2.5, pw - 5, 15);
-  txt(c, l1, u + pw / 2, w + 9, { font: `700 6.6px ${FONT_UI}`, align: 'center', color: '#fff0cc', ls: .3 });
-  txt(c, l2, u + pw / 2, w + 16, { font: `700 6.6px ${FONT_UI}`, align: 'center', color: P.gold, ls: .3 });
+  txt(c, l1, u + pw / 2, w + 9, { font: `700 6.6px ${FONT_UI}`, align: 'center', color: '#fff0cc', ls: .3, maxW: pw - 8 });
+  txt(c, l2, u + pw / 2, w + 16, { font: `700 6.6px ${FONT_UI}`, align: 'center', color: P.gold, ls: .3, maxW: pw - 8 });
   drawMask(c, u + pw / 2, w + ph / 2 + 6, ph * .17, th);
-  txt(c, foot, u + pw / 2, w + ph - 4, { font: `700 5.4px ${FONT_UI}`, align: 'center', color: P.ink, ls: .4 });
+  txt(c, foot, u + pw / 2, w + ph - 4, { font: `700 5.4px ${FONT_UI}`, align: 'center', color: P.ink, ls: .4, maxW: pw - 6 });
 }
 // Lona de colores de la fachada (la pared con la puerta): franjas inclinadas con volante festoneado
 function drawAwning(c, w) {
@@ -4365,7 +4374,7 @@ function drawWalls(c, w) {
   const shut = w.dayTime <= 0, nc = shut ? '255,90,90' : '90,255,150';                              // CERRADO a las 8 PM, ABIERTO el resto del día
   c.save(); c.shadowColor = shut ? '#ff3b3b' : '#3bff8a'; c.shadowBlur = 8 * fl;
   c.fillStyle = '#16072c'; rr(c, du0 + 6, 3, du1 - du0 - 12, 13, 3); c.fill(); c.lineWidth = 1.4; c.strokeStyle = `rgba(${nc},${shut ? .9 : fl})`; c.stroke();
-  txt(c, shut ? 'CERRADO' : 'ABIERTO', (du0 + du1) / 2, 13, { font: `700 10px ${FONT_UI}`, align: 'center', color: `rgba(${shut ? '255,150,150' : '160,255,200'},${shut ? .9 : fl})`, ls: 1.5 });
+  txt(c, shut ? 'CERRADO' : 'ABIERTO', (du0 + du1) / 2, 13, { font: `700 10px ${FONT_UI}`, align: 'center', color: `rgba(${shut ? '255,150,150' : '160,255,200'},${shut ? .9 : fl})`, ls: 1.5, maxW: du1 - du0 - 24 });
   c.restore();
   const lona = !!(AWNINGS[DECO.awning] || AWNINGS['']).colors;
   if (!lona && DECO.bunting !== 'none') drawBunting(c, [[0, du0 - 8], [du1 + 8, LR]], t, DECO.bunting);     // con lona en la fachada se quitan los banderines
@@ -4395,7 +4404,7 @@ function drawWalls(c, w) {
   const up = (ROWS - 3) * U;                                       // altura del comal sobre la pared (iy = 3)
   if (DECO.on.menu) {
     c.fillStyle = P.ink; rr(c, up - 52, 30, 104, 16, 4); c.fill(); c.lineWidth = 1.4; c.strokeStyle = P.gold; c.stroke();
-    txt(c, 'MENÚ CALLEJERO', up, 42, { font: `700 10px ${FONT_UI}`, align: 'center', color: P.gold, ls: .8 });
+    txt(c, 'MENÚ CALLEJERO', up, 42, { font: `700 10px ${FONT_UI}`, align: 'center', color: P.gold, ls: .8, maxW: 92 });
     [[up - 30, MASKS.ring], [up + 26, MASKS.novato]].forEach(([u, th]) => {
       c.strokeStyle = P.ink; c.lineWidth = 1.2; c.beginPath(); c.moveTo(u, 46); c.lineTo(u, 52); c.stroke();
       drawMask(c, u, 64, 9.5, th);
@@ -4482,7 +4491,7 @@ const CT_BAR2 = { top: '#e0b070', left: '#1f8f94', right: '#17707a' };
 function drawBarItem(c, w, it) {
   counterBox(c, it, it.type === 'bar2' ? CT_BAR2 : CT_WOOD);
   const o = S(it.c + .04, it.r + .92, 34); c.save(); c.translate(o.x, o.y); c.transform(1, .5, 0, 1, 0, 0);
-  txt(c, it.type === 'bar2' ? 'ANTOJITOS' : 'COMIDA LISTA', 1.5 * U, 21, { font: `700 9px ${FONT_UI}`, align: 'center', color: 'rgba(255,240,210,.8)', ls: 1 });
+  { const fw = (FURN[it.type].fw - .08) * U; txt(c, it.type === 'bar2' ? 'ANTOJITOS' : 'COMIDA LISTA', fw / 2, 21, { font: `700 9px ${FONT_UI}`, align: 'center', color: 'rgba(255,240,210,.8)', ls: 1, maxW: fw - 18 }); }      // centrado en la cara del mostrador
   c.restore();
   SHELF_KEYS[it.type].forEach((k, i) => {
     const q = barSlot(i), p = S(it.c + q[0], it.r + q[1], 34);              // (se dibuja sin girar: withMirror se encarga)
@@ -4503,12 +4512,12 @@ function drawFridge(c, w, it) {
   c.save(); c.translate(o.x, o.y); c.transform(1, .5, 0, 1, 0, 0);
   c.fillStyle = '#bfe3ff'; rr(c, 3, 6, uw - 6, H - 22, 3); c.fill(); c.lineWidth = 1.4; c.strokeStyle = P.ink; c.stroke();
   ['#e0364a', '#ffc83d', '#2fbf71', '#ff8a3d', '#8b5cf6'].forEach((col, i) => { c.fillStyle = col; rr(c, 5.5 + i * 4.6, 12, 3.6, 17, 1.4); c.fill(); rr(c, 5.5 + i * 4.6, 33, 3.6, 17, 1.4); c.fill(); });
-  txt(c, 'BEBIDAS', uw / 2, H - 6, { font: `700 6px ${FONT_UI}`, align: 'center', color: P.white, ls: .6 });
+  txt(c, 'BEBIDAS', uw / 2, H - 6, { font: `700 6px ${FONT_UI}`, align: 'center', color: P.white, ls: .6, maxW: uw - 8 });
   c.restore();
   // rótulo y estado de preparación sobre el refrigerador (aquí se hacen las micheladas)
   const tag = S(it.c + .51, it.r + .4, H + 11);
   c.fillStyle = P.ink; rr(c, tag.x - 29, tag.y - 7, 58, 14, 5); c.fill(); c.lineWidth = 1.3; c.strokeStyle = '#5fd0ff'; c.stroke();
-  txt(c, 'MICHELADAS', tag.x, tag.y + 3.5, { font: `700 9.5px ${FONT_UI}`, align: 'center', color: '#bfeaff', ls: .6 });
+  txt(c, 'MICHELADAS', tag.x, tag.y + 3.5, { font: `700 9.5px ${FONT_UI}`, align: 'center', color: '#bfeaff', ls: .6, maxW: 50 });
   if (LAYOUT.fridge === it && !LAYOUT.drinks) {                      // sin mostrador de bebidas: las micheladas listas quedan al pie del refri
     const dp = S(it.c + .5, it.r + .9, 6), n = w.stock.michelada;
     if (n > 0) drawStack(c, 'michelada', n, dp.x, dp.y);
@@ -4535,7 +4544,7 @@ function drawDrinkStack(c, key, count, x, y) {
 function drawDrinks(c, w, it) {
   isoBox(c, it.c + .08, it.r + .1, it.c + 1.92, it.r + .86, 0, 34, { top: '#c98b4e', left: '#2a62c9', right: '#1f4a9c' });
   const o = S(it.c + .08, it.r + .86, 34); c.save(); c.translate(o.x, o.y); c.transform(1, .5, 0, 1, 0, 0);
-  txt(c, 'BEBIDAS LISTAS', 1.5 * U - 4, 20, { font: `700 8px ${FONT_UI}`, align: 'center', color: 'rgba(220,240,255,.85)', ls: 1 });
+  { const fw = 1.84 * U; txt(c, 'BEBIDAS LISTAS', fw / 2, 20.5, { font: `700 8px ${FONT_UI}`, align: 'center', color: 'rgba(220,240,255,.85)', ls: 1, maxW: fw - 16 }); }      // el mostrador mide 1.84 losetas de ancho: el centro es la mitad
   c.restore();
   SHELF_KEYS.drinks.forEach((k, i) => {
     const q = drinkSlot(i), p = S(it.c + q[0], it.r + q[1], 34), n = w.stock[k];
@@ -4558,11 +4567,11 @@ function drawStorageItem(c, w, it) {
   c.fillStyle = '#6b7f95'; c.fillRect(uw - 8, 14, 2.2, 12); c.fillRect(uw - 8, H * .6, 2.2, 12);                         // manijas
   c.strokeStyle = '#5fb0ff'; c.lineWidth = 1.4; c.lineCap = 'round';                                                      // copo de nieve
   for (let k = 0; k < 3; k++) { const a = k * Math.PI / 3, cx = uw / 2 - 2, cy = H * .26; c.beginPath(); c.moveTo(cx + Math.cos(a) * 6, cy + Math.sin(a) * 6); c.lineTo(cx - Math.cos(a) * 6, cy - Math.sin(a) * 6); c.stroke(); }
-  txt(c, 'SOBRAS', uw / 2 - 1, H - 7, { font: `700 6.4px ${FONT_UI}`, align: 'center', color: '#355a82', ls: .3 });
+  txt(c, 'SOBRAS', uw / 2, H - 7, { font: `700 6.4px ${FONT_UI}`, align: 'center', color: '#355a82', ls: .3, maxW: uw - 8 });
   c.restore();
   const n = storedCount(w), tag = S(it.c + .5, it.r + .4, H + 11);                                                          // rótulo con lo que cabe
   c.fillStyle = P.ink; rr(c, tag.x - 25, tag.y - 7, 50, 14, 5); c.fill(); c.lineWidth = 1.3; c.strokeStyle = n >= STORAGE_CAP ? '#ff8fa0' : '#5fd0ff'; c.stroke();
-  txt(c, `${n} / ${STORAGE_CAP}`, tag.x, tag.y + 3.6, { font: `700 10px ${FONT_UI}`, align: 'center', color: '#bfeaff', ls: .5 });
+  txt(c, `${n} / ${STORAGE_CAP}`, tag.x, tag.y + 3.6, { font: `700 10px ${FONT_UI}`, align: 'center', color: '#bfeaff', ls: .5, maxW: 42 });
 }
 
 // Banca de dos lugares con suero: aquí descansan el Novato y el mesero
@@ -4575,7 +4584,7 @@ function drawBench(c, w, it) {
   for (let k = 0; k < 6; k++) { const p = S(it.c + .3 + k * .28, it.r + .13, 42); drawDish(c, 'suero', p.x, p.y - 7, 6.5); }    // botellas de suero
   const o = S(x0, it.r + .18, 40); c.save(); c.translate(o.x, o.y); c.transform(1, .5, 0, 1, 0, 0);
   c.fillStyle = '#16072c'; rr(c, 14, -1, 1.8 * U - 28, 11, 3); c.fill(); c.lineWidth = 1.1; c.strokeStyle = '#5fd0ff'; c.stroke();
-  txt(c, 'SUERO', .9 * U, 7.5, { font: `700 7.5px ${FONT_UI}`, align: 'center', color: '#bfeaff', ls: .8 });
+  txt(c, 'SUERO', .9 * U, 7.5, { font: `700 7.5px ${FONT_UI}`, align: 'center', color: '#bfeaff', ls: .8, maxW: 1.8 * U - 36 });
   c.restore();
   const nv = w.novato;                                                                              // aviso: botella saltarina cuando alguien anda cansado
   if (LAYOUT.bench === it && !nv.resting && (nv.stamina < maxStamina(w) * .35 || nv.furia)) {
