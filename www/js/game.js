@@ -41,6 +41,7 @@ const STAFF = {
 const STAFF_IDS = Object.keys(STAFF);
 const HIRE_IDS = STAFF_IDS.filter(id => STAFF[id].tab);          // los que se compran en la tienda (los meseros robados a los rivales no)
 /* =========================================================
+   VERSIÓN 1.5: manos (cuadros de carga abajo, desbloqueables por nivel) y OBRAS con inventario y estacionamiento
    VERSIÓN 1.4: sueldos semanales, cadeneros, Estrellas de Sabor, técnicas de lucha y restaurantes rivales
    ========================================================= */
 // Cadeneros: se paran afuera, junto a la puerta, con su bate. Alargan la espera de la fila (drain = qué tan rápido se les acaba la paciencia) y la mantienen en orden:
@@ -2407,7 +2408,7 @@ const Game = {
     const midDay = w.phase === 'play', pocket = w.coins.reduce((s, co) => s + co.v, 0);   // las monedas sin cobrar también cuentan
     const grab = it => ({ type: it.type, c: it.c, r: it.r, rot: it.rot || 0, style: it.style, chair: it.type === 'table' ? it.chair : undefined, slot: it.slot ? { state: it.slot.state, dish: it.slot.dish, t: it.slot.t, n: it.slot.n, dur: it.slot.dur } : undefined,
       slots: it.slots ? it.slots.map(s => ({ state: s.state, dish: s.dish, t: s.t, n: s.n, dur: s.dur })) : undefined });
-    Store.write(Store.key(this.slot), { v: 12, stars: w.stars, moves: w.moves, conq: w.conq, flock: w.fightLock, guards: w.guards.map(g => g.id), cookN: w.cookN || 0, at: Date.now(), gems: w.gems, char: w.char, outs: w.outs.map(o => ({ type: o.type, c: o.c, r: o.r })), lot: w.lot ? { c: w.lot.c, r: w.lot.r } : null, clawN: w.clawN, clawDay: w.clawDay, tut: w.tut ? w.tut.s : null, day: w.phase === 'summary' ? w.day + 1 : w.day, money: w.money + pocket, rep: w.rep, totalServed: w.totalServed, stock: w.stock, level: w.level, xp: w.xp,
+    Store.write(Store.key(this.slot), { v: 12, stars: w.stars, moves: w.moves, conq: w.conq, flock: w.fightLock, guards: w.guards.map(g => g.id), cookN: w.cookN || 0, at: Date.now(), gems: w.gems, char: w.char, outs: w.outs.map(o => ({ type: o.type, c: o.c, r: o.r })), lot: w.lot ? { c: w.lot.c, r: w.lot.r } : null, clawN: w.clawN, clawDay: w.clawDay, tut: w.tut ? w.tut.s : null, day: w.phase === 'summary' ? w.day + 1 : w.day, money: w.money + pocket, rep: w.rep, totalServed: w.totalServed, stock: stockSaved(w), hands: w.nHands, level: w.level, xp: w.xp,
       furn: w.furn.map(grab), inv: w.inv.concat(held).map(f => ({ type: f.type, style: f.style, chair: f.type === 'table' ? f.chair : undefined })), invCap: w.invCap, staff: w.staff.map(m => m.id), deco: w.deco,
       resume: midDay ? { dayTime: w.dayTime, dayServed: w.dayServed, dayEarned: w.dayEarned, dayCost: w.dayCost, dayAngry: w.dayAngry, repTemp: w.repTemp, vips: w.vips,
         stam: w.novato.stamina, staffStam: w.staff.map(m => m.stamina) } : null });
@@ -2456,6 +2457,7 @@ const Game = {
       if (e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract') { camZoomAt(1 / 1.2, CAMC.x, CAMC.y); return true; }
       if (e.key === '0') { camReset(); return true; }
     }
+    if (handsOn(w) && !e.ctrlKey && !e.altKey && !e.metaKey && handKey(w, e)) return true;                                           // 1–4 o Tab: cambiar de mano
     if ((e.key === 'r' || e.key === 'R' || e.code === 'KeyR') && w.edit && w.phase === 'play') { if (!e.repeat) editRotate(w); return true; }      // girar el mueble en modo EDITAR (también con otras distribuciones de teclado)
     if ((e.key === 'c' || e.key === 'C') && w.phase === 'play' && !w.shop && !w.edit && !w.tut) { openCal(w); return true; }          // C = calendario
     if ((e.key === 'm' || e.key === 'M') && mapAvail(w)) { openMap(w); return true; }                                                  // M = mapa de rivales
@@ -2475,6 +2477,7 @@ function createWorld(save) {
     stock: MENU.reduce((o, k) => (o[k] = save && save.stock && save.stock[k] || 0, o), {}),   // porciones listas en la barra
     level: save && save.level ? save.level : 1, xp: save && save.xp ? save.xp : 0, levelFlash: 0, shake: 0, fx: [],
     shop: false, edit: null, bench: [null, null], panelIdx: 0, furn: [], inv: [], invCap: INV_BASE, slots: [], dslots: [],
+    hands: [null, null, null, null], hand: 0, nHands: save ? clamp(save.hands || 1, 1, HANDS.length) : 1,
     panel: false, doorA: 0, doorV: 0, doorOpen: false, toasts: [], btns: [], overlay: []
   };
   w.novato = { x: 2.5, y: 2.5, dir: 1, phase: 0, path: [], speed: 3.2, moving: false, carrying: null, task: null,
@@ -2762,7 +2765,7 @@ function startDay(w, rs) {
   w.customers = []; w.queue = []; w.cars = []; w.carT = rand(8, 16); w.coins = []; w.parts = [];
   if (!rs) allSlots(w).forEach(s => { s.state = 'empty'; s.dish = null; s.t = 0; });    // al cargar a media jornada, lo que estaba en el fuego sigue ahí
   SEATS.forEach(s => { s.customer = null; });
-  const n = w.novato; n.carrying = null; n.task = null; n.path = [];
+  const n = w.novato; n.carrying = null; handsReset(w); n.task = null; n.path = [];
   n.stamina = maxStamina(w); n.resting = false; n.furia = false; n.busy = false; n.overwork = 0; n.zeroWarned = false;   // amanece descansado
   w.bench = [null, null]; w.shop = false;
   const ns = nearestFree(2.5, 2.5); n.x = ns.x; n.y = ns.y;                  // cada mañana empiezan en una loseta libre
@@ -3093,13 +3096,14 @@ function unlocksFor(L) {
   feat(CLAW_LEVEL, 'Máquina de garra', 'Juega por monedas, gemas, ropa y máscaras; a veces tus clientes también juegan', 'garra', 'furn');
   feat(REMODEL.level, 'Remodelar el changarro', 'El local se ensancha para tener más lugar para mesas', 'remodel');
   CLAW_TIERS.forEach((T, i) => { if (i && T.level === L) feat(L, 'Garra ' + T.name, 'Un precio más alto con mejores premios, más gemas y más ropa exclusiva', 'garra'); });
-  feat(PARKING_LEVEL, 'Estacionamiento', 'Llegan coches con clientes: se compra en la tienda y se coloca en el frente del local', 'parking', 'furn');
+  feat(PARKING_LEVEL, 'Estacionamiento', 'Llegan coches con clientes: se compra en TIENDA › OBRAS y se coloca en el frente del local', 'parking', 'furn');
   HIRE_IDS.forEach(id => { if (STAFF[id].level === L) out.push({ kind: 'staff', icon: id, name: STAFF[id].name, desc: STAFF[id].desc + ' · ' + pesos(STAFF[id].price) }); });
   GUARD_IDS.forEach(id => { if (GUARDS[id].level === L) out.push({ kind: 'staff', icon: id, name: GUARDS[id].name, desc: GUARDS[id].desc.split(' · ')[0] + ' · ' + pesos(GUARDS[id].price) }); });
   feat(MOVES_LEVEL, 'Técnicas de lucha', 'Aprende llaves y vuelos en la TIENDA › TÉCNICAS: sirven para atacar a los restaurantes rivales', 'mv_punetazo', 'move');
   MOVE_BUY.forEach(k => { const M = MOVES[k]; if (M.level === L && L !== MOVES_LEVEL) out.push({ kind: 'move', icon: 'mv_' + k, name: M.name, desc: M.desc + '. Daño ' + M.dmg + ', gasta ' + M.cost + ' de energía' }); });
   feat(MAP_LEVEL, 'Mapa de rivales', 'Toca el botón del mapa (o la tecla M): ataca restaurantes rivales para robar estrellas, dinero y meseros', 'mapa');
   RIVALS.forEach(r => { if (r.level === L) out.push({ kind: 'rival', icon: 'rv_' + r.id, name: r.name, desc: r.sub + '. Ya puedes retarlo desde el MAPA si tienes sus técnicas' }); });
+  HANDS.forEach((d, k) => { if (k && d.level === L) out.push({ kind: 'feat', icon: 'hand' + (k + 1), name: HAND_NAMES[k], desc: `Otro cuadro de carga abajo: lleva más pedidos a la vez. Se compra en TIENDA › OBRAS por ${pesos(d.price)}` }); });
   INV_TIERS.forEach(t => { if (t.level === L) out.push({ kind: 'furn', icon: 'inv', name: 'Cajita más grande', desc: `Ya puedes ampliar el inventario a ${t.cap} lugares (${pesos(t.price)})` }); });
   feat(ARENA.level, 'Mega Ampliación: Arena', 'Cuadrilátero central, hasta 6 mesas y 3 comales. Llegan VIPs nuevos', 'arena');
   const deco = [];                                                  // decoración: todo junto en una sola tarjeta
@@ -4341,8 +4345,6 @@ function shopItems(w) {
     one('storage', 'Refri de sobrantes', `Guarda hasta ${STORAGE_CAP} porciones al cerrar: lo demás se echa a perder`, STORAGE_PRICE, SPOIL_LEVEL),
     one('cartel', 'Cartel de tacos', 'Tu nombre con lucecitas, afuera en el pasto; brilla de noche y atrae más clientes', CARTEL_PRICE, CARTEL_LEVEL),
     one('garra', 'Máquina de garra', 'Prueba tu suerte: monedas, gemas, energía y fama como premio', CLAW_PRICE, CLAW_LEVEL),
-    one('parking', 'Estacionamiento', `Coches con clientes llegan al frente del local (4 cajones). Moverlo después cuesta ${pesos(LOT_MOVE)}`, PARKING_PRICE, PARKING_LEVEL),
-    { id: 'inv', tab: 'furn', hide: w.level < 5, name: 'Ampliar inventario', desc: tier ? `La cajita pasa de ${w.invCap} a ${tier.cap} lugares` : `Inventario al máximo (${w.invCap} lugares)`, price: tier ? tier.price : 0, done: !tier, need: tier && w.level < tier.level ? `Requiere nivel ${tier.level}` : null }
   ];
   Object.keys(TABLES).forEach(k => {
     const T = TABLES[k];
@@ -4354,13 +4356,16 @@ function shopItems(w) {
     rows.push({ id: 'chairs_' + k, tab: 'chairs', name: C.name, desc: C.desc + ' · juego de 2', price: C.gems ? 0 : C.price, gems: C.gems || 0, done: false, need: lvl(C.level) || fullMsg });
   });
   rows.push(staff('waiter1'), staff('waiter2'), staff('payaso'), guard('cadenero1'), guard('cadenero2'), staff('mistico'), staff('anil'),
+    { id: 'inv', tab: 'works', hide: w.level < 5, name: 'Ampliar inventario', desc: tier ? `La cajita pasa de ${w.invCap} a ${tier.cap} lugares` : `Inventario al máximo (${w.invCap} lugares)`, price: tier ? tier.price : 0, done: !tier, need: tier && w.level < tier.level ? `Requiere nivel ${tier.level}` : null });
+  HANDS.forEach((d, k) => { if (k) rows.push({ id: 'hand' + (k + 1), tab: 'works', name: HAND_NAMES[k], desc: k === 1 ? 'Un cuadro más abajo: carga otro platillo mientras atiendes (teclas 1 a 4)' : 'Otro cuadro de carga para tener más pedidos a la mano', price: d.price, done: w.nHands > k, need: lvl(d.level) || (w.nHands < k ? `Primero compra la ${HAND_NAMES[k - 1].toLowerCase()}` : null) }); });
+  rows.push(one('parking', 'Estacionamiento', `Coches con clientes llegan al frente del local (4 cajones). Moverlo después cuesta ${pesos(LOT_MOVE)}`, PARKING_PRICE, PARKING_LEVEL, { tab: 'works' }),
     { id: 'remodel', tab: 'works', name: 'Remodelar Changarro', desc: 'El local se ensancha (más lugar para mesas). Suma ½ máscara', price: REMODEL.price, done: !!DECO.remodeled, need: w.level < REMODEL.level ? `Requiere nivel ${REMODEL.level}` : null },
     { id: 'arena', tab: 'works', name: 'Mega Ampliación: Arena', desc: 'Cuadrilátero central, hasta 6 mesas y 3 comales. Llegan VIPs nuevos', price: ARENA.price, done: !!DECO.arena, need: arenaNeed });
   MOVE_BUY.forEach(k => { const M = MOVES[k]; rows.push({ id: 'mv_' + k, tab: 'moves', name: M.name, desc: `${M.desc} · daño ${M.dmg} · energía ${M.cost}`, price: M.price, done: hasMove(w, k), need: lvl(M.level) }); });
   return rows;
 }
 // Todas las pestañas se ven desde el inicio, pero se van desbloqueando con el nivel (candado hasta entonces). DECORAR y LUCHADOR abren su propia vista
-const SHOP_TABS = [['furn', 'MUEBLES', 1], ['tables', 'MESAS', 1], ['chairs', 'SILLAS', 1], ['decor', 'DECORAR', 2], ['staff', 'PERSONAL', 10], ['moves', 'TÉCNICAS', MOVES_LEVEL], ['works', 'OBRAS', 15], ['legend', 'ESPECIALES', 30], ['look', 'LUCHADOR', 1]];
+const SHOP_TABS = [['furn', 'MUEBLES', 1], ['tables', 'MESAS', 1], ['chairs', 'SILLAS', 1], ['decor', 'DECORAR', 2], ['staff', 'PERSONAL', 10], ['moves', 'TÉCNICAS', MOVES_LEVEL], ['works', 'OBRAS', 4], ['legend', 'ESPECIALES', 30], ['look', 'LUCHADOR', 1]];
 const tabLocked = (w, t) => w.level < t[2];
 const shopTabs = w => SHOP_TABS;
 const SHOP_PER = 5;
@@ -4391,6 +4396,7 @@ function buy(w, id) {
   sfx('fanfare');
   if (id === 'remodel') doRemodel(w);
   else if (id === 'inv') { w.invCap = tier.cap; toast(w, `¡Inventario ampliado a ${tier.cap} lugares!`); }
+  else if (/^hand\d$/.test(id)) { w.nHands = parseInt(id.slice(4), 10); toast(w, `¡${HAND_NAMES[w.nHands - 1]} lista! Cambia de mano con los cuadros de abajo o las teclas 1 a 4`); }
   else if (id === 'arena') doArena(w);
   else if (STAFF[id]) { const m = makeStaff(id, true, w.staff.length); w.staff.push(m); w.shop = false; toast(w, `¡Contrataste a ${STAFF[id].name}!${STAFF[id].wage ? ' Cobra ' + pesos(STAFF[id].wage) + ' por semana' : ''}`); }
   else if (GUARDS[id]) { w.guards.push(makeGuard(id, true)); w.shop = false; toast(w, `¡Contrataste a ${GUARDS[id].name}! Cobra ${pesos(GUARDS[id].wage)} por semana`); }
@@ -4871,24 +4877,100 @@ function panelPointer(w, x, y) {
 
 function comalClick(w, i = 0) { w.panel = (w.panel === 'comal' && w.panelIdx === i) ? false : 'comal'; w.panelIdx = i; w.panelPage = 0; sfx('click'); }
 function fridgeClick(w) { w.panel = w.panel === 'fridge' ? false : 'fridge'; w.panelPage = 0; sfx('click'); }
+/* ---------- Manos: cuadros de carga ----------
+   El Novato lleva un platillo por mano. La mano elegida vive en novato.carrying (así todo lo demás sigue igual);
+   las otras quedan guardadas en w.hands. Cada cuadro extra se desbloquea con el nivel y se compra en TIENDA › OBRAS. */
+const HANDS = [{ level: 1, price: 0 }, { level: 4, price: 400 }, { level: 12, price: 2000 }, { level: 22, price: 7000 }];
+const HAND_NAMES = ['Primera mano', 'Segunda mano', 'Tercera mano', 'Cuarta mano'];
+const heldList = w => { const out = []; for (let i = 0; i < w.nHands; i++) out.push(i === w.hand ? w.novato.carrying : w.hands[i]); return out; };
+const heldCount = w => heldList(w).filter(Boolean).length;
+function stockSaved(w) { const o = Object.assign({}, w.stock); heldList(w).forEach(k => { if (k && o[k] !== undefined) o[k]++; }); return o; }
+function handsReset(w) { w.hands = [null, null, null, null]; w.hand = 0; }
+function handSwitch(w, i, quiet) {
+  const n = w.novato;
+  if (i === w.hand || i < 0 || i >= w.nHands) return false;
+  w.hands[w.hand] = n.carrying; n.carrying = w.hands[i]; w.hands[i] = null; w.hand = i;
+  if (n.task && n.task.type !== 'rest') { n.task = null; n.path = []; }
+  if (!quiet) sfx('click');
+  return true;
+}
+function handClick(w, i) {
+  const n = w.novato;
+  if (i >= w.nHands) {
+    const d = HANDS[i];
+    if (w.level < d.level) { sfx('nope'); toast(w, `${HAND_NAMES[i]}: se desbloquea en el nivel ${d.level}`); }
+    else { sfx('click'); w.panel = false; w.shop = true; w.shopView = 'main'; w.shopTab = 'works'; w.shopPage = 0; }
+    return;
+  }
+  if (i !== w.hand) { handSwitch(w, i); return; }
+  if (n.carrying) { sfx('click'); setTask(w, { type: 'return' }); toast(w, `Devolviendo ${RECIPES[n.carrying].name} a la barra`); }
+  else { sfx('nope'); toast(w, 'Mano vacía: toca la barra para agarrar un platillo, o a un cliente para atenderlo'); }
+}
+function handKey(w, e) {
+  if (e.key === 'Tab') { if (w.nHands > 1) handSwitch(w, (w.hand + 1) % w.nHands); else sfx('nope'); return true; }
+  const i = parseInt(e.key, 10) - 1;
+  if (e.key.length === 1 && i >= 0 && i < HANDS.length) { if (i < w.nHands) { if (i !== w.hand) handSwitch(w, i); } else handClick(w, i); return true; }
+  return false;
+}
+const HAND = { sz: 50, gap: 8, y: 536 };
+const handsOn = w => w.phase === 'play' && !w.shop && !w.edit && !w.modal && !w.tut;
+const handBtn = i => ({ x: W / 2 - (HANDS.length * HAND.sz + (HANDS.length - 1) * HAND.gap) / 2 + i * (HAND.sz + HAND.gap), y: HAND.y, w: HAND.sz, h: HAND.sz });
+const handBar = () => { const a = handBtn(0), b = handBtn(HANDS.length - 1); return { x: a.x - 12, y: a.y - 9, w: b.x + b.w - a.x + 24, h: HAND.sz + 18 }; };
+function drawHands(c, w) {
+  const B = handBar(), held = heldList(w);
+  c.save();
+  c.fillStyle = 'rgba(17,16,20,.86)'; rr(c, B.x, B.y, B.w, B.h, 18); c.fill(); c.lineWidth = 2; c.strokeStyle = 'rgba(255,255,255,.55)'; c.stroke();
+  for (let i = 0; i < HANDS.length; i++) {
+    const b = handBtn(i), open = i < w.nHands, sel = open && i === w.hand, hov = UI.hit(b), cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    if (hov) UI.cursor = true;
+    c.save();
+    if (sel) { c.shadowColor = P.gold; c.shadowBlur = 9; }
+    rr(c, b.x, b.y, b.w, b.h, 11); c.fillStyle = open ? (hov ? '#3b3748' : '#2a2733') : '#17161c'; c.fill();
+    c.restore();
+    rr(c, b.x, b.y, b.w, b.h, 11); c.lineWidth = sel ? 3.2 : 1.8; c.strokeStyle = sel ? P.gold : open ? 'rgba(255,255,255,.4)' : 'rgba(255,255,255,.16)'; c.stroke();
+    if (open) {
+      if (held[i]) drawPortionPlate(c, held[i], cx, cy + 4, 1.12, false, 0);
+      else { c.setLineDash([4, 4]); c.lineWidth = 1.6; c.strokeStyle = 'rgba(255,255,255,.25)'; c.beginPath(); c.arc(cx, cy, 13, 0, 6.3); c.stroke(); c.setLineDash([]); }
+      c.beginPath(); c.arc(b.x + 9, b.y + 9, 7.5, 0, 6.3); c.fillStyle = sel ? P.gold : '#0b0a10'; c.fill(); c.lineWidth = 1.4; c.strokeStyle = sel ? P.ink : 'rgba(255,255,255,.5)'; c.stroke();
+      txt(c, String(i + 1), b.x + 9, b.y + 13, { font: `700 11px ${FONT_UI}`, align: 'center', color: sel ? P.ink : P.white });
+    } else {
+      const can = w.level >= HANDS[i].level, lx = cx, ly = cy - 6;                         // candado, y debajo el nivel o el precio
+      c.strokeStyle = can ? P.gold : '#9d96b4'; c.lineWidth = 2; c.beginPath(); c.arc(lx, ly - 3, 4.4, Math.PI, 0); c.stroke();
+      c.fillStyle = can ? P.gold : '#9d96b4'; rr(c, lx - 6.5, ly - 2, 13, 10, 2.5); c.fill();
+      txt(c, can ? pesos(HANDS[i].price) : 'NIV ' + HANDS[i].level, cx, b.y + b.h - 7, { font: `700 11.5px ${FONT_UI}`, align: 'center', color: can ? P.gold : '#ff9aa8', maxW: b.w - 6 });
+    }
+  }
+  c.restore();
+}
 function barClick(w, key) {
   const n = w.novato;
   sfx('click');
-  if (n.carrying) setTask(w, { type: 'return' });
-  else setTask(w, { type: 'pickup', dish: key });
+  if (n.carrying) {                                                // con una mano libre y platillo en la barra: lo agarra con esa otra mano
+    const free = heldList(w).findIndex(k => !k);
+    if (free >= 0 && w.stock[key] > 0) { handSwitch(w, free, true); setTask(w, { type: 'pickup', dish: key }); }
+    else setTask(w, { type: 'return' });
+  } else setTask(w, { type: 'pickup', dish: key });
 }
 function customerClick(w, cu) {
   const n = w.novato;
   if (cu.state !== 'wait') return false;
   if (w.staff.some(m => m.task && (m.task.cust === cu || m.task.then === cu)) && !n.furia) { sfx('nope'); toast(w, 'Tu personal ya va por ese pedido'); return true; }
   if (n.furia) { sfx('click'); setTask(w, { type: 'serve', cust: cu }); return true; }          // rabioso: va directo por el cliente
-  const need = pending(cu);
-  if (n.carrying) {
-    if (need.some(i => i.key === n.carrying)) { sfx('click'); setTask(w, { type: 'serve', cust: cu }); }
-    else { sfx('nope'); toast(w, `Llevas ${RECIPES[n.carrying].name}; ese cliente pidió ${need.map(i => RECIPES[i.key].short).join(' y ')}`); }
-    return true;
+  const need = pending(cu), hl = heldList(w), want = hl.findIndex(k => k && need.some(i => i.key === k));
+  if (want >= 0) {                                               // alguna de tus manos ya lleva lo que pidió: cambia a esa mano y se lo sirve
+    handSwitch(w, want, true); sfx('click'); setTask(w, { type: 'serve', cust: cu }); return true;
   }
   const it = need.find(i => w.stock[i.key] > 0);                 // el Novato va por el pedido a la barra y lo lleva a la mesa
+  if (n.carrying) {
+    const free = hl.findIndex(k => !k);
+    if (free < 0 || !it) {
+      sfx('nope');
+      if (free < 0) toast(w, w.nHands > 1 ? `Tienes las manos llenas; ese cliente pidió ${need.map(i => RECIPES[i.key].short).join(' y ')}. Devuelve algo a la barra` : `Llevas ${RECIPES[n.carrying].name}; ese cliente pidió ${need.map(i => RECIPES[i.key].short).join(' y ')}`);
+      else toast(w, RECIPES[need[0].key].drink ? `No hay ${RECIPES[need[0].key].name} lista: prepárala en el refrigerador` : `No hay ${RECIPES[need[0].key].name} listo: cocínalo en el comal`);
+      return true;
+    }
+    handSwitch(w, free, true);                                   // mano libre: va por el pedido sin soltar lo que lleva en la otra
+  }
   if (it) { sfx('click'); setTask(w, { type: 'pickup', dish: it.key, then: cu }); return true; }
   sfx('nope');
   toast(w, RECIPES[need[0].key].drink ? `No hay ${RECIPES[need[0].key].name} lista: prepárala en el refrigerador` : `No hay ${RECIPES[need[0].key].name} listo: cocínalo en el comal`);
@@ -4917,6 +4999,7 @@ function clickDeferrable(w, x, y) {
   if (w.tut && (TUT[w.tut.s] === 'intro' || TUT[w.tut.s] === 'outro' || UI.hit(tutBtnSkip))) return false;
   if (zoomBtns().some(b => UI.hit(b))) return false;
   if (mapAvail(w) && UI.hit(mapBtn())) return false;
+  if (handsOn(w) && UI.hit(handBar())) return false;
   if (w.edit && x >= EDIT.x && x <= EDIT.x + EDIT.w && y >= EDIT.y && y <= EDIT.y + editH(w)) return false;
   return true;
 }
@@ -4938,6 +5021,7 @@ function worldPointer(w, x, y) {
   const zb = zoomBtns().find(b => UI.hit(b));                      // botones + − del zoom
   if (zb) { zb.fn(); sfx('click'); return; }
   if (mapAvail(w) && UI.hit(mapBtn())) { openMap(w); return; }
+  if (handsOn(w) && UI.hit(handBar())) { const hi = HANDS.findIndex((_, i) => UI.hit(handBtn(i))); if (hi >= 0) handClick(w, hi); return; }
   if (w.edit) {                                                   // modo edición: solo el botón EDITAR (sale) y el panel/escenario
     const eb = w.btns.find(b => b.label === 'EDITAR');
     if (UI.hit(eb)) { exitEdit(w); return; }
@@ -5055,7 +5139,7 @@ function updateWorld(w, dt) {
       }
     }));
     // fondo de emergencia: si no hay dinero, ni comida, ni nada en preparación, un compadre presta para reabrir la cocina
-    const broke = w.money < 10 && stockTotal(w) === 0 && !allSlots(w).some(s => s.state === 'cook') && !w.coins.length && !w.novato.carrying;
+    const broke = w.money < 10 && stockTotal(w) === 0 && !allSlots(w).some(s => s.state === 'cook') && !w.coins.length && !heldCount(w);
     if (broke && !w.staff.some(m => m.carrying)) { w.loanT += dt; if (w.loanT > 3) { w.loanT = 0; w.money += 30; toast(w, '¡Un compadre te presta $30 para seguir cocinando!'); sfx('coin'); } } else w.loanT = 0;
     if (w.moneyFlash > 0) w.moneyFlash -= dt;
     w.customers.forEach(cu => updateCustomer(w, cu, dt));
@@ -6036,6 +6120,15 @@ function drawShopIcon(c, id, x, y, w) {
   if (id.startsWith('mv_')) drawMoveIcon(c, id.slice(3), x, y, w);
   else if (id.startsWith('rv_')) drawRivalIcon(c, id.slice(3), x, y, .9);
   else if (id === 'mapa') drawMapIcon(c, x, y, 1.05);
+  else if (/^hand\d$/.test(id)) {                               // cuadros de carga: los que ya tienes y el nuevo (dorado, con platillo)
+    const n = parseInt(id.slice(4), 10), q = n === 2 ? 20 : n === 3 ? 15 : 18, cols = n === 4 ? 2 : n, rows = n === 4 ? 2 : 1, gap = 3;
+    const x0 = x - (cols * q + (cols - 1) * gap) / 2, y0 = y - (rows * q + (rows - 1) * gap) / 2;
+    for (let k = 0; k < n; k++) {
+      const bx = x0 + (k % cols) * (q + gap), by = y0 + Math.floor(k / cols) * (q + gap), last = k === n - 1;
+      rr(c, bx, by, q, q, 4); c.fillStyle = last ? '#4a3a12' : '#2a2733'; c.fill(); c.lineWidth = last ? 2.2 : 1.4; c.strokeStyle = last ? P.gold : 'rgba(255,255,255,.45)'; c.stroke();
+      if (last) drawPortionPlate(c, 'pastor', bx + q / 2, by + q / 2 + 2, q / 28, false, 0);
+    }
+  }
   else if (id === 'comal') {
     c.fillStyle = '#23252c'; c.fillRect(x - 22, y + 2, 44, 5); c.beginPath(); c.ellipse(x, y + 7, 22, 10, 0, 0, Math.PI); c.fill();
     const g = c.createLinearGradient(x - 22, y - 10, x + 22, y + 10); g.addColorStop(0, '#8b909e'); g.addColorStop(1, '#2f323c');
@@ -6268,7 +6361,7 @@ function drawShop(c, w) {
     txt(c, it.name, B.x + 96, y + 21, { font: `700 ${fitFont(c, it.name, tw, 21, 700)}px ${FONT_UI}`, color: dim ? '#9d96b4' : P.cream });
     txt(c, it.desc, B.x + 96, y + 37, { font: `600 ${fitFont(c, it.desc, tw, 13.5)}px ${FONT_UI}`, color: P.muted });
     if (it.fire) txt(c, `Contratado · cobra ${pesos(it.wage)} por semana`, B.x + 96, y + 54, { font: `700 17px ${FONT_UI}`, color: '#9af0b8', ls: .5, maxW: tw });
-    else if (it.open || it.done) txt(c, it.open ? 'Ya remodelado' : it.id === 'inv' ? 'Al máximo' : it.id.startsWith('mv_') ? 'Aprendida' : STAFF[it.id] ? 'Contratado' : it.id === 'arena' ? 'Construida' : it.id === 'remodel' ? 'Ya remodelado' : 'En tu taquería', B.x + 96, y + 54, { font: `700 17px ${FONT_UI}`, color: '#9af0b8', ls: .5 });
+    else if (it.open || it.done) txt(c, it.open ? 'Ya remodelado' : it.id === 'inv' ? 'Al máximo' : /^hand\d$/.test(it.id) ? 'Desbloqueada' : it.id.startsWith('mv_') ? 'Aprendida' : STAFF[it.id] ? 'Contratado' : it.id === 'arena' ? 'Construida' : it.id === 'remodel' ? 'Ya remodelado' : 'En tu taquería', B.x + 96, y + 54, { font: `700 17px ${FONT_UI}`, color: '#9af0b8', ls: .5 });
     else if (it.gems) { drawGem(c, B.x + 106, y + 49, 7); txt(c, `${it.gems} gemas`, B.x + 118, y + 55, { font: `700 17px ${FONT_UI}`, color: w.gems >= it.gems ? '#9ff0ff' : '#ff8fa0', ls: .5 }); }
     else txt(c, pesos(it.price) + (it.wage ? ` · ${pesos(it.wage)} por semana` : ''), B.x + 96, y + 54, { font: `700 17px ${FONT_UI}`, color: dim ? '#8a7a50' : P.gold, ls: .5, maxW: tw });
     drawButton(c, Object.assign({ label: it.fire ? 'DESPEDIR' : it.open ? 'DECORAR' : it.done ? (it.id.startsWith('mv_') ? 'APRENDIDA' : 'COMPRADO') : it.need ? 'BLOQUEADO' : 'COMPRAR', style: it.fire ? 'red' : it.open ? 'teal' : 'green', size: 18 }, b, { disabled: !chk.ok }));
@@ -7098,6 +7191,7 @@ function drawWorld(c, w) {
   drawHud(c, w);
   if (w.phase === 'play' && !w.shop && !w.modal && !(w.tut && (TUT[w.tut.s] === 'intro' || TUT[w.tut.s] === 'outro'))) zoomBtns().forEach(b => drawButton(c, b));
   if (mapAvail(w)) drawMapBtn(c, w);
+  if (handsOn(w)) drawHands(c, w);
   if (w.phase === 'play') {
     if (!w.shop && !w.edit) drawTooltips(c, w);
     if (w.panel && !w.shop && !w.edit) drawCookPanel(c, w);
@@ -7111,16 +7205,17 @@ function drawWorld(c, w) {
   const clawScene = (w.modal === 'claw' && w.claw && w.claw.phase !== 'menu') || w.modal === 'lvl' || w.modal === 'cal' || w.modal === 'map' || w.modal === 'fight';      // (sin pistas ni avisos encima de esas ventanas)
   const hint = w.tut || clawScene || w.shop ? null : getHint(w);
   // los textos largos se encogen para caber en el lienzo; el aviso sube sobre la pista para que nunca se tapen
-  const fitSize = (s, weight, size) => { c.font = `${weight} ${size}px ${FONT_UI}`; const mw = c.measureText(s).width; return mw > W - 56 ? Math.max(11, Math.floor(size * (W - 56) / mw * 10) / 10) : size; };
+  const fitSize = (s, weight, size, room = 56) => { c.font = `${weight} ${size}px ${FONT_UI}`; const mw = c.measureText(s).width; return mw > W - room ? Math.max(11, Math.floor(size * (W - room) / mw * 10) / 10) : size; };
+  const hon = handsOn(w), hy = hon ? 494 : 558, hx = hon ? 62 : 14;            // con la barra de manos abajo, la pista y los avisos suben (y la pista deja libres los botones de zoom)
   if (hint) {
-    const fs = fitSize(hint, 600, 18); c.font = `600 ${fs}px ${FONT_UI}`;
+    const fs = fitSize(hint, 600, 18, hx + 42); c.font = `600 ${fs}px ${FONT_UI}`;
     const tw = c.measureText(hint).width + 28;
-    c.fillStyle = 'rgba(17,16,20,.82)'; rr(c, 14, 558, tw, 28, 14); c.fill();
+    c.fillStyle = 'rgba(17,16,20,.82)'; rr(c, hx, hy, tw, 28, 14); c.fill();
     c.strokeStyle = 'rgba(255,200,61,.6)'; c.lineWidth = 1.5; c.stroke();
-    txt(c, hint, 28, 577, { font: `600 ${fs}px ${FONT_UI}`, color: P.cream });
+    txt(c, hint, hx + 14, hy + 19, { font: `600 ${fs}px ${FONT_UI}`, color: P.cream });
   }
   if (w.toasts.length && !clawScene) {
-    const t = w.toasts[0], fs = fitSize(t.msg, 700, 18), ty = hint ? 524 : 558;
+    const t = w.toasts[0], fs = fitSize(t.msg, 700, 18), ty = hint ? hy - 34 : hy;
     c.font = `700 ${fs}px ${FONT_UI}`;
     const tw = c.measureText(t.msg).width + 28;
     c.save(); c.globalAlpha = clamp(t.t, 0, 1);
@@ -7500,6 +7595,7 @@ const Input = {
     if (up(0) && this.hold) { this.hold = false; UI.down = false; sc.pointerUp(this.cx, this.cy); }
     if (down(1) || down(9)) this.key('Escape');                     // B o Start
     if (down(2)) this.key('r');                                     // X = girar el mueble
+    if (down(3) && playing) this.key('Tab');                        // Y = cambiar de mano
     if (down(8)) { if (playing) camReset(); }                       // Select = 1:1
     // cruceta = flechas (con repetición al mantener)
     const dir = cur[12] ? 'ArrowUp' : cur[13] ? 'ArrowDown' : cur[14] ? 'ArrowLeft' : cur[15] ? 'ArrowRight' : '';
@@ -7511,7 +7607,7 @@ const Input = {
   },
   draw(c) {                                                         // cursor del mando y chuleta de botones
     if (this.hint > 0 && (this.pad || this.mode === 'pad')) {
-      const a = Math.min(1, this.hint), msg = 'MANDO · Stick izq.: cursor · A: tocar · B: atrás · X: girar · LB / RB: zoom · Stick der.: mover cámara';
+      const a = Math.min(1, this.hint), msg = 'MANDO · Stick izq.: cursor · A: tocar · B: atrás · X: girar · Y: mano · LB / RB: zoom · Stick der.: mover cámara';
       c.save(); c.globalAlpha = a; c.font = `600 15px ${FONT_UI}`;
       const w = Math.min(CW - 24, c.measureText(msg).width + 34), x = W / 2 - w / 2, y = HUD + 10;
       c.fillStyle = 'rgba(15,14,18,.88)'; rr(c, x, y, w, 28, 14); c.fill(); c.lineWidth = 2; c.strokeStyle = P.gold; c.stroke();
