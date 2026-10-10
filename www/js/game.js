@@ -39,9 +39,10 @@ const STAFF = {
   itamae:  { name: 'Itamae Kenji',           tag: 'ITAMAE',    price: 0, level: 32, look: 'itamae',   speed: 3.4, drain: .8, wage: 10, steal: 'sakura',   perk: 'cook', desc: 'Cuchillo veloz: todo se cocina 10 % más rápido · $10 por semana' }
 };
 const STAFF_IDS = Object.keys(STAFF);
-const APP_VERSION = '1.9.3';
+const APP_VERSION = '1.9.4';
 const HIRE_IDS = STAFF_IDS.filter(id => STAFF[id].tab);          // los que se compran en la tienda (los meseros robados a los rivales no)
 /* =========================================================
+   VERSIÓN 1.9.4: bancas del parque mirando a la fuente y muebles que ya no atraviesan las paredes interiores de la casa
    VERSIÓN 1.9.3: banca de parque nueva, muebles de la casa con giro de 360° (4 direcciones), paredes de casa más altas con friso que suben al entrar a un cuarto o baño (el resto se oscurece), textos revisados
    VERSIÓN 1.9.2: casas por zonas (sala, cocina, baños y cuartos con medias paredes; más cuartos y baños en las casas caras) y despertar en casa con la taquería cerrada
    VERSIÓN 1.9.1: Ampliación IV (local de 17 con cuadrilátero que se coloca en EDITAR), apuestas y asientos sólidos en la arena, cancha de básquet, patas de muebles y guardado exacto a media jornada
@@ -7716,7 +7717,8 @@ const HOUSES = {
 const PARK = { x0: 30, y0: 22, x1: 40, y1: 30 };
 const FIELDS = [{ id: 'f1', x0: 30.2, y0: 31, x1: 34.8, y1: 40 }, { id: 'f2', x0: 35.2, y0: 31, x1: 39.8, y1: 40 }];
 const COURTS = [{ id: 'b1', x0: 42, y0: 31.4, x1: 50.4, y1: 40 }];                              // cancha de básquet (a la derecha de las de fútbol)
-const BENCHES = [{ x: 35, y: 23.5, f: 'y' }, { x: 31.5, y: 26, f: 'x' }, { x: 37.5, y: 26, f: 'x' }, { x: 32.5, y: 27.5, f: 'y' }];       // cada banca cabe en una loseta; se sienta uno desde la loseta de enfrente
+const BENCHES = [{ x: 35, y: 23.5, f: 'y' }, { x: 31.5, y: 26, f: 'x' }, { x: 37.5, y: 26, f: 'x', flip: true }, { x: 32.5, y: 27.5, f: 'y', flip: true }];       // flip: el respaldo da al sur/este (la banca mira a la fuente)
+const benchStand = b => b.f === 'y' ? { x: b.x, y: b.y + (b.flip ? -1 : 1) } : { x: b.x + (b.flip ? -1 : 1), y: b.y };       // cada banca cabe en una loseta; se sienta uno desde la loseta de enfrente
 const FOUNTAIN = { x: 35, y: 26, r: 1.3 };
 const SWING = { x: 36.8, y: 28.3 };
 const PARK_TREES = [[31.6, 23.7], [38.4, 23.7], [31.6, 28.5], [38.4, 28.5]];
@@ -7978,7 +7980,7 @@ function townPointer(w, x, y) {
   const bd = townHitBuilding(w, x, y);
   if (bd) { const sp = doorSpot(bd); if (Math.hypot(T.x - sp.x, T.y - sp.y) < .75) { enterBuilding(w, bd.id); return; } townGoTo(w, sp.x, sp.y, { type: 'enter', id: bd.id }); return; }
   const bn = BENCHES.findIndex(b => Math.hypot(b.x - q.x, b.y - q.y) < .9);
-  if (bn >= 0) { const b = BENCHES[bn], st = b.f === 'y' ? { x: b.x, y: b.y + 1 } : { x: b.x + 1, y: b.y }; townGoTo(w, st.x, st.y, { type: 'bench', i: bn }); return; }
+  if (bn >= 0) { const b = BENCHES[bn], st = benchStand(b); townGoTo(w, st.x, st.y, { type: 'bench', i: bn }); return; }
   const fl = FIELDS.find(f => q.x >= f.x0 && q.x <= f.x1 && q.y >= f.y0 && q.y <= f.y1);
   if (fl) { townGoTo(w, (fl.x0 + fl.x1) / 2, fl.y0 + 1.2, { type: 'field', id: fl.id }); return; }
   const ct = COURTS.find(f => q.x >= f.x0 - .4 && q.x <= f.x1 + .4 && q.y >= f.y0 - .4 && q.y <= f.y1 + .4);
@@ -7993,7 +7995,7 @@ function updateTown(w, dt) {                                           // el per
   if (wasMoving && !T.path.length) {
     const it = T.intent; T.intent = null;
     if (it && it.type === 'enter') enterBuilding(w, it.id);
-    else if (it && it.type === 'bench') { const b = BENCHES[it.i]; T.sit = { i: it.i, t: 0 }; T.dir = b.f === 'y' ? -1 : 1; sfx('pickup'); toast(w, 'Descansas en la banca: tu energía sube poco a poco'); }
+    else if (it && it.type === 'bench') { const b = BENCHES[it.i]; T.sit = { i: it.i, t: 0 }; T.dir = b.f === 'y' ? (b.flip ? 1 : -1) : (b.flip ? -1 : 1); sfx('pickup'); toast(w, 'Descansas en la banca: tu energía sube poco a poco'); }
     else if (it && it.type === 'field') openPenal(w, it.id);
     else if (it && it.type === 'court') openHoops(w, it.id);
   }
@@ -8076,19 +8078,27 @@ function drawHedge(c, h, night) {
   isoBox(c, h.x0, h.y0, h.x1, h.y1, 0, 14, col, 1.3);
   const k = Math.floor(h.x0 * 7 + h.y0 * 13) % 3; if (k < 2) { const q = S((h.x0 + h.x1) / 2 + (k ? .25 : -.25), (h.y0 + h.y1) / 2, 14); c.fillStyle = k ? '#ff7aa8' : '#ffd24a'; c.beginPath(); c.arc(q.x, q.y, 2.2, 0, 6.3); c.fill(); }
 }
-function drawTownBench(c, b) {                                          // banca de parque: patas de herrería, asiento de tablones y respaldo
-  const p = S(b.x, b.y), WOOD = { top: '#d9a066', left: '#b07a40', right: '#8f5a2c' }, WOOD2 = { top: '#e3b27a', left: '#c08a50', right: '#9c6a38' }, IRON = { top: '#5a5d6a', left: '#3f4250', right: '#2b2d38' };
+function drawTownBench(c, b) {                                          // banca de parque: patas de herrería, asiento de tablones y respaldo (flip: el respaldo da al lado de la cámara)
+  const p = S(b.x, b.y), k = b.flip ? -1 : 1, WOOD = { top: '#d9a066', left: '#b07a40', right: '#8f5a2c' }, WOOD2 = { top: '#e3b27a', left: '#c08a50', right: '#9c6a38' }, IRON = { top: '#5a5d6a', left: '#3f4250', right: '#2b2d38' };
   c.fillStyle = 'rgba(0,0,0,.2)'; c.beginPath(); c.ellipse(p.x, p.y + 3, 24, 9, 0, 0, 6.3); c.fill();
-  if (b.f === 'y') {                                                                         // larga a lo largo de x, el respaldo da al norte
-    for (const dx of [-.5, .5]) { isoBox(c, b.x + dx - .045, b.y - .17, b.x + dx + .045, b.y + .17, 0, 14, IRON, 1); isoBox(c, b.x + dx - .045, b.y - .2, b.x + dx + .045, b.y - .15, 14, 36, IRON, 1); }       // patas y soportes del respaldo
-    isoBox(c, b.x - .6, b.y - .21, b.x + .6, b.y - .15, 22, 26, WOOD, 1.1); isoBox(c, b.x - .6, b.y - .21, b.x + .6, b.y - .15, 30, 34, WOOD, 1.1);       // tablones del respaldo
-    isoBox(c, b.x - .6, b.y - .2, b.x + .6, b.y + .2, 14, 18, WOOD2, 1.2);                                                                                  // asiento
-    for (const dx of [-.6, .6]) isoBox(c, b.x + dx - .04, b.y - .17, b.x + dx + .04, b.y + .17, 18, 24, IRON, 1);                                           // brazos
-  } else {                                                                                   // larga a lo largo de y, el respaldo da al oeste
-    for (const dy of [-.5, .5]) { isoBox(c, b.x - .17, b.y + dy - .045, b.x + .17, b.y + dy + .045, 0, 14, IRON, 1); isoBox(c, b.x - .2, b.y + dy - .045, b.x - .15, b.y + dy + .045, 14, 36, IRON, 1); }
-    isoBox(c, b.x - .21, b.y - .6, b.x - .15, b.y + .6, 22, 26, WOOD, 1.1); isoBox(c, b.x - .21, b.y - .6, b.x - .15, b.y + .6, 30, 34, WOOD, 1.1);
+  const al = (u0, u1) => k > 0 ? [u0, u1] : [-u1, -u0];                                       // intervalo a lo ancho de la banca, espejado si va volteada
+  const back = () => {
+    const sp = al(-.2, -.15), sl = al(-.21, -.15);
+    if (b.f === 'y') { for (const dx of [-.5, .5]) isoBox(c, b.x + dx - .045, b.y + sp[0], b.x + dx + .045, b.y + sp[1], 14, 36, IRON, 1); isoBox(c, b.x - .6, b.y + sl[0], b.x + .6, b.y + sl[1], 22, 26, WOOD, 1.1); isoBox(c, b.x - .6, b.y + sl[0], b.x + .6, b.y + sl[1], 30, 34, WOOD, 1.1); }
+    else { for (const dy of [-.5, .5]) isoBox(c, b.x + sp[0], b.y + dy - .045, b.x + sp[1], b.y + dy + .045, 14, 36, IRON, 1); isoBox(c, b.x + sl[0], b.y - .6, b.x + sl[1], b.y + .6, 22, 26, WOOD, 1.1); isoBox(c, b.x + sl[0], b.y - .6, b.x + sl[1], b.y + .6, 30, 34, WOOD, 1.1); }
+  };
+  if (b.f === 'y') {
+    for (const dx of [-.5, .5]) isoBox(c, b.x + dx - .045, b.y - .17, b.x + dx + .045, b.y + .17, 0, 14, IRON, 1);                       // patas
+    if (k > 0) back();
+    isoBox(c, b.x - .6, b.y - .2, b.x + .6, b.y + .2, 14, 18, WOOD2, 1.2);                                                                // asiento
+    for (const dx of [-.6, .6]) isoBox(c, b.x + dx - .04, b.y - .17, b.x + dx + .04, b.y + .17, 18, 24, IRON, 1);                         // brazos
+    if (k < 0) back();
+  } else {
+    for (const dy of [-.5, .5]) isoBox(c, b.x - .17, b.y + dy - .045, b.x + .17, b.y + dy + .045, 0, 14, IRON, 1);
+    if (k > 0) back();
     isoBox(c, b.x - .2, b.y - .6, b.x + .2, b.y + .6, 14, 18, WOOD2, 1.2);
     for (const dy of [-.6, .6]) isoBox(c, b.x - .17, b.y + dy - .04, b.x + .17, b.y + dy + .04, 18, 24, IRON, 1);
+    if (k < 0) back();
   }
 }
 function drawFountain(c, w) {
@@ -8381,11 +8391,12 @@ function drawTownActor(c, w, o, isPlayer) {
 function townSpots() { return TLAMPS.map(([x, y]) => ({ x, y })); }
 // Orden de dibujo del pueblo: los edificios son cajas (b) y se comparan con lo demás por sus lados (algo que está más al este o más al sur que la caja va por delante, lo que está más al oeste o al norte va por detrás);
 // lo demás se ordena por profundidad (x + y). Así nadie atraviesa una pared ni se ve "a través" de un edificio.
-function townSort(L) {
+function townSort(L, diag0) {                                           // diag0: dos cajas en diagonal no se estorban, así que no se ordenan entre sí (evita ciclos con las paredes)
   const rel = (a, b) => {                                              // < 0: a se dibuja antes que b
     const A = a.b || { x0: a.x, y0: a.y, x1: a.x, y1: a.y }, B = b.b || { x0: b.x, y0: b.y, x1: b.x, y1: b.y };
     if (!a.b && !b.b) return a.d - b.d;
     const ab = A.x1 <= B.x0 + 1e-6 || A.y1 <= B.y0 + 1e-6, ba = B.x1 <= A.x0 + 1e-6 || B.y1 <= A.y0 + 1e-6;
+    if (diag0 && a.b && b.b && ab && ba) return 0;
     if (ab && !ba) return -1; if (ba && !ab) return 1; return a.d - b.d;
   };
   const Bs = L.filter(o => o.b), Ps = L.filter(o => !o.b).sort((p, q) => p.d - q.d), seen = new Set(), out = [];
@@ -8843,11 +8854,11 @@ function drawRoomScene(c, w) {
     drawGround(c);                                                     // el jardín y la calle detrás del diorama
     drawRoomShell(c, w, id);
     const L = [], flat = [], items = roomItems(w, id), edit = w.hedit;
-    items.forEach(o => { const it = { x: (o.x0 + o.x1) / 2, y: (o.y0 + o.y1) / 2, d: (o.x0 + o.x1) / 2 + (o.y0 + o.y1) / 2 + (o.k === 'seat' ? -.3 : 0) + (o.dd || 0), draw: () => { if (o.draw) o.draw(c, w, o); } }; if (o.solid === false && (o.h || 0) <= 2) flat.push(it); else { it.b = { x0: o.x0, y0: o.y0, x1: o.x1, y1: o.y1 }; L.push(it); } });
+    items.forEach(o => { const sb = o.k === 'wall' ? { x0: o.line.ax === 'x' ? o.line.v : o.line.a, x1: o.line.ax === 'x' ? o.line.v : o.line.b, y0: o.line.ax === 'x' ? o.line.a : o.line.v, y1: o.line.ax === 'x' ? o.line.b : o.line.v } : null; const it = { sb, x: (o.x0 + o.x1) / 2, y: (o.y0 + o.y1) / 2, d: (o.x0 + o.x1) / 2 + (o.y0 + o.y1) / 2 + (o.k === 'seat' ? -.3 : 0) + (o.dd || 0), draw: () => { if (o.draw) o.draw(c, w, o); } }; if (o.solid === false && (o.h || 0) <= 2) flat.push(it); else { it.b = sb || { x0: o.x0, y0: o.y0, x1: o.x1, y1: o.y1 }; L.push(it); } });
     roomStatic(id).filter(o => o.k === 'person').forEach(o => L.push({ x: o.x, y: o.y, d: o.x + o.y + .6, draw: () => drawRoomPerson(c, w, o) }));
     L.push({ x: I.x, y: I.y, d: I.x + I.y + .05, draw: () => drawRoomActor(c, w, I) });
     if (id === 'arena') arenaCast(c, w, I, L);
-    flat.forEach(i => i.draw()); townSort(L).forEach(i => i.draw());
+    flat.forEach(i => i.draw()); townSort(L, true).forEach(i => i.draw());
     if (id === 'arena') arenaSigns(c, w);
     if (HOUSE_PLAN[id] && I.zk > .02 && I.zc != null) drawZoneVeil(c, w, I);
     if (edit) drawHomeEditFloor(c, w);
