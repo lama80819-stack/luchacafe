@@ -39,9 +39,10 @@ const STAFF = {
   itamae:  { name: 'Itamae Kenji',           tag: 'ITAMAE',    price: 0, level: 32, look: 'itamae',   speed: 3.4, drain: .8, wage: 10, steal: 'sakura',   perk: 'cook', desc: 'Cuchillo veloz: todo se cocina 10 % más rápido · $10 por semana' }
 };
 const STAFF_IDS = Object.keys(STAFF);
-const APP_VERSION = '1.9.4';
+const APP_VERSION = '1.9.5';
 const HIRE_IDS = STAFF_IDS.filter(id => STAFF[id].tab);          // los que se compran en la tienda (los meseros robados a los rivales no)
 /* =========================================================
+   VERSIÓN 1.9.5: textos sin roces (pestaña LUCHADOR de la tienda, aviso de DECORAR y vida del rival en el mapa)
    VERSIÓN 1.9.4: bancas del parque mirando a la fuente y muebles que ya no atraviesan las paredes interiores de la casa
    VERSIÓN 1.9.3: banca de parque nueva, muebles de la casa con giro de 360° (4 direcciones), paredes de casa más altas con friso que suben al entrar a un cuarto o baño (el resto se oscurece), textos revisados
    VERSIÓN 1.9.2: casas por zonas (sala, cocina, baños y cuartos con medias paredes; más cuartos y baños en las casas caras) y despertar en casa con la taquería cerrada
@@ -4666,7 +4667,7 @@ function drawMapDetail(c, w, R) {
   txt(c, `Mesero: ${STAFF[R.waiter].name}`, x + 26, by + 40, { font: `600 14px ${FONT_UI}`, color: '#9ff0ff', maxW: D.w - 28 });
   const go = Object.assign({}, MAPGO, st === 'ok' ? {} : { disabled: true, label: st === 'conq' ? 'CONQUISTADO' : st === 'lvl' ? `NIVEL ${R.level}` : st === 'moves' ? 'FALTAN TÉCNICAS' : 'MAÑANA' });
   drawButton(c, go);
-  if (st === 'ok') txt(c, `Vida ${R.hp} · ganas si lo dejas sin vida`, x + D.w / 2, MAPGO.y + MAPGO.h + 17, { font: `600 12px ${FONT_UI}`, align: 'center', color: P.muted, maxW: D.w });
+  if (st === 'ok') txt(c, `Vida ${R.hp} · ganas si lo dejas sin vida`, x + D.w / 2, MAPGO.y + MAPGO.h + 12, { font: `600 12px ${FONT_UI}`, align: 'center', color: P.muted, maxW: D.w });
 }
 /* ---------- Tienda: mobiliario, equipamiento y contratación ---------- */
 // Lo que se compra llega al inventario (la "cajita"), que tiene lugares limitados; de ahí se coloca desde el modo EDITAR.
@@ -6818,7 +6819,7 @@ function drawDecor(c, w) {
   const blurb = { floor: 'El piso cambia todo el local', paint: 'La primera pintura nueva suma ½ máscara de reputación', bunting: 'Banderas para las dos paredes',
     wall: 'Cada póster tiene su lugar en la pared; tócalo otra vez para quitarlo', furn: 'Van a la cajita: luego los colocas (y los giras) en EDITAR', awning: 'La primera lona nueva suma ½ máscara de reputación',
     gem: 'Solo con gemas: las regalan visitantes especiales; con más máscaras de reputación llegan más seguido' }[w.decCat];
-  txt(c, blurb, B.x + B.w / 2, B.y + B.h - 8, { font: `600 13px ${FONT_UI}`, align: 'center', color: P.muted });
+  txt(c, blurb, B.x + B.w / 2, B.y + B.h - 16, { font: `600 13px ${FONT_UI}`, align: 'center', color: P.muted, maxW: B.w - 60 });
   drawButton(c, decBack);
   drawCoin(c, B.x + B.w - 250, B.y + 394, 11, 0);
   txt(c, pesos(w.shownMoney), B.x + B.w - 234, B.y + 402, { font: `700 22px ${FONT_UI}`, color: w.moneyFlash > 0 ? '#ff7a8c' : P.white, stroke: P.ink, sw: 4 });
@@ -6906,8 +6907,8 @@ const lookOwn = (w, cat, o) => (!o.price && !o.gems && !o.claw) || !!(w.char && 
 const LOOKBOX = { x: SHOPBOX.x + 270, y: SHOPBOX.y + 84, w: 446 };
 const lookChip = i => ({ x: LOOKBOX.x + i * 75, y: LOOKBOX.y, w: 71, h: 28, key: LOOK_CATS[i][0], label: LOOK_CATS[i][1] });
 const LOOK_PER = 12;
-const lookCard = i => ({ x: LOOKBOX.x + (i % 4) * 113, y: LOOKBOX.y + 38 + Math.floor((i % LOOK_PER) / 4) * 104, w: 107, h: 98 });
-const lookPageBtn = k => ({ x: LOOKBOX.x + (k ? 372 : 0), y: LOOKBOX.y + 38 + 3 * 104 - 2, w: 70, h: 24, label: k ? '▶' : '◀', size: 14, style: 'dark' });
+const lookCard = i => ({ x: LOOKBOX.x + (i % 4) * 113, y: LOOKBOX.y + 38 + Math.floor((i % LOOK_PER) / 4) * 98, w: 107, h: 94 });
+const lookPageBtn = k => ({ x: LOOKBOX.x + (k ? 372 : 0), y: LOOKBOX.y + 38 + 3 * 98 + 1, w: 70, h: 24, label: k ? '▶' : '◀', size: 14, style: 'dark' });
 function lookPointer(w, x, y, hit) {
   for (let i = 0; i < LOOK_CATS.length; i++) if (hit(lookChip(i))) { if (w.lookCat !== LOOK_CATS[i][0]) { w.lookCat = LOOK_CATS[i][0]; w.lookPage = 0; sfx('click'); } return; }
   const cat = w.lookCat || 'mask', opts = LOOK_OPTS[cat], pages = Math.ceil(opts.length / LOOK_PER); w.lookPage = clamp(w.lookPage || 0, 0, pages - 1);
@@ -6953,7 +6954,7 @@ function drawLook(c, w) {
     txt(c, q.label, q.x + q.w / 2, q.y + 19, { font: `700 ${fitFont(c, q.label, q.w - 6, 12.5, 700)}px ${FONT_UI}`, align: 'center', color: on ? P.ink : P.cream, ls: .3 });
   });
   const lpages = Math.ceil(opts.length / LOOK_PER); w.lookPage = clamp(w.lookPage || 0, 0, lpages - 1);
-  if (lpages > 1) { drawButton(c, lookPageBtn(0)); drawButton(c, lookPageBtn(1)); txt(c, `${w.lookPage + 1} / ${lpages}`, LOOKBOX.x + 223, LOOKBOX.y + 38 + 3 * 104 + 15, { font: `700 14px ${FONT_UI}`, align: 'center', color: P.cream }); }
+  if (lpages > 1) { drawButton(c, lookPageBtn(0)); drawButton(c, lookPageBtn(1)); txt(c, `${w.lookPage + 1} / ${lpages}`, LOOKBOX.x + 223, LOOKBOX.y + 38 + 3 * 98 + 18, { font: `700 14px ${FONT_UI}`, align: 'center', color: P.cream }); }
   opts.forEach((o, i) => {
     if (Math.floor(i / LOOK_PER) !== w.lookPage) return;
     const q = lookCard(i), sel = String(cur) === String(o.k), own = lookOwn(w, cat, o), locked = w.level < o.level, hov = UI.hit(q) && !locked; if (UI.hit(q)) UI.cursor = true;
@@ -6968,7 +6969,8 @@ function drawLook(c, w) {
     else if (o.gems) { drawGem(c, q.x + q.w / 2 - 14, q.y + 85, 6); txt(c, String(o.gems), q.x + q.w / 2 - 5, q.y + 91, { font: `700 15px ${FONT_UI}`, color: w.gems >= o.gems ? '#9ff0ff' : '#ff8fa0' }); }
     else txt(c, pesos(o.price), q.x + q.w / 2, q.y + 91, { font: `700 15px ${FONT_UI}`, align: 'center', color: w.money >= o.price ? P.gold : '#ff8fa0' });
   });
-  txt(c, 'Tu luchador se ve así en el changarro. Lo básico es gratis; lo demás se compra con monedas o gemas', B.x + B.w / 2, B.y + B.h - 14, { font: `600 13px ${FONT_UI}`, align: 'center', color: P.muted });
+  txt(c, 'Lo básico es gratis;', px + pw / 2, B.y + B.h - 20, { font: `600 12.5px ${FONT_UI}`, align: 'center', color: P.muted, maxW: pw - 8 });
+  txt(c, 'lo demás cuesta monedas o gemas', px + pw / 2, B.y + B.h - 6, { font: `600 12.5px ${FONT_UI}`, align: 'center', color: P.muted, maxW: pw - 8 });
 }
 function drawTip(c, x, y, lines) {
   c.save(); c.font = `700 15px ${FONT_UI}`;
