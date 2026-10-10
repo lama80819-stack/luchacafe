@@ -41,6 +41,7 @@ const STAFF = {
 const STAFF_IDS = Object.keys(STAFF);
 const HIRE_IDS = STAFF_IDS.filter(id => STAFF[id].tab);          // los que se compran en la tienda (los meseros robados a los rivales no)
 /* =========================================================
+   VERSIÓN 1.9.2: casas por zonas (sala, cocina, baños y cuartos con medias paredes; más cuartos y baños en las casas caras) y despertar en casa con la taquería cerrada
    VERSIÓN 1.9.1: Ampliación IV (local de 17 con cuadrilátero que se coloca en EDITAR), apuestas y asientos sólidos en la arena, cancha de básquet, patas de muebles y guardado exacto a media jornada
    VERSIÓN 1.9.0: la Arena Enmascarada (gradas, ring y función de lucha), fachadas sólidas con detalle (el zócalo ya no tapa las paredes), cajeros detrás del mostrador, comales girados arreglados
    VERSIÓN 1.8.2: sonidos por lugar (el pueblo y los negocios no oyen la taquería), colores sólidos en fachadas y ventanas con marco, muebles alineados, ir a dormir al cerrar (un minuto, o te desmayas)
@@ -2596,6 +2597,7 @@ const Game = {
       slots: it.slots ? it.slots.map(s => ({ state: s.state, dish: s.dish, t: s.t, n: s.n, dur: s.dur })) : undefined });
     Store.write(Store.key(this.slot), { v: 12, stars: w.stars, moves: w.moves, conq: w.conq, flock: w.fightLock, guards: w.guards.map(g => g.id), chefs: w.chefs.map(m => m.id), town: townPersist(w), cookN: w.cookN || 0, at: Date.now(), gems: w.gems, char: w.char, outs: w.outs.map(o => ({ type: o.type, c: o.c, r: o.r })), lot: w.lot ? { c: w.lot.c, r: w.lot.r } : null, clawN: w.clawN, clawDay: w.clawDay, tut: w.tut ? w.tut.s : null, day: w.phase === 'summary' ? w.day + 1 : w.day, money: w.money + pocket + (w.inn && w.inn.bet ? w.inn.bet.amt : 0), rep: w.rep, totalServed: w.totalServed, stock: stockSaved(w), hands: w.nHands, level: w.level, xp: w.xp,
       furn: w.furn.map(grab), inv: w.inv.concat(held).map(f => ({ type: f.type, style: f.style, chair: f.type === 'table' ? f.chair : undefined })), invCap: w.invCap, staff: w.staff.map(m => m.id), deco: w.deco,
+      wake: w.phase === 'summary' ? (w.wakeHome || null) : null,
       resume: midDay ? { dayTime: w.dayTime, dayServed: w.dayServed, dayEarned: w.dayEarned, dayCost: w.dayCost, dayAngry: w.dayAngry, repTemp: w.repTemp, vips: w.vips,
         stam: w.novato.stamina, staffStam: w.staff.map(m => m.stamina), late: w.late || 0, lateS0: w.lateS0, open: w.open !== false,
         px: w.novato.x, py: w.novato.y, pdir: w.novato.dir, cust: custPersist(w),
@@ -2704,6 +2706,7 @@ function createWorld(save) {
   w.moves = Object.assign({}, save && save.moves); w.conq = Object.assign({}, save && save.conq); w.fightLock = Object.assign({}, save && save.flock);
   w.pay = null; w.fight = null; w.map = null; w.fireAsk = null;
   startDay(w, save && save.resume);
+  if (save && !save.resume && save.wake && HOUSES[save.wake]) { w.wakeHome = save.wake; applyWake(w); }
   const hb = (label, x, wd, style, fn) => ({ label, x, y: 10, w: wd, h: 40, size: 15, style, fn });          // botones altos: más fáciles de tocar en celular
   w.btns = [
     hb('EDITAR', 686, 60, 'teal', () => { sfx('click'); enterEdit(w); }),
@@ -5561,6 +5564,7 @@ function spoilStock(w) {                                              // al cerr
   return out;
 }
 function finishDay(w) {
+  w.wakeHome = w.wakeNext || null; w.wakeNext = null;
   w.faint = null;
   w.coins.forEach(c => collectCoin(w, c, true)); w.coins = [];
   w.open = true;
@@ -5571,9 +5575,19 @@ function finishDay(w) {
   Game.save();
   sfx('fanfare');
   w.overlay = [
-    { label: 'Siguiente día', x: 262, y: 492, w: 210, h: 52, style: 'green', size: 24, fn: () => { w.day += 1; startDay(w); Game.save(); } },
+    { label: 'Siguiente día', x: 262, y: 492, w: 210, h: 52, style: 'green', size: 24, fn: () => { w.day += 1; startDay(w); applyWake(w); Game.save(); } },
     { label: 'Guardar y salir', x: 488, y: 492, w: 210, h: 52, style: 'dark', size: 24, fn: () => setState('MENU') }
   ];
+}
+// Si dormiste en tu casa, el nuevo día empieza ahí: la taquería está cerrada y tú caminas a abrirla
+function applyWake(w) {
+  const id = w.wakeHome; w.wakeHome = null;
+  if (!id || !HOUSES[id] || !w.town || !houseOf(w, id).own || w.phase !== 'play') return;
+  w.loc = 'in'; w.inId = id; w.inn = newRoom(w, id); w.novato.away = true; w.hedit = null; w.modal = null; w.open = false;
+  const bed = houseOf(w, id).furn.find(f => HF[f.t].use === 'sleep');
+  if (bed) { const b = hfBox(bed), cell = nearFreeCell(Math.floor(b.x1), Math.floor((b.y0 + b.y1) / 2), (c, r) => roomBlocked(w, c, r), 3); if (cell) { w.inn.x = cell[0] + .5; w.inn.y = cell[1] + .5; } }
+  camReset(); w.banner = 0;
+  toast(w, 'Despertaste en casa: la taquería sigue cerrada. ¡Ve a abrirla!');
 }
 function endGame(w) {
   w.phase = 'over'; sfx('over');
@@ -7692,8 +7706,8 @@ const BLD = [
 const BLDG = {}; BLD.forEach(b => { BLDG[b.id] = b; });
 const HOUSES = {
   casa1: { name: 'Casita del Barrio',  price: 9000,  level: 8,  cols: 6,  rows: 6, doorC: 4 },
-  casa2: { name: 'Casa Familiar',      price: 26000, level: 16, cols: 8,  rows: 7, doorC: 6 },
-  casa3: { name: 'Casona del Campeón', price: 70000, level: 26, cols: 10, rows: 8, doorC: 8 }
+  casa2: { name: 'Casa Familiar',      price: 26000, level: 16, cols: 9,  rows: 7, doorC: 7 },
+  casa3: { name: 'Casona del Campeón', price: 70000, level: 26, cols: 13, rows: 9, doorC: 11 }
 };
 const PARK = { x0: 30, y0: 22, x1: 40, y1: 30 };
 const FIELDS = [{ id: 'f1', x0: 30.2, y0: 31, x1: 34.8, y1: 40 }, { id: 'f2', x0: 35.2, y0: 31, x1: 39.8, y1: 40 }];
@@ -7784,7 +7798,7 @@ const TDEF = { wall: '#f1e6d0', floor: 'madera', fachada: '#e2bd88', roof: '#3b5
 const houseOf = (w, id) => w.town.houses[id] || (w.town.houses[id] = { own: false, wall: TDEF.wall, floor: TDEF.floor, fachada: id === 'casa2' ? '#b07b4a' : id === 'casa3' ? '#8db7e0' : TDEF.fachada, roof: id === 'casa2' ? '#2b2b33' : id === 'casa3' ? '#b5482f' : TDEF.roof, cuadros: true, furn: [] });
 
 // ---- búsqueda de camino en una cuadrícula cualquiera (el pueblo o el interior de un edificio)
-function bfsPath(nx, ny, blocked, sx, sy, goals, ox = 0, oy = 0) {   // blocked(c, r) · goals = lista de [c, r] · devuelve las losetas desde la siguiente a la de inicio hasta la meta (o null)
+function bfsPath(nx, ny, blocked, sx, sy, goals, ox = 0, oy = 0, edge = null) {   // blocked(c, r) · goals = lista de [c, r] · devuelve las losetas desde la siguiente a la de inicio hasta la meta (o null)
   const key = (c, r) => (r - oy) * nx + (c - ox), inb = (c, r) => c >= ox && c < ox + nx && r >= oy && r < oy + ny;
   const gset = new Set(goals.filter(g => inb(g[0], g[1])).map(g => key(g[0], g[1])));
   if (!gset.size) return null;
@@ -7798,7 +7812,7 @@ function bfsPath(nx, ny, blocked, sx, sy, goals, ox = 0, oy = 0) {   // blocked(
     for (const [dc, dr] of DIRS) {
       const nc = c + dc, nr = r + dr;
       if (!inb(nc, nr)) continue;
-      const k = key(nc, nr); if (prev.has(k) || blocked(nc, nr)) continue;
+      const k = key(nc, nr); if (prev.has(k) || blocked(nc, nr) || (edge && edge(c, r, nc, nr))) continue;
       prev.set(k, key(c, r)); if (gset.has(k)) { found = k; break; } q.push([nc, nr]);
     }
   }
@@ -7825,7 +7839,20 @@ function townInit(w, save) {
     d.own = !!h.own; if (HOME_WALLS.includes(h.wall)) d.wall = h.wall; if (HOME_FLOORS[h.floor]) d.floor = h.floor; if (HOME_FACHADA.includes(h.fachada)) d.fachada = h.fachada; if (HOME_ROOF.includes(h.roof)) d.roof = h.roof; d.cuadros = h.cuadros !== false;
     d.furn = (h.furn || []).filter(f => HF[f.t] && Number.isFinite(f.c) && Number.isFinite(f.r)).map(f => ({ t: f.t, c: f.c | 0, r: f.r | 0, rot: f.rot ? 1 : 0 }));
   });
+  homeFixAll(w);
   w.loc = 'rest'; w.inId = null; w.inn = null; w.fade = null; w.hedit = null; w.novato.away = false;
+}
+function homeFixAll(w) {                                               // muebles de casas que quedan en una pared, un paso, una pieza fija o fuera del cuarto: al inventario de la casa
+  Object.keys(HOUSES).forEach(id => {
+    const D = w.town.houses[id]; if (!D || !D.furn || !D.furn.length) return; const R = HOUSES[id], st = roomStatic(id).filter(o => o.k !== 'person'), keep = [];
+    D.furn.forEach(f => {
+      const HD = HF[f.t], sz = f.rot ? { fw: HD.fh, fh: HD.fw } : { fw: HD.fw, fh: HD.fh };
+      let bad = f.c < 0 || f.r < 0 || f.c + sz.fw > R.cols || f.r + sz.fh > R.rows || homeBlock(st, HD, f.c, f.r, sz) || (f.c < R.doorC + 2 && f.c + sz.fw > R.doorC - 1 && f.r < 2 && HD.solid !== false);
+      if (!bad && HD.solid !== false) bad = keep.some(k => { const KD = HF[k.t], ks = k.rot ? { fw: KD.fh, fh: KD.fw } : { fw: KD.fw, fh: KD.fh }; return KD.solid !== false && f.c < k.c + ks.fw && f.c + sz.fw > k.c && f.r < k.r + ks.fh && f.r + sz.fh > k.r; });
+      if (bad) w.town.hinv.push(f.t); else keep.push(f);
+    });
+    D.furn = keep;
+  });
 }
 const townPersist = w => ({ hinv: w.town.hinv.slice(), houses: Object.fromEntries(Object.keys(w.town.houses).filter(id => w.town.houses[id]).map(id => { const h = w.town.houses[id]; return [id, { own: h.own, wall: h.wall, floor: h.floor, fachada: h.fachada, roof: h.roof, cuadros: h.cuadros, furn: h.furn.map(f => ({ t: f.t, c: f.c, r: f.r, rot: f.rot })) }]; })) });
 
@@ -8430,7 +8457,7 @@ function drawTownHover(c, w, hid) {                                    // el nom
 /* ---------- Muebles de las casas (se compran en la tienda de muebles del pueblo) ----------
    fw x fh = losetas que ocupa con rot 0 (con rot 1 se intercambian). El frente de la pieza mira a +y (rot 0) o a +x (rot 1): así siempre se ve por delante.
    use: lo que pasa al tocarla dentro de la casa (sleep = dormir · sit = sentarse a descansar · tv = ver la tele). solid: false = se camina encima (tapetes). */
-const HCATS = [['dorm', 'DORMITORIO'], ['sala', 'SALA'], ['cocina', 'COCINA'], ['comedor', 'COMEDOR'], ['oficina', 'OFICINA'], ['deco', 'DECORACIÓN']];
+const HCATS = [['dorm', 'DORMITORIO'], ['sala', 'SALA'], ['cocina', 'COCINA'], ['comedor', 'COMEDOR'], ['bano', 'BAÑO'], ['oficina', 'OFICINA'], ['deco', 'DECORACIÓN']];
 const HF = {
   cama1:   { name: 'Cama individual',    cat: 'dorm',    price: 450,  fw: 1, fh: 2, h: 26, use: 'sleep', desc: 'Para una siesta' },
   cama2:   { name: 'Cama matrimonial',   cat: 'dorm',    price: 1200, fw: 2, fh: 3, h: 34, use: 'sleep', desc: 'Con dos almohadas' },
@@ -8447,6 +8474,10 @@ const HF = {
   lavadora: { name: 'Lavadora',          cat: 'cocina',  price: 750,  fw: 1, fh: 1, h: 42, desc: 'Ropa limpia' },
   comedor: { name: 'Mesa de comedor',    cat: 'comedor', price: 700,  fw: 2, fh: 2, h: 28, desc: 'Cabe toda la familia' },
   silla:   { name: 'Silla de madera',    cat: 'comedor', price: 90,   fw: 1, fh: 1, h: 38, use: 'sit', desc: 'Una silla' },
+  inodoro: { name: 'Inodoro',            cat: 'bano',    price: 450,  fw: 1, fh: 1, h: 36, desc: 'Blanco, con tanque' },
+  lavabo:  { name: 'Lavabo con llave',   cat: 'bano',    price: 380,  fw: 1, fh: 1, h: 50, desc: 'De pedestal' },
+  regadera: { name: 'Regadera',          cat: 'bano',    price: 700,  fw: 1, fh: 1, h: 110, desc: 'Con cancel de vidrio' },
+  tina:    { name: 'Tina de baño',       cat: 'bano',    price: 1500, fw: 2, fh: 1, h: 28, desc: 'Para un baño de burbujas' },
   escritorio: { name: 'Escritorio con computadora', cat: 'oficina', price: 800, fw: 2, fh: 1, h: 52, desc: 'Para trabajar' },
   librero: { name: 'Librero',            cat: 'oficina', price: 420,  fw: 2, fh: 1, h: 76, desc: 'Lleno de libros' },
   planta:  { name: 'Planta de interior', cat: 'deco',    price: 80,   fw: 1, fh: 1, h: 52, desc: 'Da vida al cuarto' },
@@ -8455,6 +8486,22 @@ const HF = {
   perrera: { name: 'Cama para mascota',  cat: 'deco',    price: 110,  fw: 1, fh: 1, h: 14, desc: 'Para el perrito' },
   acuario: { name: 'Acuario',            cat: 'deco',    price: 1400, fw: 2, fh: 1, h: 56, desc: 'Con peces nadando' }
 };
+/* Plano de las casas: zonas (piso y rótulo), medias paredes (['y'|'x', línea, desde, hasta]), pasos que deben quedar libres y piezas de baño fijas.
+   Cuanto más cara la casa, más cuartos y más baños. */
+const HOUSE_PLAN = {
+  casa1: { zones: [{ n: 'SALA', x0: 2, y0: 0, x1: 6, y1: 3 }, { n: 'COCINA', x0: 0, y0: 0, x1: 2, y1: 3, floor: 'cocinaT' }, { n: 'CUARTO', x0: 0, y0: 3, x1: 4, y1: 6 }, { n: 'BAÑO', x0: 4, y0: 3, x1: 6, y1: 6, floor: 'banoT' }],
+    walls: [['y', 3, 0, 1], ['y', 3, 3, 5], ['x', 4, 3, 6], ['x', 2, 0, 1]], gaps: [[1, 2, 3, 4], [5, 2, 6, 4], [2, 1, 3, 3]],
+    fix: [['inodoro', 4, 4, 1], ['lavabo', 4, 5, 1], ['regadera', 5, 5, 0]] },
+  casa2: { zones: [{ n: 'SALA', x0: 3, y0: 0, x1: 9, y1: 3 }, { n: 'COCINA', x0: 0, y0: 0, x1: 3, y1: 3, floor: 'cocinaT' }, { n: 'CUARTO 1', x0: 0, y0: 3, x1: 3, y1: 7 }, { n: 'BAÑO', x0: 3, y0: 3, x1: 5, y1: 7, floor: 'banoT' }, { n: 'CUARTO 2', x0: 5, y0: 3, x1: 9, y1: 7 }],
+    walls: [['y', 3, 0, 1], ['y', 3, 3, 4], ['y', 3, 5, 6], ['y', 3, 8, 9], ['x', 3, 0, 1], ['x', 3, 3, 7], ['x', 5, 3, 7]], gaps: [[1, 2, 3, 4], [4, 2, 5, 4], [6, 2, 8, 4], [3, 1, 4, 3]],
+    fix: [['inodoro', 3, 4, 1], ['lavabo', 3, 5, 1], ['regadera', 3, 6, 1]] },
+  casa3: { zones: [{ n: 'SALA', x0: 4, y0: 0, x1: 13, y1: 4 }, { n: 'COCINA', x0: 0, y0: 0, x1: 4, y1: 4, floor: 'cocinaT' }, { n: 'CUARTO 1', x0: 0, y0: 4, x1: 3, y1: 9 }, { n: 'BAÑO 1', x0: 3, y0: 4, x1: 5, y1: 9, floor: 'banoT' }, { n: 'CUARTO 2', x0: 5, y0: 4, x1: 8, y1: 9 }, { n: 'CUARTO 3', x0: 8, y0: 4, x1: 11, y1: 9 }, { n: 'BAÑO 2', x0: 11, y0: 4, x1: 13, y1: 9, floor: 'banoT' }],
+    walls: [['y', 4, 0, 1], ['y', 4, 3, 4], ['y', 4, 5, 6], ['y', 4, 8, 9], ['y', 4, 11, 12], ['x', 4, 0, 2], ['x', 3, 4, 9], ['x', 5, 4, 9], ['x', 8, 4, 9], ['x', 11, 4, 9]],
+    gaps: [[1, 3, 3, 5], [4, 3, 5, 5], [6, 3, 8, 5], [9, 3, 11, 5], [12, 3, 13, 5], [4, 2, 5, 4]],
+    fix: [['inodoro', 3, 5, 1], ['lavabo', 3, 6, 1], ['tina', 3, 7, 1], ['regadera', 4, 8, 0], ['inodoro', 11, 5, 1], ['lavabo', 11, 6, 1], ['regadera', 12, 8, 0]] }
+};
+const ZFLOOR = { cocinaT: { c0: '#f2efe6', c1: '#bdd0d8' }, banoT: { c0: '#d8ecf6', c1: '#b6d8ea' } };
+const zoneOfCell = (id, i, j) => { const P_ = HOUSE_PLAN[id]; return P_ ? P_.zones.find(z => i >= z.x0 && i < z.x1 && j >= z.y0 && j < z.y1) || null : null; };
 const HOME_WALLS = ['#f1e6d0', '#ffffff', '#cfe3f2', '#cdebd8', '#f6cfdc', '#dcd0f0', '#f7e29a', '#e2b49a', '#b9c9a8', '#c9cdd6', '#3a4a70', '#2b2b33'];
 const HOME_FLOORS = {
   madera:  { name: 'Madera naranja', c0: '#c9833f', c1: '#bb7633', plank: true },
@@ -8479,6 +8526,7 @@ const cb = col => ({ top: shade(col, .12), left: col, right: shade(col, -.18) })
 const bxf = (c, x0, y0, x1, y1, z0, z1, col, lw = 1.3) => isoBox(c, x0, y0, x1, y1, z0, z1, typeof col === 'string' ? cb(col) : col, lw);
 
 /* Cada pieza se dibuja en la caja (x0, y0)-(x1, y1) (ya girada). rot 0: el frente mira a +y; rot 1: mira a +x. */
+const hfR = (c, x0, y0, rot, u0, v0, u1, v1, z0, z1, col) => rot ? bxf(c, x0 + v0, y0 + u0, x0 + v1, y0 + u1, z0, z1, col) : bxf(c, x0 + u0, y0 + v0, x0 + u1, y0 + v1, z0, z1, col);      // caja en coordenadas (u a lo ancho, v a lo hondo desde la pared)
 const hfLegs = (c, pts, z1, col, t = .07) => pts.forEach(([px, py]) => bxf(c, px, py, px + t, py + t, 0, z1, col, 1));        // patas: se dibujan ANTES que la tapa, así la tapa las cubre y no sobresalen
 function drawHF(c, t, x0, y0, x1, y1, rot, w) {
   const f = rot ? 'x' : 'y', front = f === 'y' ? y1 : x1, mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
@@ -8514,6 +8562,15 @@ function drawHF(c, t, x0, y0, x1, y1, rot, w) {
       const arm = rot ? [[x0 + .04, y0 + .04, x1 - .04, y0 + .22], [x0 + .04, y1 - .22, x1 - .04, y1 - .04]] : [[x0 + .04, y0 + .04, x0 + .22, y1 - .04], [x1 - .22, y0 + .04, x1 - .04, y1 - .04]];
       arm.forEach(a => bxf(c, a[0], a[1], a[2], a[3], 14, 26, shade(col, -.06)));
       break; }
+    case 'inodoro': { hfR(c, x0, y0, rot, .25, .06, .75, .32, 0, 38, '#f4f6fb'); hfR(c, x0, y0, rot, .3, .3, .7, .88, 0, 17, '#f4f6fb'); hfR(c, x0, y0, rot, .27, .34, .73, .9, 17, 20, '#dfe3ec'); hfR(c, x0, y0, rot, .4, .08, .6, .18, 38, 41, '#c9ced8'); break; }
+    case 'lavabo': { hfR(c, x0, y0, rot, .38, .12, .62, .42, 0, 30, '#e6e9f0'); hfR(c, x0, y0, rot, .12, .06, .88, .64, 30, 40, '#f4f6fb'); hfR(c, x0, y0, rot, .44, .08, .56, .2, 40, 52, '#9aa0ae'); hfR(c, x0, y0, rot, .2, .14, .8, .56, 40, 41, '#bfe3f4'); break; }
+    case 'regadera': {
+      const PP = (u, v, z) => rot ? S(x0 + v, y0 + u, z) : S(x0 + u, y0 + v, z);
+      hfR(c, x0, y0, rot, 0, 0, 1, 1, 0, 5, '#dbe4ec'); hfR(c, x0, y0, rot, .02, 0, .98, .06, 5, 110, '#cfe2ee');
+      const a = PP(.5, .14, 100), b = PP(.5, .14, 112), h = PP(.5, .3, 106); c.strokeStyle = '#8a909e'; c.lineWidth = 3; c.lineCap = 'round'; c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); c.lineTo(h.x, h.y); c.stroke(); c.fillStyle = '#b9bfcc'; c.beginPath(); c.ellipse(h.x, h.y + 2, 7, 3.5, 0, 0, 6.3); c.fill(); c.lineWidth = 1.2; c.strokeStyle = P.ink; c.stroke();
+      const gl = { top: 'rgba(200,236,250,.5)', left: 'rgba(170,222,242,.42)', right: 'rgba(140,204,228,.42)' };
+      hfR(c, x0, y0, rot, 0, .94, 1, 1, 5, 104, gl); hfR(c, x0, y0, rot, .94, .06, 1, .94, 5, 104, gl); break; }
+    case 'tina': { hfR(c, x0, y0, rot, .04, .04, 1.96, .96, 0, 26, '#f4f6fb'); hfR(c, x0, y0, rot, .18, .16, 1.82, .84, 26, 27.5, '#8fd0f0'); hfR(c, x0, y0, rot, .12, .06, .24, .2, 26, 40, '#9aa0ae'); break; }
     case 'mesaC': { hfLegs(c, [[x0 + .22, y0 + .24], [x1 - .28, y0 + .24], [x0 + .22, y1 - .3], [x1 - .28, y1 - .3]], 10, '#6d4423'); bxf(c, x0 + .12, y0 + .16, x1 - .12, y1 - .16, 10, 17, '#a8703a');
       const p = S(mx - .2, my, 18); c.fillStyle = '#e0364a'; c.strokeStyle = P.ink; c.lineWidth = 1.2; rr(c, p.x - 8, p.y - 3, 16, 5, 1); c.fill(); c.stroke(); c.fillStyle = '#3b82f6'; rr(c, p.x - 4, p.y - 6, 14, 5, 1); c.fill(); c.stroke(); break; }
     case 'tv': {
@@ -8639,7 +8696,24 @@ function roomStatic(id) {                                              // lo que
       c.fillStyle = '#ffd24a'; c.beginPath(); c.arc(q.x, q.y - 2, 4, 0, 6.3); c.fill(); c.stroke();
       if (i < stan.length - 1 && !(w.inn && w.inn.ticket)) { const n2 = stan[i + 1], r2 = S(n2[0], n2[1], 22), r1 = S(x, y, 22); c.strokeStyle = P.ink; c.lineWidth = 5; c.beginPath(); c.moveTo(r1.x, r1.y); c.quadraticCurveTo((r1.x + r2.x) / 2, Math.max(r1.y, r2.y) + 8, r2.x, r2.y); c.stroke(); c.strokeStyle = '#c4272f'; c.lineWidth = 3; c.stroke(); } } }));
   }
+  if (HOUSES[id] && HOUSE_PLAN[id]) {
+    const PL = HOUSE_PLAN[id];
+    PL.walls.forEach(([ax, v, a, b]) => {                                                    // media pared (36 px): se ve todo el cuarto y nadie la cruza
+      const hz = ax === 'y', x0 = hz ? a : v - .08, x1 = hz ? b : v + .08, y0 = hz ? v - .08 : a, y1 = hz ? v + .08 : b;
+      add({ k: 'wall', x0, y0, x1, y1, h: 36, solid: true, act: null, line: { ax, v, a, b }, draw: (c, w, o) => {
+        const col = wallOf(w, w.inId); isoBox(c, x0, y0, x1, y1, 0, 34, { top: '#ffffff', left: shade(col, -.06), right: shade(col, -.2) }, 1.5);
+        isoBox(c, x0 - .02, y0 - .02, x1 + .02, y1 + .02, 34, 38, { top: '#ffffff', left: '#f1f1f6', right: '#d4d5e0' }, 1.2); } });
+    });
+    PL.gaps.forEach(([x0, y0, x1, y1]) => add({ k: 'gap', x0, y0, x1, y1, h: 0, solid: false, act: null, draw: null }));
+    PL.fix.forEach(([t, c0, r0, rot]) => { const b = hfBox({ t, c: c0, r: r0, rot }); add({ k: 'fix', t, x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, h: b.h, solid: true, act: null, draw: (c, w) => drawHF(c, t, b.x0, b.y0, b.x1, b.y1, rot, w) }); });
+  }
   ROOM_CACHE[id] = it; return it;
+}
+// ¿cruza el paso de la loseta (c, r) a la (nc, nr) una media pared?
+function wallBetween(id, c, r, nc, nr) {
+  const x1 = c + .5, y1 = r + .5, x2 = nc + .5, y2 = nr + .5;
+  return roomStatic(id).some(o => { if (o.k !== 'wall') return false; const l = o.line;
+    return l.ax === 'x' ? (Math.min(x1, x2) < l.v && Math.max(x1, x2) > l.v && y1 > l.a && y1 < l.b) : (Math.min(y1, y2) < l.v && Math.max(y1, y2) > l.v && x1 > l.a && x1 < l.b); });
 }
 function randomLookSeed(i) { const st = Math.random; let s = (i * 7919 + 13) >>> 0; Math.random = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; try { return randomLook(); } finally { Math.random = st; } }
 function roomItems(w, id) {                                            // fijo + lo que el jugador puso (en las casas)
@@ -8647,7 +8721,7 @@ function roomItems(w, id) {                                            // fijo +
   if (!HOUSES[id]) return base;
   const D = houseOf(w, id), out = [];
   D.furn.forEach((f, i) => { const b = hfBox(f), H = HF[f.t]; out.push({ k: 'hf', f, i, t: f.t, x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, h: H.h, solid: H.solid !== false, act: H.use ? { type: 'use', use: H.use } : null, stand: null, draw: (c, ww) => drawHF(c, f.t, b.x0, b.y0, b.x1, b.y1, f.rot, ww) }); });
-  return out;
+  return base.concat(out);
 }
 const rbox = o => ({ x0: S(o.x0, o.y1).x - 3, x1: S(o.x1, o.y0).x + 3, y0: S(o.x0, o.y0, o.h + 8).y - 3, y1: S(o.x1, o.y1).y + 3 });
 function roomBlocked(w, c, r) {
@@ -8666,7 +8740,7 @@ function newRoom(w, id) {
   const R = roomDef(id);
   return { id, x: R.doorC + .5, y: 1.5, dir: -1, phase: 0, moving: false, speed: 3.8, path: [], intent: null, seat: null, anim: null, t: 0, hint: '', ticket: false, popcorn: false, viewers: [] };
 }
-function roomPathTo(w, goals) { const I = w.inn, R = roomDef(w.inId); return bfsPath(R.cols, R.rows, (c, r) => roomBlocked(w, c, r), I.x, I.y, goals); }
+function roomPathTo(w, goals) { const I = w.inn, R = roomDef(w.inId), id = w.inId; return bfsPath(R.cols, R.rows, (c, r) => roomBlocked(w, c, r), I.x, I.y, goals, 0, 0, HOUSE_PLAN[id] ? (c, r, nc, nr) => wallBetween(id, c, r, nc, nr) : null); }
 function roomGoTo(w, cell, intent) {
   const I = w.inn, p = roomPathTo(w, [cell]); if (!p) { sfx('nope'); return false; }
   I.path = p.map(q => ({ x: q.c + .5, y: q.r + .5 })); I.intent = intent || null; I.seat = null; if (I.anim && I.anim.cancel !== false) I.anim = null; sfx('click'); return true;
@@ -8678,10 +8752,12 @@ function drawRoomShell(c, w, id) {
   polyFS(c, [S(cols, 0, 0), S(cols, rows, 0), S(cols, rows, -16), S(cols, 0, -16)], '#54382a', P.ink, 2); polyFS(c, [S(0, rows, 0), S(cols, rows, 0), S(cols, rows, -16), S(0, rows, -16)], '#76503a', P.ink, 2);
   c.lineJoin = 'round'; c.lineWidth = 1; c.strokeStyle = 'rgba(40,24,12,.35)';
   for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
-    const p = [S(i, j), S(i + 1, j), S(i + 1, j + 1), S(i, j + 1)]; isoPoly(c, p); c.fillStyle = (i + j) & 1 ? F.c1 : F.c0; c.fill(); c.stroke();
-    if (F.plank) { c.strokeStyle = 'rgba(60,30,10,.28)'; c.beginPath(); for (const v of [.34, .67]) { const a = { x: p[0].x + (p[3].x - p[0].x) * v, y: p[0].y + (p[3].y - p[0].y) * v }, b = { x: p[1].x + (p[2].x - p[1].x) * v, y: p[1].y + (p[2].y - p[1].y) * v }; c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); } c.stroke(); c.strokeStyle = 'rgba(40,24,12,.35)'; }
+    const zn = isH ? zoneOfCell(id, i, j) : null, FZ = zn && zn.floor ? ZFLOOR[zn.floor] : F;
+    const p = [S(i, j), S(i + 1, j), S(i + 1, j + 1), S(i, j + 1)]; isoPoly(c, p); c.fillStyle = (i + j) & 1 ? FZ.c1 : FZ.c0; c.fill(); c.stroke();
+    if (FZ.plank) { c.strokeStyle = 'rgba(60,30,10,.28)'; c.beginPath(); for (const v of [.34, .67]) { const a = { x: p[0].x + (p[3].x - p[0].x) * v, y: p[0].y + (p[3].y - p[0].y) * v }, b = { x: p[1].x + (p[2].x - p[1].x) * v, y: p[1].y + (p[2].y - p[1].y) * v }; c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); } c.stroke(); c.strokeStyle = 'rgba(40,24,12,.35)'; }
   }
   if (id === 'cine') { polyFS(c, [S(2.2, 2.4), S(9.8, 2.4), S(9.8, 8), S(2.2, 8)], 'rgba(150,20,35,.28)', null); }
+  if (isH && HOUSE_PLAN[id]) HOUSE_PLAN[id].zones.forEach(z => { const q = S((z.x0 + z.x1) / 2, (z.y0 + z.y1) / 2); c.save(); c.globalAlpha = .46; txt(c, z.n, q.x, q.y + 4, { font: `700 13px ${FONT_UI}`, align: 'center', color: '#2b2118', ls: 2 }); c.restore(); });
   // paredes: la derecha (y = 0) y la izquierda (x = 0), con su grosor y moldura blanca
   polyFS(c, [S(0, 0, 0), S(cols, 0, 0), S(cols, 0, WH), S(0, 0, WH)], wall, P.ink, 2); polyFS(c, [S(0, 0, 0), S(0, rows, 0), S(0, rows, WH), S(0, 0, WH)], dark, P.ink, 2);
   polyFS(c, [S(0, 0, 0), S(cols, 0, 0), S(cols, 0, 9), S(0, 0, 9)], shade(wall, -.22), null); polyFS(c, [S(0, 0, 0), S(0, rows, 0), S(0, rows, 9), S(0, 0, 9)], shade(dark, -.2), null);
@@ -8987,7 +9063,7 @@ function updateRoom(w, dt) {
     a.t += dt;
     if (a.type === 'show' && a.t >= a.dur) endShow(w);
     else if (a.type === 'movie' && a.t >= a.dur) endMovie(w);
-    else if (a.type === 'sleep') { n.stamina = Math.min(mx, lerp(a.s0, mx, clamp(a.t / a.dur, 0, 1))); if (a.t >= a.dur && a.night) { I.anim = null; I.x = a.back.x; I.y = a.back.y; n.stamina = mx; finishDay(w); } else if (a.t >= a.dur) { I.anim = null; I.x = a.back.x; I.y = a.back.y; w.dayTime = Math.max(6, w.dayTime - 12); sfx('ready'); toast(w, '¡Qué buena siesta! Energía completa (pasó un rato)'); } }
+    else if (a.type === 'sleep') { n.stamina = Math.min(mx, lerp(a.s0, mx, clamp(a.t / a.dur, 0, 1))); if (a.t >= a.dur && a.night) { I.anim = null; I.x = a.back.x; I.y = a.back.y; n.stamina = mx; w.wakeNext = HOUSES[w.inId] ? w.inId : null; finishDay(w); } else if (a.t >= a.dur) { I.anim = null; I.x = a.back.x; I.y = a.back.y; w.dayTime = Math.max(6, w.dayTime - 12); sfx('ready'); toast(w, '¡Qué buena siesta! Energía completa (pasó un rato)'); } }
     else if (a.type === 'rest' || a.type === 'tv') { n.stamina = Math.min(mx, n.stamina + STAM.regen * 1.4 * dt); if (a.t >= (a.dur || 8) && a.type === 'tv' || (n.stamina >= mx && a.t > 2.5)) { I.anim = null; I.seat = null; if (a.back) { I.x = a.back.x; I.y = a.back.y; } sfx('ready'); toast(w, 'Descansaste: ¡energía recuperada!'); } }
     return;
   }
@@ -9109,7 +9185,7 @@ function buyHouse(w, id) {
 }
 // ---- tienda de muebles
 const CATBOX = { x: 110, y: 78, w: 740, h: 452 };
-const catChip = i => ({ x: CATBOX.x + 20 + i * 117, y: CATBOX.y + 42, w: 113, h: 30, key: HCATS[i][0], label: HCATS[i][1] });
+const catChip = i => ({ x: CATBOX.x + 20 + i * Math.floor((CATBOX.w - 40) / HCATS.length), y: CATBOX.y + 42, w: Math.floor((CATBOX.w - 40) / HCATS.length) - 4, h: 30, key: HCATS[i][0], label: HCATS[i][1] });
 const catRow = i => ({ x: CATBOX.x + CATBOX.w - 170, y: CATBOX.y + 86 + i * 64 + 8, w: 150, h: 40 });
 const catClose = { x: CATBOX.x + CATBOX.w - 40, y: CATBOX.y + 8, w: 30, h: 30 };
 const catItems = w => Object.keys(HF).filter(k => HF[k].cat === (w.catCat || 'dorm'));
@@ -9203,12 +9279,21 @@ function homeStore(w) { const e = w.hedit; if (!e || !e.held) { sfx('nope'); ret
 function homeRotate(w) { const e = w.hedit; if (!e || !e.held) return; e.held.rot = e.held.rot ? 0 : 1; sfx('click'); }
 function homeSize(h) { const D = HF[h.t]; return h.rot ? { fw: D.fh, fh: D.fw } : { fw: D.fw, fh: D.fh }; }
 function homeAnchor(h, iso) { const s = homeSize(h); return { c: Math.floor(iso.x) - Math.floor((s.fw - 1) / 2), r: Math.floor(iso.y) - Math.floor((s.fh - 1) / 2) }; }
+function homeBlock(items, D, c, r, s) {                                  // ¿choca una pieza (D) en (c, r) con paredes, pasos u otros muebles?
+  for (const o of items) {
+    if (o.k === 'wall') { const l = o.line; if (l.ax === 'x' ? (c < l.v && c + s.fw > l.v && r < l.b && r + s.fh > l.a) : (r < l.v && r + s.fh > l.v && c < l.b && c + s.fw > l.a)) return 'Ahí hay una pared'; continue; }
+    if (D.solid === false) continue;
+    if (o.k === 'gap') { if (c < o.x1 && c + s.fw > o.x0 && r < o.y1 && r + s.fh > o.y0) return 'Eso tapa el paso'; continue; }
+    if (!o.solid) continue; if (c < o.x1 && c + s.fw > o.x0 && r < o.y1 && r + s.fh > o.y0) return 'Ahí ya hay otro mueble';
+  }
+  return null;
+}
 function homeCan(w, h, c, r) {                                         // null si se puede poner ahí, o el motivo
   const R = roomDef(w.inId), s = homeSize(h), D = HF[h.t];
   if (c < 0 || r < 0 || c + s.fw > R.cols || r + s.fh > R.rows) return 'Se sale del cuarto';
   if (c < R.doorC + 2 && c + s.fw > R.doorC - 1 && r < 2 && D.solid !== false) return 'Eso tapa la puerta';
-  if (D.solid !== false) for (const o of roomItems(w, w.inId)) { if (!o.solid) continue; if (c < o.x1 && c + s.fw > o.x0 && r < o.y1 && r + s.fh > o.y0) return 'Ahí ya hay otro mueble'; }
-  return null;
+  const why = homeBlock(roomItems(w, w.inId), D, c, r, s);
+  return why;
 }
 function homePlace(w, c, r) {
   const e = w.hedit, h = e.held, why = homeCan(w, h, c, r); if (why) { toast(w, why); sfx('nope'); return false; }

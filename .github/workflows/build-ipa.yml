@@ -61,7 +61,7 @@ jobs:
         run: |
           xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Release \
             -sdk iphoneos -derivedDataPath build \
-            MARKETING_VERSION=1.9.1 CURRENT_PROJECT_VERSION=15 \
+            MARKETING_VERSION=1.9.2 CURRENT_PROJECT_VERSION=16 \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/App.app Payload/

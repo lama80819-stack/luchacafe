@@ -44,7 +44,7 @@ jobs:
 
       - name: Personalizar (pantalla completa, ícono, manifiesto, firma)
         run: |
-          VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER)) VERSION_NAME=1.9.1 bash android-overlay/apply.sh
+          VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER)) VERSION_NAME=1.9.2 bash android-overlay/apply.sh
           npx cap sync android
 
       - name: Preparar la llave de subida (si existe)
