@@ -39,8 +39,10 @@ const STAFF = {
   itamae:  { name: 'Itamae Kenji',           tag: 'ITAMAE',    price: 0, level: 32, look: 'itamae',   speed: 3.4, drain: .8, wage: 10, steal: 'sakura',   perk: 'cook', desc: 'Cuchillo veloz: todo se cocina 10 % más rápido · $10 por semana' }
 };
 const STAFF_IDS = Object.keys(STAFF);
+const APP_VERSION = '1.9.3';
 const HIRE_IDS = STAFF_IDS.filter(id => STAFF[id].tab);          // los que se compran en la tienda (los meseros robados a los rivales no)
 /* =========================================================
+   VERSIÓN 1.9.3: banca de parque nueva, muebles de la casa con giro de 360° (4 direcciones), paredes de casa más altas con friso que suben al entrar a un cuarto o baño (el resto se oscurece), textos revisados
    VERSIÓN 1.9.2: casas por zonas (sala, cocina, baños y cuartos con medias paredes; más cuartos y baños en las casas caras) y despertar en casa con la taquería cerrada
    VERSIÓN 1.9.1: Ampliación IV (local de 17 con cuadrilátero que se coloca en EDITAR), apuestas y asientos sólidos en la arena, cancha de básquet, patas de muebles y guardado exacto a media jornada
    VERSIÓN 1.9.0: la Arena Enmascarada (gradas, ring y función de lucha), fachadas sólidas con detalle (el zócalo ya no tapa las paredes), cajeros detrás del mostrador, comales girados arreglados
@@ -1683,7 +1685,7 @@ const Menu = {
     c.restore();
 
     // título: letras blancas con borde negro y una sombra de colores distinta en cada letra (como el adorno de la máscara)
-    drawBrandTitle(c, 480, 'TACOS', 78, 54, t, 7);
+    drawBrandTitle(c, 480, 'TACOS', 64, 46, t, 6);
     drawBrandTitle(c, 480, 'ENMASCARADOS', 150, 100, t, 9);
 
     // cinta
@@ -1696,7 +1698,7 @@ const Menu = {
 
     this.buttons.forEach((b, i) => drawButton(c, b, UI.kb && i === this.kbIndex));
     txt(c, COPY, 480, H - 9, { font: `600 13px ${FONT_UI}`, align: 'center', color: 'rgba(255,248,234,.6)', ls: .4 });
-    txt(c, 'v1.4.0', W - 12, H - 9, { font: `600 12px ${FONT_UI}`, align: 'right', color: 'rgba(255,248,234,.4)' });
+    txt(c, 'v' + APP_VERSION, W - 12, H - 9, { font: `600 12px ${FONT_UI}`, align: 'right', color: 'rgba(255,248,234,.4)' });
   },
   pointerDown(x, y) {
     UI.kb = false;
@@ -1837,7 +1839,7 @@ const PartidasScene = {
     drawRingBg(c, clock);
     const C = this.CARD, load = this.mode === 'load';
     drawPanel(c, 50, 110, 860, 400, load ? 'CARGAR PARTIDA' : 'NUEVO JUEGO');
-    txt(c, load ? 'Elige cuál partida quieres continuar' : 'Elige una ranura: las demás partidas no se tocan', 480, 150, { font: `600 17px ${FONT_UI}`, align: 'center', color: P.muted });
+    txt(c, load ? 'Elige cuál partida quieres continuar' : 'Elige una ranura: las demás partidas no se tocan', 480, 158, { font: `600 17px ${FONT_UI}`, align: 'center', color: P.muted });
     this.saves.forEach((s, i) => {
       const x = C.x0 + i * (C.w + C.gap), cx = x + C.w / 2;
       c.save();
@@ -1889,7 +1891,7 @@ const ByeScene = {
     const rows = [['PRODUCCIÓN', 'ACP PRODUCCION'], ['TECNOLOGÍA', 'HTML5 Canvas · JavaScript puro'], ['MÚSICA Y SONIDO', 'Composiciones originales (sin derechos de terceros)']];
     rows.forEach((r, i) => {
       txt(c, r[0], 300, 388 + i * 24, { font: `700 14px ${FONT_UI}`, color: P.muted, ls: 2 });
-      txt(c, r[1], 440, 388 + i * 24, { font: `600 19px ${FONT_UI}`, color: P.cream });
+      txt(c, r[1], 440, 388 + i * 24, { font: `600 19px ${FONT_UI}`, color: P.cream, maxW: 292 });
     });
     c.restore();
     drawButton(c, this.btn, UI.kb);
@@ -5608,7 +5610,9 @@ function isoEllipse(c, gx, gy, z, r) {                      // círculo de radio
   const p = S(gx, gy, z);
   c.beginPath(); c.ellipse(p.x, p.y, r * TW * .7071, r * TH * .7071, 0, 0, 6.3);
 }
+let RT = null;                                                              // giro de 180° de una pieza (se usa para dibujar los muebles de la casa de espaldas)
 function isoBox(c, x0, y0, x1, y1, z0, z1, col, lw = 1.6) {
+  if (RT) { const a = RT.X - x1, b = RT.X - x0, d = RT.Y - y1, e = RT.Y - y0; x0 = a; x1 = b; y0 = d; y1 = e; }
   if (MIRROR) col = { top: col.top, left: col.right, right: col.left };      // al espejar, la luz sigue cayendo del mismo lado
   c.lineJoin = 'round'; c.lineWidth = lw; c.strokeStyle = P.ink;
   isoPoly(c, [S(x0, y1, z0), S(x1, y1, z0), S(x1, y1, z1), S(x0, y1, z1)]); c.fillStyle = col.left; c.fill(); c.stroke();     // cara +isoY
@@ -7112,7 +7116,7 @@ const signField = i => ({ x: SIGNBOX.x + 372, y: SIGNBOX.y + 44 + i * 58, w: 328
 const signStyleBtn = i => ({ x: SIGNBOX.x + 372 + i * 66, y: SIGNBOX.y + 172, w: 62, h: 30 });
 const signLightBtn = { x: SIGNBOX.x + 372, y: SIGNBOX.y + 212, w: 150, h: 32, size: 15 };
 function signKeys() {
-  const out = [], kx = SIGNBOX.x + 372, ky = SIGNBOX.y + 256, kw = 31, gap = 3.2, rp = 36, kh = 32;
+  const out = [], kx = SIGNBOX.x + 372, ky = SIGNBOX.y + 254, kw = 31, gap = 3.2, rp = 34, kh = 31;
   SIGN_ROWS.forEach((row, ri) => [...row].forEach((ch, i) => out.push({ x: kx + i * (kw + gap), y: ky + ri * rp, w: kw, h: kh, ch })));
   out.push({ x: kx + 7 * (kw + gap), y: ky + 3 * rp, w: kw * 3 + gap * 2, h: kh, act: 'back', label: '⌫' });
   out.push({ x: kx, y: ky + 5 * rp, w: kw * 6 + gap * 5, h: kh, ch: ' ', label: 'ESPACIO' });
@@ -7179,14 +7183,14 @@ function drawSignEditor(c, w) {
     S2.letters.slice(0, 4).forEach((col, k, arr) => { c.fillStyle = col; c.beginPath(); c.arc(q.x + q.w / 2 + (k - (arr.length - 1) / 2) * 11, q.y + q.h / 2, 4.2, 0, 6.3); c.fill(); });
   });
   drawButton(c, Object.assign({}, signLightBtn, { label: D.li ? 'LUCES: SÍ' : 'LUCES: NO', style: D.li ? 'gold' : 'dark' }));
-  txt(c, 'Las lucecitas parpadean y de noche el cartel brilla', B.x + 536, B.y + 233, { font: `600 12.5px ${FONT_UI}`, color: P.muted });
+  txt(c, 'Parpadean y brillan de noche', B.x + 536, B.y + 233, { font: `600 12.5px ${FONT_UI}`, color: P.muted, maxW: 170 });
   signKeys().forEach(k => {
     const hov = UI.hit(k); if (hov) UI.cursor = true;
     rr(c, k.x, k.y, k.w, k.h, 6); c.fillStyle = k.act ? '#4a2c80' : hov ? '#4a2c80' : '#27252f'; c.fill(); c.lineWidth = 1.5; c.strokeStyle = hov ? P.gold : 'rgba(255,255,255,.28)'; c.stroke();
     txt(c, k.label || k.ch, k.x + k.w / 2, k.y + 22, { font: `700 ${k.label && k.label.length > 1 ? 13 : 18}px ${FONT_UI}`, align: 'center', color: P.cream });
   });
   drawButton(c, signDoneBtn());
-  txt(c, 'También puedes escribir con el teclado · Tab cambia de línea', B.x + B.w / 2, B.y + B.h - 8, { font: `600 12px ${FONT_UI}`, align: 'center', color: P.muted });
+  txt(c, 'También puedes escribir con el teclado · Tab cambia de línea', B.x + B.w / 2, B.y + B.h - 6, { font: `600 12px ${FONT_UI}`, align: 'center', color: P.muted, maxW: B.w - 40 });
 }
 /* =========================================================
    MÁQUINA DE GARRA (nivel 13, $3,000): al tocarla se juega una escena animada como la del video de referencia
@@ -7837,7 +7841,7 @@ function townInit(w, save) {
   Object.keys(sv.houses || {}).forEach(id => {
     if (!HOUSES[id]) return; const h = sv.houses[id], d = houseOf(w, id);
     d.own = !!h.own; if (HOME_WALLS.includes(h.wall)) d.wall = h.wall; if (HOME_FLOORS[h.floor]) d.floor = h.floor; if (HOME_FACHADA.includes(h.fachada)) d.fachada = h.fachada; if (HOME_ROOF.includes(h.roof)) d.roof = h.roof; d.cuadros = h.cuadros !== false;
-    d.furn = (h.furn || []).filter(f => HF[f.t] && Number.isFinite(f.c) && Number.isFinite(f.r)).map(f => ({ t: f.t, c: f.c | 0, r: f.r | 0, rot: f.rot ? 1 : 0 }));
+    d.furn = (h.furn || []).filter(f => HF[f.t] && Number.isFinite(f.c) && Number.isFinite(f.r)).map(f => ({ t: f.t, c: f.c | 0, r: f.r | 0, rot: (f.rot | 0) & 3 }));
   });
   homeFixAll(w);
   w.loc = 'rest'; w.inId = null; w.inn = null; w.fade = null; w.hedit = null; w.novato.away = false;
@@ -7846,9 +7850,9 @@ function homeFixAll(w) {                                               // mueble
   Object.keys(HOUSES).forEach(id => {
     const D = w.town.houses[id]; if (!D || !D.furn || !D.furn.length) return; const R = HOUSES[id], st = roomStatic(id).filter(o => o.k !== 'person'), keep = [];
     D.furn.forEach(f => {
-      const HD = HF[f.t], sz = f.rot ? { fw: HD.fh, fh: HD.fw } : { fw: HD.fw, fh: HD.fh };
+      const HD = HF[f.t], sz = (f.rot | 0) & 1 ? { fw: HD.fh, fh: HD.fw } : { fw: HD.fw, fh: HD.fh };
       let bad = f.c < 0 || f.r < 0 || f.c + sz.fw > R.cols || f.r + sz.fh > R.rows || homeBlock(st, HD, f.c, f.r, sz) || (f.c < R.doorC + 2 && f.c + sz.fw > R.doorC - 1 && f.r < 2 && HD.solid !== false);
-      if (!bad && HD.solid !== false) bad = keep.some(k => { const KD = HF[k.t], ks = k.rot ? { fw: KD.fh, fh: KD.fw } : { fw: KD.fw, fh: KD.fh }; return KD.solid !== false && f.c < k.c + ks.fw && f.c + sz.fw > k.c && f.r < k.r + ks.fh && f.r + sz.fh > k.r; });
+      if (!bad && HD.solid !== false) bad = keep.some(k => { const KD = HF[k.t], ks = (k.rot | 0) & 1 ? { fw: KD.fh, fh: KD.fw } : { fw: KD.fw, fh: KD.fh }; return KD.solid !== false && f.c < k.c + ks.fw && f.c + sz.fw > k.c && f.r < k.r + ks.fh && f.r + sz.fh > k.r; });
       if (bad) w.town.hinv.push(f.t); else keep.push(f);
     });
     D.furn = keep;
@@ -8003,8 +8007,8 @@ function townHint(w) {
 }
 
 /* ---------- Dibujo del pueblo: calles, edificios cerrados por fuera, parque y canchas ---------- */
-const fq = (kind, v, a0, a1, z0, z1) => kind === 'y' ? [S(a0, v, z0), S(a1, v, z0), S(a1, v, z1), S(a0, v, z1)] : [S(v, a0, z0), S(v, a1, z0), S(v, a1, z1), S(v, a0, z1)];
-function polyFS(c, pts, fill, stroke, lw = 1.3) { isoPoly(c, pts); if (fill) { c.fillStyle = fill; c.fill(); } if (stroke) { c.lineWidth = lw; c.strokeStyle = stroke; c.stroke(); } }
+const fq = (kind, v, a0, a1, z0, z1) => { const q = kind === 'y' ? [S(a0, v, z0), S(a1, v, z0), S(a1, v, z1), S(a0, v, z1)] : [S(v, a0, z0), S(v, a1, z0), S(v, a1, z1), S(v, a0, z1)]; if (RT) q.pl = true; return q; };
+function polyFS(c, pts, fill, stroke, lw = 1.3) { if (RT && pts.pl) return; isoPoly(c, pts); if (fill) { c.fillStyle = fill; c.fill(); } if (stroke) { c.lineWidth = lw; c.strokeStyle = stroke; c.stroke(); } }
 function onFace(c, kind, v, a, z, fn) {                                // dibuja texto o dibujos "pegados" a una pared (kind 'y': frente izquierdo, que se lee hacia +x · 'x': frente derecho, que se lee hacia -y)
   const o = S(kind === 'y' ? a : v, kind === 'y' ? v : a, z); c.save(); c.translate(o.x, o.y); c.transform(1, kind === 'y' ? .5 : -.5, 0, 1, 0, 0); fn(); c.restore();
 }
@@ -8072,11 +8076,20 @@ function drawHedge(c, h, night) {
   isoBox(c, h.x0, h.y0, h.x1, h.y1, 0, 14, col, 1.3);
   const k = Math.floor(h.x0 * 7 + h.y0 * 13) % 3; if (k < 2) { const q = S((h.x0 + h.x1) / 2 + (k ? .25 : -.25), (h.y0 + h.y1) / 2, 14); c.fillStyle = k ? '#ff7aa8' : '#ffd24a'; c.beginPath(); c.arc(q.x, q.y, 2.2, 0, 6.3); c.fill(); }
 }
-function drawTownBench(c, b) {
-  const p = S(b.x, b.y);
-  c.fillStyle = 'rgba(0,0,0,.2)'; c.beginPath(); c.ellipse(p.x, p.y + 3, 22, 8, 0, 0, 6.3); c.fill();
-  if (b.f === 'y') { isoBox(c, b.x - .6, b.y - .2, b.x + .6, b.y + .2, 6, 12, { top: '#c98b4e', left: '#a8703a', right: '#8f5a2c' }, 1.2); isoBox(c, b.x - .6, b.y - .26, b.x + .6, b.y - .18, 12, 24, { top: '#d9a066', left: '#a8703a', right: '#8f5a2c' }, 1.2); for (const dx of [-.5, .5]) isoBox(c, b.x + dx - .04, b.y - .12, b.x + dx + .04, b.y + .12, 0, 6, { top: '#444', left: '#333', right: '#222' }, 1); }
-  else { isoBox(c, b.x - .2, b.y - .6, b.x + .2, b.y + .6, 6, 12, { top: '#c98b4e', left: '#a8703a', right: '#8f5a2c' }, 1.2); isoBox(c, b.x - .26, b.y - .6, b.x - .18, b.y + .6, 12, 24, { top: '#d9a066', left: '#a8703a', right: '#8f5a2c' }, 1.2); for (const dy of [-.5, .5]) isoBox(c, b.x - .12, b.y + dy - .04, b.x + .12, b.y + dy + .04, 0, 6, { top: '#444', left: '#333', right: '#222' }, 1); }
+function drawTownBench(c, b) {                                          // banca de parque: patas de herrería, asiento de tablones y respaldo
+  const p = S(b.x, b.y), WOOD = { top: '#d9a066', left: '#b07a40', right: '#8f5a2c' }, WOOD2 = { top: '#e3b27a', left: '#c08a50', right: '#9c6a38' }, IRON = { top: '#5a5d6a', left: '#3f4250', right: '#2b2d38' };
+  c.fillStyle = 'rgba(0,0,0,.2)'; c.beginPath(); c.ellipse(p.x, p.y + 3, 24, 9, 0, 0, 6.3); c.fill();
+  if (b.f === 'y') {                                                                         // larga a lo largo de x, el respaldo da al norte
+    for (const dx of [-.5, .5]) { isoBox(c, b.x + dx - .045, b.y - .17, b.x + dx + .045, b.y + .17, 0, 14, IRON, 1); isoBox(c, b.x + dx - .045, b.y - .2, b.x + dx + .045, b.y - .15, 14, 36, IRON, 1); }       // patas y soportes del respaldo
+    isoBox(c, b.x - .6, b.y - .21, b.x + .6, b.y - .15, 22, 26, WOOD, 1.1); isoBox(c, b.x - .6, b.y - .21, b.x + .6, b.y - .15, 30, 34, WOOD, 1.1);       // tablones del respaldo
+    isoBox(c, b.x - .6, b.y - .2, b.x + .6, b.y + .2, 14, 18, WOOD2, 1.2);                                                                                  // asiento
+    for (const dx of [-.6, .6]) isoBox(c, b.x + dx - .04, b.y - .17, b.x + dx + .04, b.y + .17, 18, 24, IRON, 1);                                           // brazos
+  } else {                                                                                   // larga a lo largo de y, el respaldo da al oeste
+    for (const dy of [-.5, .5]) { isoBox(c, b.x - .17, b.y + dy - .045, b.x + .17, b.y + dy + .045, 0, 14, IRON, 1); isoBox(c, b.x - .2, b.y + dy - .045, b.x - .15, b.y + dy + .045, 14, 36, IRON, 1); }
+    isoBox(c, b.x - .21, b.y - .6, b.x - .15, b.y + .6, 22, 26, WOOD, 1.1); isoBox(c, b.x - .21, b.y - .6, b.x - .15, b.y + .6, 30, 34, WOOD, 1.1);
+    isoBox(c, b.x - .2, b.y - .6, b.x + .2, b.y + .6, 14, 18, WOOD2, 1.2);
+    for (const dy of [-.6, .6]) isoBox(c, b.x - .17, b.y + dy - .04, b.x + .17, b.y + dy + .04, 18, 24, IRON, 1);
+  }
 }
 function drawFountain(c, w) {
   const F = FOUNTAIN, p = S(F.x, F.y), t = w.t;
@@ -8489,13 +8502,13 @@ const HF = {
 /* Plano de las casas: zonas (piso y rótulo), medias paredes (['y'|'x', línea, desde, hasta]), pasos que deben quedar libres y piezas de baño fijas.
    Cuanto más cara la casa, más cuartos y más baños. */
 const HOUSE_PLAN = {
-  casa1: { zones: [{ n: 'SALA', x0: 2, y0: 0, x1: 6, y1: 3 }, { n: 'COCINA', x0: 0, y0: 0, x1: 2, y1: 3, floor: 'cocinaT' }, { n: 'CUARTO', x0: 0, y0: 3, x1: 4, y1: 6 }, { n: 'BAÑO', x0: 4, y0: 3, x1: 6, y1: 6, floor: 'banoT' }],
+  casa1: { zones: [{ n: 'SALA', x0: 2, y0: 0, x1: 6, y1: 3 }, { n: 'COCINA', x0: 0, y0: 0, x1: 2, y1: 3, floor: 'cocinaT' }, { enc: 1, n: 'CUARTO', x0: 0, y0: 3, x1: 4, y1: 6 }, { enc: 1, n: 'BAÑO', x0: 4, y0: 3, x1: 6, y1: 6, floor: 'banoT' }],
     walls: [['y', 3, 0, 1], ['y', 3, 3, 5], ['x', 4, 3, 6], ['x', 2, 0, 1]], gaps: [[1, 2, 3, 4], [5, 2, 6, 4], [2, 1, 3, 3]],
     fix: [['inodoro', 4, 4, 1], ['lavabo', 4, 5, 1], ['regadera', 5, 5, 0]] },
-  casa2: { zones: [{ n: 'SALA', x0: 3, y0: 0, x1: 9, y1: 3 }, { n: 'COCINA', x0: 0, y0: 0, x1: 3, y1: 3, floor: 'cocinaT' }, { n: 'CUARTO 1', x0: 0, y0: 3, x1: 3, y1: 7 }, { n: 'BAÑO', x0: 3, y0: 3, x1: 5, y1: 7, floor: 'banoT' }, { n: 'CUARTO 2', x0: 5, y0: 3, x1: 9, y1: 7 }],
+  casa2: { zones: [{ n: 'SALA', x0: 3, y0: 0, x1: 9, y1: 3 }, { n: 'COCINA', x0: 0, y0: 0, x1: 3, y1: 3, floor: 'cocinaT' }, { enc: 1, n: 'CUARTO 1', x0: 0, y0: 3, x1: 3, y1: 7 }, { enc: 1, n: 'BAÑO', x0: 3, y0: 3, x1: 5, y1: 7, floor: 'banoT' }, { enc: 1, n: 'CUARTO 2', x0: 5, y0: 3, x1: 9, y1: 7 }],
     walls: [['y', 3, 0, 1], ['y', 3, 3, 4], ['y', 3, 5, 6], ['y', 3, 8, 9], ['x', 3, 0, 1], ['x', 3, 3, 7], ['x', 5, 3, 7]], gaps: [[1, 2, 3, 4], [4, 2, 5, 4], [6, 2, 8, 4], [3, 1, 4, 3]],
     fix: [['inodoro', 3, 4, 1], ['lavabo', 3, 5, 1], ['regadera', 3, 6, 1]] },
-  casa3: { zones: [{ n: 'SALA', x0: 4, y0: 0, x1: 13, y1: 4 }, { n: 'COCINA', x0: 0, y0: 0, x1: 4, y1: 4, floor: 'cocinaT' }, { n: 'CUARTO 1', x0: 0, y0: 4, x1: 3, y1: 9 }, { n: 'BAÑO 1', x0: 3, y0: 4, x1: 5, y1: 9, floor: 'banoT' }, { n: 'CUARTO 2', x0: 5, y0: 4, x1: 8, y1: 9 }, { n: 'CUARTO 3', x0: 8, y0: 4, x1: 11, y1: 9 }, { n: 'BAÑO 2', x0: 11, y0: 4, x1: 13, y1: 9, floor: 'banoT' }],
+  casa3: { zones: [{ n: 'SALA', x0: 4, y0: 0, x1: 13, y1: 4 }, { n: 'COCINA', x0: 0, y0: 0, x1: 4, y1: 4, floor: 'cocinaT' }, { enc: 1, n: 'CUARTO 1', x0: 0, y0: 4, x1: 3, y1: 9 }, { enc: 1, n: 'BAÑO 1', x0: 3, y0: 4, x1: 5, y1: 9, floor: 'banoT' }, { enc: 1, n: 'CUARTO 2', x0: 5, y0: 4, x1: 8, y1: 9 }, { enc: 1, n: 'CUARTO 3', x0: 8, y0: 4, x1: 11, y1: 9 }, { enc: 1, n: 'BAÑO 2', x0: 11, y0: 4, x1: 13, y1: 9, floor: 'banoT' }],
     walls: [['y', 4, 0, 1], ['y', 4, 3, 4], ['y', 4, 5, 6], ['y', 4, 8, 9], ['y', 4, 11, 12], ['x', 4, 0, 2], ['x', 3, 4, 9], ['x', 5, 4, 9], ['x', 8, 4, 9], ['x', 11, 4, 9]],
     gaps: [[1, 3, 3, 5], [4, 3, 5, 5], [6, 3, 8, 5], [9, 3, 11, 5], [12, 3, 13, 5], [4, 2, 5, 4]],
     fix: [['inodoro', 3, 5, 1], ['lavabo', 3, 6, 1], ['tina', 3, 7, 1], ['regadera', 4, 8, 0], ['inodoro', 11, 5, 1], ['lavabo', 11, 6, 1], ['regadera', 12, 8, 0]] }
@@ -8528,7 +8541,13 @@ const bxf = (c, x0, y0, x1, y1, z0, z1, col, lw = 1.3) => isoBox(c, x0, y0, x1, 
 /* Cada pieza se dibuja en la caja (x0, y0)-(x1, y1) (ya girada). rot 0: el frente mira a +y; rot 1: mira a +x. */
 const hfR = (c, x0, y0, rot, u0, v0, u1, v1, z0, z1, col) => rot ? bxf(c, x0 + v0, y0 + u0, x0 + v1, y0 + u1, z0, z1, col) : bxf(c, x0 + u0, y0 + v0, x0 + u1, y0 + v1, z0, z1, col);      // caja en coordenadas (u a lo ancho, v a lo hondo desde la pared)
 const hfLegs = (c, pts, z1, col, t = .07) => pts.forEach(([px, py]) => bxf(c, px, py, px + t, py + t, 0, z1, col, 1));        // patas: se dibujan ANTES que la tapa, así la tapa las cubre y no sobresalen
-function drawHF(c, t, x0, y0, x1, y1, rot, w) {
+function drawHF(c, t, x0, y0, x1, y1, rot, w) {                          // rot 0..3: de frente a +y, a +x, a -y (de espaldas) y a -x
+  const q = (rot || 0) & 3;
+  if (q < 2) return drawHF0(c, t, x0, y0, x1, y1, q, w);
+  const prev = RT; RT = { X: x0 + x1, Y: y0 + y1 };
+  try { drawHF0(c, t, x0, y0, x1, y1, q & 1, w); } finally { RT = prev; }
+}
+function drawHF0(c, t, x0, y0, x1, y1, rot, w) {
   const f = rot ? 'x' : 'y', front = f === 'y' ? y1 : x1, mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
   const tm = w ? w.t : 0;
   switch (t) {
@@ -8551,7 +8570,7 @@ function drawHF(c, t, x0, y0, x1, y1, rot, w) {
       bxf(c, x0 + .06, y0 + .06, x1 - .06, y1 - .06, 0, 84, '#8b5a2b');
       const L = rot ? y1 - y0 : x1 - x0, a = rot ? y0 : x0;
       [0, 1].forEach(k => polyFS(c, fq(f, front, a + .08 + k * (L / 2), a + (k + 1) * (L / 2) - .08, 8, 78), '#a8703a', P.ink, 1.2));
-      [[.42], [.58]].forEach(([u]) => { const q = S(f === 'y' ? a + L * u : front, f === 'y' ? front : a + L * u + (f === 'x' ? 0 : 0), 44); c.fillStyle = '#ffd24a'; c.beginPath(); c.arc(q.x, q.y, 1.8, 0, 6.3); c.fill(); });
+      if (!RT) [[.42], [.58]].forEach(([u]) => { const q = S(f === 'y' ? a + L * u : front, f === 'y' ? front : a + L * u + (f === 'x' ? 0 : 0), 44); c.fillStyle = '#ffd24a'; c.beginPath(); c.arc(q.x, q.y, 1.8, 0, 6.3); c.fill(); });
       break; }
     case 'sofa2': case 'sofa3': case 'sillon': {
       const col = t === 'sofa3' ? '#8f9aa6' : t === 'sofa2' ? '#b08a6a' : '#c0586b', back = rot ? [x0, y0, x0 + .3, y1] : [x0, y0, x1, y0 + .3];
@@ -8578,6 +8597,7 @@ function drawHF(c, t, x0, y0, x1, y1, rot, w) {
       const sc = rot ? [x0 + .16, y0 + .2, x0 + .34, y1 - .2] : [x0 + .2, y0 + .16, x1 - .2, y0 + .34];
       bxf(c, sc[0], sc[1], sc[2], sc[3], 22, 52, '#17171c');
       const q = rot ? fq('x', sc[2], sc[1] + .05, sc[3] - .05, 26, 48) : fq('y', sc[3], sc[0] + .05, sc[2] - .05, 26, 48);
+      if (RT) break;
       const k = Math.floor(tm * 1.5) % 4; isoPoly(c, q); c.fillStyle = ['#3b82f6', '#7c3aed', '#14a38b', '#e0527f'][k]; c.fill(); c.strokeStyle = P.ink; c.lineWidth = 1; c.stroke();
       c.save(); c.globalCompositeOperation = 'lighter'; const g0 = q[0], g1 = q[2]; c.fillStyle = 'rgba(255,255,255,.18)'; c.beginPath(); c.moveTo(q[0].x, q[0].y); c.lineTo(q[1].x, q[1].y); c.lineTo(q[2].x, q[2].y); c.closePath(); c.fill(); c.restore();
       break; }
@@ -8585,6 +8605,7 @@ function drawHF(c, t, x0, y0, x1, y1, rot, w) {
       bxf(c, x0 + .1, y0 + .1, x1 - .1, y1 - .1, 0, 76, '#e8ecf2');
       const a = rot ? y0 + .1 : x0 + .1, b2 = rot ? y1 - .1 : x1 - .1;
       polyFS(c, fq(f, front - .1, a + .04, b2 - .04, 44, 74), '#f4f6fa', P.ink, 1); polyFS(c, fq(f, front - .1, a + .04, b2 - .04, 6, 42), '#f4f6fa', P.ink, 1);
+      if (RT) break;
       const hd = S(f === 'y' ? b2 - .12 : front - .1, f === 'y' ? front - .1 : a + .12, 56); c.strokeStyle = '#8a92a4'; c.lineWidth = 2.4; c.lineCap = 'round'; c.beginPath(); c.moveTo(hd.x, hd.y - 8); c.lineTo(hd.x, hd.y + 8); c.stroke();
       const h2 = S(f === 'y' ? b2 - .12 : front - .1, f === 'y' ? front - .1 : a + .12, 24); c.beginPath(); c.moveTo(h2.x, h2.y - 8); c.lineTo(h2.x, h2.y + 8); c.stroke();
       break; }
@@ -8601,7 +8622,7 @@ function drawHF(c, t, x0, y0, x1, y1, rot, w) {
         [0, 1].forEach(k => polyFS(c, fq(f, front - .06, a + .1 + k * L / 2, a + (k + 1) * L / 2 - .1, 6, 36), '#c98b4e', P.ink, 1));
       }
       break; }
-    case 'lavadora': { bxf(c, x0 + .1, y0 + .1, x1 - .1, y1 - .1, 0, 42, '#f0f2f6'); const p = S(f === 'y' ? mx : front - .1, f === 'y' ? front - .1 : my, 22); c.fillStyle = '#7fb8d9'; c.strokeStyle = P.ink; c.lineWidth = 1.6; c.beginPath(); c.ellipse(p.x, p.y, 9, 9, 0, 0, 6.3); c.fill(); c.stroke(); c.fillStyle = 'rgba(255,255,255,.6)'; c.beginPath(); c.arc(p.x - 3, p.y - 3, 2.4, 0, 6.3); c.fill(); break; }
+    case 'lavadora': { bxf(c, x0 + .1, y0 + .1, x1 - .1, y1 - .1, 0, 42, '#f0f2f6'); if (RT) break; const p = S(f === 'y' ? mx : front - .1, f === 'y' ? front - .1 : my, 22); c.fillStyle = '#7fb8d9'; c.strokeStyle = P.ink; c.lineWidth = 1.6; c.beginPath(); c.ellipse(p.x, p.y, 9, 9, 0, 0, 6.3); c.fill(); c.stroke(); c.fillStyle = 'rgba(255,255,255,.6)'; c.beginPath(); c.arc(p.x - 3, p.y - 3, 2.4, 0, 6.3); c.fill(); break; }
     case 'comedor': { hfLegs(c, [[x0 + .22, y0 + .22], [x1 - .3, y0 + .22], [x0 + .22, y1 - .3], [x1 - .3, y1 - .3]], 22, '#8b5a2b', .08); bxf(c, x0 + .1, y0 + .1, x1 - .1, y1 - .1, 22, 28, '#d9a066'); bxf(c, x0 + .3, y0 + .3, x1 - .3, y1 - .3, 28, 28.5, '#fff4e6', .8); const p = S(mx, my, 29); c.fillStyle = '#e0364a'; c.beginPath(); c.arc(p.x, p.y - 4, 4, 0, 6.3); c.fill(); c.fillStyle = '#2fbf71'; c.beginPath(); c.arc(p.x - 3, p.y - 7, 3, 0, 6.3); c.fill(); break; }
     case 'silla': { const bk = rot ? [x0 + .16, y0 + .2, x0 + .26, y1 - .2] : [x0 + .2, y0 + .16, x1 - .2, y0 + .26]; hfLegs(c, [[x0 + .26, y0 + .26], [x1 - .33, y0 + .26], [x0 + .26, y1 - .33], [x1 - .33, y1 - .33]], 12, '#6d4423'); bxf(c, x0 + .2, y0 + .2, x1 - .2, y1 - .2, 12, 18, '#d9a066'); bxf(c, bk[0], bk[1], bk[2], bk[3], 18, 40, '#a8703a'); break; }
     case 'escritorio': {
@@ -8627,7 +8648,7 @@ function drawHF(c, t, x0, y0, x1, y1, rot, w) {
       break; }
   }
 }
-const hfBox = (it, d) => { const D = HF[it.t], fw = it.rot ? D.fh : D.fw, fh = it.rot ? D.fw : D.fh; return { x0: it.c, y0: it.r, x1: it.c + fw, y1: it.r + fh, h: D.h }; };
+const hfBox = (it, d) => { const D = HF[it.t], o = (it.rot | 0) & 1, fw = o ? D.fh : D.fw, fh = o ? D.fw : D.fh; return { x0: it.c, y0: it.r, x1: it.c + fw, y1: it.r + fh, h: D.h }; };
 function drawFurnPreview(c, t, cx, cy, sc, w) {                         // el mueble chiquito para las listas
   const D = HF[t], a = OX, b = OY; OX = 0; OY = 0;
   c.save(); c.translate(cx, cy + 14); c.scale(sc, sc); const q = S(D.fw / 2, D.fh / 2); c.translate(-q.x, -q.y);
@@ -8698,11 +8719,19 @@ function roomStatic(id) {                                              // lo que
   }
   if (HOUSES[id] && HOUSE_PLAN[id]) {
     const PL = HOUSE_PLAN[id];
-    PL.walls.forEach(([ax, v, a, b]) => {                                                    // media pared (36 px): se ve todo el cuarto y nadie la cruza
+    const HR = HOUSES[id];
+    PL.walls.forEach(([ax, v, a, b], wi) => {                                                // pared interior: 60 px, y 104 px cuando entras al cuarto que cierra
       const hz = ax === 'y', x0 = hz ? a : v - .08, x1 = hz ? b : v + .08, y0 = hz ? v - .08 : a, y1 = hz ? v + .08 : b;
-      add({ k: 'wall', x0, y0, x1, y1, h: 36, solid: true, act: null, line: { ax, v, a, b }, draw: (c, w, o) => {
-        const col = wallOf(w, w.inId); isoBox(c, x0, y0, x1, y1, 0, 34, { top: '#ffffff', left: shade(col, -.06), right: shade(col, -.2) }, 1.5);
-        isoBox(c, x0 - .02, y0 - .02, x1 + .02, y1 + .02, 34, 38, { top: '#ffffff', left: '#f1f1f6', right: '#d4d5e0' }, 1.2); } });
+      const back = []; PL.zones.forEach((z, zi) => { if (z.enc && (hz ? (z.y0 === v && z.x0 < b && z.x1 > a) : (z.x0 === v && z.y0 < b && z.y1 > a))) back.push(zi); });
+      const jambs = [a, b].filter(en => !(en <= 0 || en >= (hz ? HR.cols : HR.rows)) && !PL.walls.some(([ax2, v2, a2, b2]) => ax2 !== ax && v2 === en && a2 <= v && b2 >= v));
+      add({ k: 'wall', wi, back, x0, y0, x1, y1, h: 108, solid: true, act: null, line: { ax, v, a, b }, draw: (c, w, o) => {
+        const k = w.inn && w.inn.wk ? (w.inn.wk[wi] || 0) : 0, hh = 60 + 44 * k, col = wallOf(w, w.inId), tr = '#ffffff';
+        isoBox(c, x0, y0, x1, y1, 0, hh, { top: tr, left: shade(col, -.04), right: shade(col, -.2) }, 1.5);
+        const face = (z0, z1, fill) => polyFS(c, hz ? fq('y', y1, a, b, z0, z1) : fq('x', x1, a, b, z0, z1), fill, null);
+        face(0, 5, shade(col, -.32)); face(5, 30, shade(col, .3)); face(30, 33, tr); face(hh - 7, hh - 4, shade(col, -.1));                  // zócalo, friso, moldura y cornisa
+        isoBox(c, x0 - .03, y0 - .03, x1 + .03, y1 + .03, hh, hh + 3, { top: tr, left: '#f1f1f6', right: '#d4d5e0' }, 1.2);
+        jambs.forEach(en => { const jx = hz ? en : v, jy = hz ? v : en; isoBox(c, jx - .1, jy - .1, jx + .1, jy + .1, 0, hh + 3, { top: tr, left: '#efe9dc', right: '#cfc7b5' }, 1.3); });
+      } });
     });
     PL.gaps.forEach(([x0, y0, x1, y1]) => add({ k: 'gap', x0, y0, x1, y1, h: 0, solid: false, act: null, draw: null }));
     PL.fix.forEach(([t, c0, r0, rot]) => { const b = hfBox({ t, c: c0, r: r0, rot }); add({ k: 'fix', t, x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, h: b.h, solid: true, act: null, draw: (c, w) => drawHF(c, t, b.x0, b.y0, b.x1, b.y1, rot, w) }); });
@@ -8820,6 +8849,7 @@ function drawRoomScene(c, w) {
     if (id === 'arena') arenaCast(c, w, I, L);
     flat.forEach(i => i.draw()); townSort(L).forEach(i => i.draw());
     if (id === 'arena') arenaSigns(c, w);
+    if (HOUSE_PLAN[id] && I.zk > .02 && I.zc != null) drawZoneVeil(c, w, I);
     if (edit) drawHomeEditFloor(c, w);
     if (nightK(w) > .4 && !HOUSES[id]) { /* los interiores siempre están iluminados */ }
     c.restore();
@@ -9055,8 +9085,25 @@ function endShow(w) {
 /* ---------- Dentro de los edificios: caminar, usar las cosas, comprar ---------- */
 const MOVIES = ['El Gran Luchador', 'Máscaras de Medianoche', 'Taco Cósmico', 'La Venganza del Pastor', 'Cuatro Esquinas'];
 const ticketPrice = w => 30 + 2 * Math.min(w.level, 60);
+// al entrar a un cuarto o baño, sus paredes de atrás suben y el resto de la casa se oscurece (como si estuvieras adentro)
+function updateHouseZones(w, dt) {
+  const I = w.inn, PL = HOUSE_PLAN[w.inId]; if (!I || !PL) return;
+  const zi = w.hedit ? -1 : PL.zones.findIndex(z => z.enc && I.x >= z.x0 && I.x < z.x1 && I.y >= z.y0 && I.y < z.y1);
+  if (!I.wk) I.wk = []; if (zi >= 0) I.zc = zi;
+  roomStatic(w.inId).forEach(o => { if (o.k !== 'wall') return; const t = zi >= 0 && o.back.includes(zi) ? 1 : 0, cur = I.wk[o.wi] || 0; I.wk[o.wi] = Math.abs(t - cur) < .003 ? t : cur + (t - cur) * Math.min(1, dt * 7); });
+  const cz = I.zk || 0, tz = zi >= 0 ? 1 : 0; I.zk = Math.abs(tz - cz) < .003 ? tz : cz + (tz - cz) * Math.min(1, dt * 5);
+}
+function drawZoneVeil(c, w, I) {
+  const z = HOUSE_PLAN[w.inId].zones[I.zc]; if (!z) return;
+  const p = [S(z.x0, z.y0, 0), S(z.x1, z.y0, 0), S(z.x1, z.y1, 0), S(z.x0, z.y1, 0)], xs = p.map(q => q.x), ys = p.map(q => q.y);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2 - 24, rx = (Math.max(...xs) - Math.min(...xs)) / 2 + 22;
+  c.save(); c.translate(cx, cy); c.scale(1, .66);
+  const g = c.createRadialGradient(0, 0, rx * .7, 0, 0, rx * 1.5); g.addColorStop(0, 'rgba(12,10,22,0)'); g.addColorStop(1, `rgba(12,10,22,${(.7 * I.zk).toFixed(3)})`);
+  c.fillStyle = g; c.fillRect(-3000, -2000, 6000, 4000); c.restore();
+}
 function updateRoom(w, dt) {
   const I = w.inn; if (!I) return; I.t += dt;
+  if (HOUSE_PLAN[w.inId]) updateHouseZones(w, dt);
   const a = I.anim, n = w.novato, mx = maxStamina(w);
   if (w.inId === 'arena') { const ph = arenaT(w) % ARENA_CYCLE; arenaEvents(w, I.ph == null ? ph : I.ph, ph); I.ph = ph; arenaBetCheck(w); I.el = (I.el || 0) + (roomElev(w, I.x, I.y) - (I.el || 0)) * Math.min(1, dt * 10); }
   if (a) {
@@ -9142,7 +9189,7 @@ function roomAct(w, o) {
       w.modal = 'dlg'; sfx('click'); return;
     }
     if (a.use === 'sleep') { if (n.stamina >= mx - 1) { toast(w, 'No tienes sueño: tu energía está completa'); sfx('nope'); return; } const cx = (o.x0 + o.x1) / 2, cy = (o.y0 + o.y1) / 2; I.anim = { type: 'sleep', t: 0, dur: 3.6, s0: n.stamina, back: b, cancel: true }; I.x = cx; I.y = cy; I.path = []; sfx('pour'); }
-    else if (a.use === 'sit') { if (n.stamina >= mx - 1) { toast(w, 'Te sientas un rato… tu energía ya está completa'); } I.seat = { dir: o.f && o.f.rot ? 1 : -1 }; I.anim = { type: 'rest', t: 0, back: b, cancel: true }; I.x = (o.x0 + o.x1) / 2; I.y = (o.y0 + o.y1) / 2; I.path = []; sfx('pickup'); }
+    else if (a.use === 'sit') { if (n.stamina >= mx - 1) { toast(w, 'Te sientas un rato… tu energía ya está completa'); } I.seat = { dir: o.f && (((o.f.rot | 0) & 3) === 1 || ((o.f.rot | 0) & 3) === 2) ? 1 : -1 }; I.anim = { type: 'rest', t: 0, back: b, cancel: true }; I.x = (o.x0 + o.x1) / 2; I.y = (o.y0 + o.y1) / 2; I.path = []; sfx('pickup'); }
     else if (a.use === 'tv') { const sofa = roomItems(w, w.inId).find(z => z.act && z.act.use === 'sit'); if (sofa) { I.seat = { dir: -1 }; I.anim = { type: 'tv', t: 0, dur: 9, back: b, cancel: true }; I.x = (sofa.x0 + sofa.x1) / 2; I.y = (sofa.y0 + sofa.y1) / 2; I.path = []; } else { I.anim = { type: 'tv', t: 0, dur: 6, back: b, cancel: true }; toast(w, 'Con un sillón verías la tele sentado'); } sfx('click'); }
   }
 }
@@ -9276,8 +9323,8 @@ function toggleHomeEdit(w) {
 }
 function homeEditDone(w) { const e = w.hedit; if (!e) return; if (e.held) homeStore(w); w.hedit = null; sfx('back'); Game.save(); }
 function homeStore(w) { const e = w.hedit; if (!e || !e.held) { sfx('nope'); return; } w.town.hinv.push(e.held.t); toast(w, `${HF[e.held.t].name}: guardado`); e.held = null; e.armed = null; sfx('pickup'); }
-function homeRotate(w) { const e = w.hedit; if (!e || !e.held) return; e.held.rot = e.held.rot ? 0 : 1; sfx('click'); }
-function homeSize(h) { const D = HF[h.t]; return h.rot ? { fw: D.fh, fh: D.fw } : { fw: D.fw, fh: D.fh }; }
+function homeRotate(w) { const e = w.hedit; if (!e || !e.held) return; e.held.rot = (((e.held.rot | 0) + 1) & 3); e.armed = null; sfx('click'); }
+function homeSize(h) { const D = HF[h.t]; return (h.rot | 0) & 1 ? { fw: D.fh, fh: D.fw } : { fw: D.fw, fh: D.fh }; }
 function homeAnchor(h, iso) { const s = homeSize(h); return { c: Math.floor(iso.x) - Math.floor((s.fw - 1) / 2), r: Math.floor(iso.y) - Math.floor((s.fh - 1) / 2) }; }
 function homeBlock(items, D, c, r, s) {                                  // ¿choca una pieza (D) en (c, r) con paredes, pasos u otros muebles?
   for (const o of items) {
@@ -9297,7 +9344,7 @@ function homeCan(w, h, c, r) {                                         // null s
 }
 function homePlace(w, c, r) {
   const e = w.hedit, h = e.held, why = homeCan(w, h, c, r); if (why) { toast(w, why); sfx('nope'); return false; }
-  houseOf(w, w.inId).furn.push({ t: h.t, c, r, rot: h.rot ? 1 : 0 }); e.held = null; e.armed = null; sfx('serve'); return true;
+  houseOf(w, w.inId).furn.push({ t: h.t, c, r, rot: (h.rot | 0) & 3 }); e.held = null; e.armed = null; sfx('serve'); return true;
 }
 function homeEditPointer(w, x, y) {
   const e = w.hedit, hit = b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h, B = hBtns(), D = houseOf(w, w.inId);
